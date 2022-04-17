@@ -1,0 +1,205 @@
+{
+  "object": {
+    "pins": [
+      {
+        "package": "AddressKit",
+        "repositoryURL": "https://github.com/tannerdsilva/AddressKit.git",
+        "state": {
+          "branch": null,
+          "revision": "08962680ed84551ad44ffba8f1b6cab75cbaa99a",
+          "version": "1.1.0"
+        }
+      },
+      {
+        "package": "BigInt",
+        "repositoryURL": "https://github.com/attaswift/BigInt.git",
+        "state": {
+          "branch": null,
+          "revision": "0ed110f7555c34ff468e72e1686e59721f2b0da6",
+          "version": "5.3.0"
+        }
+      },
+      {
+        "package": "CLMDB",
+        "repositoryURL": "https://github.com/tannerdsilva/CLMDB.git",
+        "state": {
+          "branch": null,
+          "revision": "f7510b3861a7f27bb054ddb0f1ee2983dd6a0f6f",
+          "version": "0.9.29"
+        }
+      },
+      {
+        "package": "Commander",
+        "repositoryURL": "https://github.com/tannerdsilva/Commander.git",
+        "state": {
+          "branch": "master",
+          "revision": "4ec18bf646811e791162ce72260dc8d369bdaa84",
+          "version": null
+        }
+      },
+      {
+        "package": "hummingbird",
+        "repositoryURL": "https://github.com/hummingbird-project/hummingbird.git",
+        "state": {
+          "branch": null,
+          "revision": "d0078148aa4d824e1b6bf1d00273fe4b451da1ee",
+          "version": "0.16.0"
+        }
+      },
+      {
+        "package": "hummingbird-core",
+        "repositoryURL": "https://github.com/hummingbird-project/hummingbird-core.git",
+        "state": {
+          "branch": null,
+          "revision": "9616361c11bd42fca3dc06ac60bed6ad106c46c3",
+          "version": "0.13.5"
+        }
+      },
+      {
+        "package": "QuickLMDB",
+        "repositoryURL": "https://github.com/tannerdsilva/QuickLMDB.git",
+        "state": {
+          "branch": null,
+          "revision": "809a4add1dc26df14504d1ad897c552f055fa34f",
+          "version": null
+        }
+      },
+      {
+        "package": "SignalStack",
+        "repositoryURL": "https://github.com/tannerdsilva/SignalStack.git",
+        "state": {
+          "branch": null,
+          "revision": "f601effb1e193a2a250b811c7b1f8b3350a6eba3",
+          "version": "1.1.1"
+        }
+      },
+      {
+        "package": "Spectre",
+        "repositoryURL": "https://github.com/kylef/Spectre.git",
+        "state": {
+          "branch": null,
+          "revision": "26cc5e9ae0947092c7139ef7ba612e34646086c7",
+          "version": "0.10.1"
+        }
+      },
+      {
+        "package": "swift-atomics",
+        "repositoryURL": "https://github.com/apple/swift-atomics.git",
+        "state": {
+          "branch": null,
+          "revision": "919eb1d83e02121cdb434c7bfc1f0c66ef17febe",
+          "version": "1.0.2"
+        }
+      },
+      {
+        "package": "swift-backtrace",
+        "repositoryURL": "https://github.com/swift-server/swift-backtrace.git",
+        "state": {
+          "branch": null,
+          "revision": "d3e04a9d4b3833363fb6192065b763310b156d54",
+          "version": "1.3.1"
+        }
+      },
+      {
+        "package": "swift-log",
+        "repositoryURL": "https://github.com/apple/swift-log.git",
+        "state": {
+          "branch": null,
+          "revision": "5d66f7ba25daf4f94100e7022febf3c75e37a6c7",
+          "version": "1.4.2"
+        }
+      },
+      {
+        "package": "swift-metrics",
+        "repositoryURL": "https://github.com/apple/swift-metrics.git",
+        "state": {
+          "branch": null,
+          "revision": "eadb828f878fed144387e3845866225bb7082c56",
+          "version": "2.3.0"
+        }
+      },
+      {
+        "package": "swift-nio",
+        "repositoryURL": "https://github.com/apple/swift-nio.git",
+        "state": {
+          "branch": null,
+          "revision": "d6e3762e0a5f7ede652559f53623baf11006e17c",
+          "version": "2.39.0"
+        }
+      },
+      {
+        "package": "swift-nio-extras",
+        "repositoryURL": "https://github.com/apple/swift-nio-extras.git",
+        "state": {
+          "branch": null,
+          "revision": "f73ca5ee9c6806800243f1ac415fcf82de9a4c91",
+          "version": "1.10.2"
+        }
+      },
+      {
+        "package": "swift-nio-http2",
+        "repositoryURL": "https://github.com/apple/swift-nio-http2.git",
+        "state": {
+          "branch": null,
+          "revision": "50c25c132b140e62b45e90b5a76f13ded02c8a46",
+          "version": "1.20.1"
+        }
+      },
+      {
+        "package": "swift-nio-ssl",
+        "repositoryURL": "https://github.com/apple/swift-nio-ssl.git",
+        "state": {
+          "branch": null,
+          "revision": "b5260a31c2a72a89fa684f5efb3054d8725a2316",
+          "version": "2.18.0"
+        }
+      },
+      {
+        "package": "swift-nio-transport-services",
+        "repositoryURL": "https://github.com/apple/swift-nio-transport-services.git",
+        "state": {
+          "branch": null,
+          "revision": "8ab824b140d0ebcd87e9149266ddc353e3705a3e",
+          "version": "1.11.4"
+        }
+      },
+      {
+        "package": "swift-service-lifecycle",
+        "repositoryURL": "https://github.com/swift-server/swift-service-lifecycle.git",
+        "state": {
+          "branch": null,
+          "revision": "531c6f8cd11b7c5706be98facfa4a9b0fe049192",
+          "version": "1.0.0-alpha.10"
+        }
+      },
+      {
+        "package": "swift-smtp",
+        "repositoryURL": "https://github.com/tannerdsilva/swift-smtp.git",
+        "state": {
+          "branch": null,
+          "revision": "09a0e2d8cedcc7d4121823ca6aa9cbd81ecb0e00",
+          "version": null
+        }
+      },
+      {
+        "package": "swift-system",
+        "repositoryURL": "https:///github.com/apple/swift-system.git",
+        "state": {
+          "branch": null,
+          "revision": "836bc4557b74fe6d2660218d56e3ce96aff76574",
+          "version": "1.1.1"
+        }
+      },
+      {
+        "package": "SwiftSlash",
+        "repositoryURL": "https://github.com/tannerdsilva/SwiftSlash.git",
+        "state": {
+          "branch": null,
+          "revision": "4eef596337a5bce89367a9ac8c48f336a21138d1",
+          "version": "3.1.0"
+        }
+      }
+    ]
+  },
+  "version": 1
+}
