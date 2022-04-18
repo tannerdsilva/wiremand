@@ -5,16 +5,16 @@ import SystemPackage
 import SwiftSlash
 
 extension NetworkV6 {
-	func maskingAddress() -> NetworkV6 {
-		return NetworkV6(address:AddressV6(self.address.integer & self.netmask.integer), netmask:self.netmask)!
-	}
+    func maskingAddress() -> NetworkV6 {
+        return NetworkV6(address:AddressV6(self.address.integer & self.netmask.integer), netmask:self.netmask)!
+    }
 }
 
 @main
 struct WiremanD {
-	static func getCurrentUser() -> String {
-		return String(validatingUTF8:getpwuid(geteuid()).pointee.pw_name) ?? ""
-	}
+    static func getCurrentUser() -> String {
+        return String(validatingUTF8:getpwuid(geteuid()).pointee.pw_name) ?? ""
+    }
     static func getCurrentDatabasePath() -> URL {
         return getCurrentDatabasePath(home:URL(fileURLWithPath:String(cString:getpwuid(getuid())!.pointee.pw_dir)))
     }
@@ -22,35 +22,35 @@ struct WiremanD {
         return home.appendingPathComponent("wiremand-dbi")
     }
 
-	static func main() async throws {
-		await AsyncGroup {
-			$0.command("install",
+    static func main() async throws {
+        await AsyncGroup {
+            $0.command("install",
                Option<String>("interfaceName", default:"wg2930"),
                Option<String>("user", default:"wiremand"),
                Option<Int>("wg_port", default:29300),
-               Option<Int>("public_httpPort", default:29301),
-               Option<Int>("private_tcpPrintPort", default:29302)
-			) { interfaceName, installUserName, wgPort, httpPort, tcpPrintPort in
-				guard getCurrentUser() == "root" else {
-					print("You need to be root to install wiremand.")
-					exit(5)
-				}
+               Option<Int>("public_httpPort", default:8080),
+               Option<Int>("private_tcpPrintPort_start", default:9100)
+            ) { interfaceName, installUserName, wgPort, httpPort, tcpPrintPort in
+                guard getCurrentUser() == "root" else {
+                    print("You need to be root to install wiremand.")
+                    exit(5)
+                }
                 
-				// ask for the public endpoint
-				var endpoint:String? = nil
-				repeat {
-					print("public endpoint dns name: ", terminator:"")
-					endpoint = readLine()
-				} while (endpoint == nil || endpoint!.count == 0)
+                // ask for the public endpoint
+                var endpoint:String? = nil
+                repeat {
+                    print("public endpoint dns name: ", terminator:"")
+                    endpoint = readLine()
+                } while (endpoint == nil || endpoint!.count == 0)
 
-				// ask for the client ipv6 scope
-				var ipv6Scope:NetworkV6? = nil
-				repeat {
-					print("vpn ipv6 block (cidr where address is servers primary internal address): ", terminator:"")
-					if let asString = readLine(), let asNetwork = NetworkV6(cidr:asString) {
-						ipv6Scope = asNetwork
-					}
-				} while ipv6Scope == nil
+                // ask for the client ipv6 scope
+                var ipv6Scope:NetworkV6? = nil
+                repeat {
+                    print("vpn ipv6 block (cidr where address is servers primary internal address): ", terminator:"")
+                    if let asString = readLine(), let asNetwork = NetworkV6(cidr:asString) {
+                        ipv6Scope = asNetwork
+                    }
+                } while ipv6Scope == nil
 
                 print("installing software...")
                 // install software
@@ -62,17 +62,18 @@ struct WiremanD {
                 
                 print("generating wireguard keys...")
                 
-				// set up the wireguard interface
-				let newKeys = try await WireguardExecutor.generateNewKey()
-				
+                // set up the wireguard interface
+                let newKeys = try await WireguardExecutor.generateNewKey()
+                
                 print("writing wireguard configuration...")
                 
-                let wgConfigFile = try FileDescriptor.open("/etc/wireguard/\(interfaceName).conf", .writeOnly, options:[.create], permissions:[.ownerReadWrite])
+                let wgConfigFile = try FileDescriptor.open("/etc/wireguard/\(interfaceName).conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite])
                 try wgConfigFile.closeAfter({
                     var buildConfig = "[Interface]\n"
                     buildConfig += "ListenPort = \(wgPort)\n"
                     buildConfig += "Address = \(ipv6Scope!.cidrString)\n"
                     buildConfig += "PrivateKey = \(newKeys.privateKey)\n"
+                    try wgConfigFile.writeAll(buildConfig.utf8)
                 })
                 
                 print("enabling wireguard services...")
@@ -86,7 +87,7 @@ struct WiremanD {
                 print("configuring dnsmasq...")
                 
                 // set up the dnsmasq daemon
-                let dnsMasqConfFile = try FileDescriptor.open("/etc/dnsmasq.conf", .writeOnly, options:[.create], permissions:[.ownerReadWrite, .groupRead, .otherRead])
+                let dnsMasqConfFile = try FileDescriptor.open("/etc/dnsmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
                 try dnsMasqConfFile.closeAfter({
                     var buildConfig = "listen-address=\(ipv6Scope!.address)\n"
                     buildConfig += "interface=\(interfaceName)\n"
@@ -101,11 +102,19 @@ struct WiremanD {
                 print("making user `wiremand`...")
                 
                 // make the user
-                let makeUser = try await Command(bash:"useradd -md /var/lib/wiremand").runSync()
+                let makeUser = try await Command(bash:"useradd -md /var/lib/wiremand wiremand").runSync()
                 guard makeUser.succeeded == true else {
                     print("unable to create `wiremand` user on the system")
                     exit(8)
                 }
+                
+                
+                // get the uid and gid of our new user
+                guard let getUsername = getpwnam("wiremand") else {
+                    print("unable to get uid and gid for wiremand")
+                    exit(9)
+                }
+                print("\t->\tcreated new uid \(getUsername.pointee.pw_uid) and gid \(getUsername.pointee.pw_gid)")
                 
                 print("determining wg paths...")
                 
@@ -121,14 +130,16 @@ struct WiremanD {
                 print("installing soduers modifications for `wiremand` user...")
                 
                 // add the sudoers modifications for this user
-                let sudoersFD = try FileDescriptor.open("/etc/sudoers.d/wiremand", .writeOnly, options:[.create], permissions: [.ownerRead, .groupRead])
+                let sudoersFD = try FileDescriptor.open("/etc/sudoers.d/wiremand", .writeOnly, options:[.create, .truncate], permissions: [.ownerRead, .groupRead])
                 try sudoersFD.closeAfter({
                     var sudoAddition = "wiremand ALL = NOPASSWD: \(whichWg)\n"
                     sudoAddition += "wiremand ALL = NOPASSWD: \(whichWgQuick)\n"
                     try sudoersFD.writeAll(sudoAddition.utf8)
                 })
+
                 
-                print("installing executable into /opt")
+                print("installing executable into /opt...")
+                
                 // install the executable in the system
                 let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
                 let exeData = try Data(contentsOf:exePath)
@@ -155,14 +166,19 @@ struct WiremanD {
                     buildConfig += "WantedBy=multi-user.target\n"
                     try systemdFD.writeAll(buildConfig.utf8)
                 })
-			}
+            }
             
             $0.command("make_domain",
                 Argument<String>("domain", description:"the domain to add to the system")
             ) { domainName in
                 
-//                let wireguardDatabase = 
+//                let wireguardDatabase =
             }
-		}.run()
-	}
+            
+            $0.command("run") {
+                print("running daemon...")
+                exit(5)
+            }
+        }.run()
+    }
 }

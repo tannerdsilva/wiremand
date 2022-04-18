@@ -17,8 +17,9 @@ struct WireguardExecutor {
 		guard makePriKey.succeeded == true, let privateKey = makePriKey.stdout.compactMap({ String(data:$0, encoding:.utf8) }).first else {
 			throw Error.wireguardCmdError
 		}
-		let makePubKey = try await Command(bash:"echo \(makePriKey) | wg pubkey").runSync()
-		guard makePubKey.succeeded == true, let publicKey = makePubKey.stdout.compactMap({ String(data:$0, encoding:.utf8) }).first else {
+        
+		let makePubKey = try await Command(bash:"echo \(privateKey) | wg pubkey").runSync()
+        guard makePubKey.succeeded == true, let publicKey = makePubKey.stdout.compactMap({ String(data:$0, encoding:.utf8) }).first else {
 			throw Error.wireguardCmdError
 		}
 		let makePsk = try await Command(bash:"wg genpsk").runSync()
@@ -26,7 +27,7 @@ struct WireguardExecutor {
 			throw Error.wireguardCmdError
 		}
 		
-		return VPNKey(privateKey: privateKey, publicKey: publicKey, presharedKey: psk)
+		return VPNKey(privateKey:privateKey, publicKey:publicKey, presharedKey:psk)
 	}
     
     static func installNew(key:VPNKey, address:AddressV6) async throws {
