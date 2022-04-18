@@ -13,7 +13,7 @@ let package = Package(
         // .package(url: /* package url */, from: "1.0.0"),
         .package(url:"https://github.com/tannerdsilva/Commander.git", .branch("master")),
 		.package(url:"https://github.com/tannerdsilva/SwiftSlash.git", .exact("3.1.0")),
-		.package(url:"https://github.com/tannerdsilva/QuickLMDB.git", .revision("809a4add1dc26df14504d1ad897c552f055fa34f")),
+		.package(url:"https://github.com/tannerdsilva/QuickLMDB.git", .revision("c4d866c0f3fbd0db5c2513d888c0706a8ca8e318")),
 		.package(url:"https://github.com/tannerdsilva/AddressKit.git", .exact("1.1.0")),
 		.package(url:"https://github.com/hummingbird-project/hummingbird.git", .exact("0.16.0")),
 		.package(url:"https://github.com/tannerdsilva/SignalStack.git", .exact("1.1.1")),
