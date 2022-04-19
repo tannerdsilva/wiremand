@@ -26,8 +26,9 @@ struct WiremanD {
                Option<String>("user", default:"wiremand"),
                Option<Int>("wg_port", default:29300),
                Option<Int>("public_httpPort", default:8080),
-               Option<Int>("private_tcpPrintPort_start", default:9100)
-            ) { interfaceName, installUserName, wgPort, httpPort, tcpPrintPort in
+               Option<Int>("private_tcpPrintPort_start", default:9100),
+               Option<Int>("private_tcpPrintPort_end", default:10100)
+            ) { interfaceName, installUserName, wgPort, httpPort, tcpPrintPortBegin, tcpPrintPortEnd in
                 guard getCurrentUser() == "root" else {
                     print("You need to be root to install wiremand.")
                     exit(5)
@@ -196,15 +197,25 @@ struct WiremanD {
                     var buildUpstream = "upstream wiremandv4 {\n\tserver 127.0.0.1:8080;\n}\nupstream wiremandv6 {\n\tserver [::1]:8080;\n}\n"
                     try nginxUpstreams.writeAll(buildUpstream.utf8)
                 })
+     
+                let homeDir = URL(fileURLWithPath:"/var/lib/wiremand/")
+                let daemonDB = try DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), internalTCPPort_begin: UInt16(tcpPrintPortBegin), internalTCPPort_end: UInt16(tcpPrintPortEnd))
+                let wgDB = try WireguardDatabase.createDatabase(directory: homeDir, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_serverPublicListenPort: UInt16(wgPort), serverIPv6Block: ipv6Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
                 
-                print("\(setuid(getUsername.pointee.pw_uid))")
-                print("\(setgid(getUsername.pointee.pw_gid))")
+                let ownIt = try await Command(bash: "chown -R wiremand:wiremand /var/lib/wiremand/").runSync()
+                guard ownIt.succeeded == true else {
+                    fatalError("unable to change ownership of /var/lib/wiremand/ directory")
+                }
             }
             
             $0.command("make_domain",
                 Argument<String>("domain", description:"the domain to add to the system")
             ) { domainName in
-                
+                guard getCurrentUser() == "wiremand" else {
+                    fatalError("this program must be run as `wiremand` user")
+                }
+                let wgDB = try WireguardDatabase(directory:getCurrentDatabasePath())
+                print("database opened")
             }
             
             $0.command("run") {
