@@ -127,7 +127,7 @@ struct WiremanD {
                 let whichCertbot = try await Command(bash:"which certbot").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
                 let whichWg = try await Command(bash:"which wg").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
                 let whichWgQuick = try await Command(bash:"which wg-quick").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
-                
+                let whichSystemcCTL = try await Command(bash:"which systemctl").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
                 guard whichWg.count > 0 && whichWg.contains("/") == true && whichWgQuick.count > 0 && whichWgQuick.contains("/") == true else {
                     print("unable to locate `wg` and `wg-quick`")
                     exit(9)
@@ -141,6 +141,7 @@ struct WiremanD {
                     var sudoAddition = "\(installUserName) ALL = NOPASSWD: \(whichWg)\n"
                     sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichWgQuick)\n"
                     sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichCertbot)\n"
+                    sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichSystemcCTL) reload *\n"
                     try sudoersFD.writeAll(sudoAddition.utf8)
                 })
                 
@@ -217,7 +218,7 @@ struct WiremanD {
                 let wgDB = try WireguardDatabase(directory:getCurrentDatabasePath())
                 try await CertbotExecute.acquireSSL(domain: domainName.lowercased())
                 try NginxExecutor.install(domain: domainName.lowercased())
-                try NginxExecutor.reload()
+                try await NginxExecutor.reload()
                 let (newSubnet, newSK) = try wgDB.subnetMake(name: domainName.lowercased())
                 let domainHash = try Blake2bHasher.hash(data:Data(domainName.lowercased().utf8), length:64).base64EncodedString()
                 print("created domain \(domainName)")

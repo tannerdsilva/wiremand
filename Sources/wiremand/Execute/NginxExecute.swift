@@ -1,5 +1,7 @@
 import Foundation
 import SystemPackage
+import SwiftSlash
+
 struct NginxExecutor {
     fileprivate static func serverConfig(domain:String) -> String {
         return """
@@ -40,10 +42,9 @@ server {
         })
     }
     
-    static func reload() throws {
-        let getPid = try Data(contentsOf:URL(fileURLWithPath:"/run/nginx.pid"))
-        let aspid = pid_t(String(data:getPid, encoding:.utf8)!)!
-        guard kill(aspid, SIGHUP) == 0 else {
+    static func reload() async throws {
+        let result = try await Command(bash:"sudo systemctl reload nginx").runSync()
+        guard result.succeeded == true else {
             fatalError("unable to reload nginx")
         }
     }
