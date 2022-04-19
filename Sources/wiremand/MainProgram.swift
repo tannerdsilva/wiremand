@@ -192,7 +192,7 @@ struct WiremanD {
                 }
                 
                 // write the upstream config
-                let nginxUpstreams = try FileDescriptor.open("/etc/nginx/conf.d/upstreams", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWrite, .groupRead, .otherRead])
+                let nginxUpstreams = try FileDescriptor.open("/etc/nginx/conf.d/upstreams.conf", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWrite, .groupRead, .otherRead])
                 try nginxUpstreams.closeAfter({
                     var buildUpstream = "upstream wiremandv4 {\n\tserver 127.0.0.1:8080;\n}\nupstream wiremandv6 {\n\tserver [::1]:8080;\n}\n"
                     try nginxUpstreams.writeAll(buildUpstream.utf8)
@@ -215,7 +215,15 @@ struct WiremanD {
                     fatalError("this program must be run as `wiremand` user")
                 }
                 let wgDB = try WireguardDatabase(directory:getCurrentDatabasePath())
-                print("database opened")
+                try await CertbotExecute.acquireSSL(domain: domainName.lowercased())
+                try NginxExecutor.install(domain: domainName.lowercased())
+                try NginxExecutor.reload()
+                let (newSubnet, newSK) = try wgDB.subnetMake(name: domainName.lowercased())
+                let domainHash = try Blake2bHasher.hash(data:Data(domainName.lowercased().utf8), length:64).base64EncodedString()
+                print("created domain \(domainName)")
+                print("\t->sk: \(newSK)")
+                print("\t->dk: \(domainHash)")
+                print("\t->subnet: \(newSubnet.cidrString)")
             }
             
             $0.command("run") {

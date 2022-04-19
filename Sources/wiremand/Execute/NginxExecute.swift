@@ -1,5 +1,7 @@
+import Foundation
+import SystemPackage
 struct NginxExecutor {
-    static func serverConfig(domain:String) -> String {
+    fileprivate static func serverConfig(domain:String) -> String {
         return """
 server {
     listen 443 ssl;
@@ -32,6 +34,17 @@ server {
     }
     
     static func install(domain:String) throws {
-        
+        let newDomainConfigFile = try FileDescriptor.open("/etc/nginx/sites-enabled/\(domain).conf", .writeOnly, options: [.truncate, .create], permissions: [.ownerReadWrite, .groupReadWrite, .otherRead])
+        try newDomainConfigFile.closeAfter({
+            try newDomainConfigFile.writeAll(Self.serverConfig(domain: domain).utf8)
+        })
+    }
+    
+    static func reload() throws {
+        let getPid = try Data(contentsOf:URL(fileURLWithPath:"/run/nginx.pid"))
+        let aspid = pid_t(String(data:getPid, encoding:.utf8)!)!
+        guard kill(aspid, SIGHUP) == 0 else {
+            fatalError("unable to reload nginx")
+        }
     }
 }

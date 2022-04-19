@@ -1,6 +1,7 @@
 import QuickLMDB
 import AddressKit
 import Foundation
+import SystemPackage
 
 class WireguardDatabase {
     static func createDatabase(directory:URL, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, publicKey:String, defaultSubnetMask:UInt8) throws {
@@ -85,6 +86,9 @@ class WireguardDatabase {
         
         ///Maps a given subnet CIDR to its respective subnet name
         case networkV6_subnetName = "networkV6_subnetName" //NetworkV6:String
+        
+        ///Maps a given subnet to its respective security key
+        case subnetName_securityKey = "subnetName_securityKey" //String:String
     }
     // basics
 	let env:Environment
@@ -100,6 +104,7 @@ class WireguardDatabase {
     // subnet info
 	let subnetName_networkV6:Database
     let networkV6_subnetName:Database
+    let subnetName_securityKey:Database
 	
 	init(directory:URL) throws {
 		let wgDBPath = directory.appendingPathComponent("wireguard-dbi")
@@ -115,8 +120,8 @@ class WireguardDatabase {
 			let clientPub_subnetName = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, tx:someTrans)
 			let subnetName_networkV6 = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, tx:someTrans)
             let networkV6_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, tx:someTrans)
-            
-            return [metadata, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, subnetName_networkV6, networkV6_subnetName]
+            let subnetName_securityKey = try makeEnv.openDatabase(named:Databases.subnetName_securityKey.rawValue, tx:someTrans)
+            return [metadata, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey]
 		}
         self.env = makeEnv
         self.metadata = dbs[0]
@@ -127,9 +132,14 @@ class WireguardDatabase {
         self.clientPub_subnetName = dbs[5]
         self.subnetName_networkV6 = dbs[6]
         self.networkV6_subnetName = dbs[7]
+        self.subnetName_securityKey = dbs[8]
 	}
     
-    func subnetMake(name:String) throws -> NetworkV6 {
+    func subnetMake(name:String) throws -> (NetworkV6, String) {
+        let randomBuffer = malloc(32);
+        defer {
+            free(randomBuffer)
+        }
         return try env.transact(readOnly:false) { someTrans in
             // get the default subnet mask size
             let maskNumber = try self.metadata.getEntry(type:UInt8.self, forKey:Metadatas.wg_defaultSubnetMask.rawValue, tx:someTrans)!
@@ -146,7 +156,15 @@ class WireguardDatabase {
             try self.subnetName_networkV6.setEntry(value:suggestedSubnet, forKey:name, tx:someTrans)
             try self.networkV6_subnetName.setEntry(value:name, forKey:suggestedSubnet, tx:someTrans)
             
-            return suggestedSubnet
+            // read 32 bytes of random data from the system
+            let randomFD = try FileDescriptor.open("/dev/urandom", .readOnly)
+            defer {
+                try? randomFD.close()
+            }
+            while try randomFD.read(into:UnsafeMutableRawBufferPointer(start:randomBuffer, count:32)) < 32 {}
+            let randomString = Data(bytes:randomBuffer!, count:32).base64EncodedString()
+            try self.subnetName_securityKey.setEntry(value:randomString, forKey:name, tx:someTrans)
+            return (suggestedSubnet, randomString)
         }
     }
     struct SubnetInfo {
