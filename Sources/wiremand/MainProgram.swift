@@ -197,13 +197,15 @@ struct WiremanD {
                     var buildUpstream = "upstream wiremandv4 {\n\tserver 127.0.0.1:8080;\n}\nupstream wiremandv6 {\n\tserver [::1]:8080;\n}\n"
                     try nginxUpstreams.writeAll(buildUpstream.utf8)
                 })
-                
-                print("\(setgid(getUsername.pointee.pw_gid))")
-                print("\(setuid(getUsername.pointee.pw_uid))")
-                
+     
                 let homeDir = URL(fileURLWithPath:"/var/lib/wiremand/")
                 let daemonDB = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), internalTCPPort_begin: UInt16(tcpPrintPortBegin), internalTCPPort_end: UInt16(tcpPrintPortEnd))
                 let wgDB = try! WireguardDatabase.createDatabase(directory: homeDir, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_serverPublicListenPort: UInt16(wgPort), serverIPv6Block: ipv6Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
+                
+                let ownIt = try await Command(bash: "chown -R wiremand:wiremand /var/lib/wiremand/").runSync()
+                guard ownIt.succeeded == true else {
+                    fatalError("unable to change ownership of /var/lib/wiremand/ directory")
+                }
             }
             
             $0.command("make_domain",
