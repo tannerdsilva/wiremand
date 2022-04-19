@@ -100,7 +100,7 @@ struct WiremanD {
                 print("making user `wiremand`...")
                 
                 // make the user
-                let makeUser = try await Command(bash:"useradd -md /var/lib/wiremand -g www-data wiremand").runSync()
+                let makeUser = try await Command(bash:"useradd -md /var/lib/wiremand -U -G www-data wiremand").runSync()
                 guard makeUser.succeeded == true else {
                     print("unable to create `wiremand` user on the system")
                     exit(8)
