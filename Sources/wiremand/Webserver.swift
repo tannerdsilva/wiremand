@@ -54,7 +54,6 @@ public class WireguardHTTPHandler:HBResponder {
             
             // extract the provided domain hash
             guard paths.count > 1, let inputDomainHashB64 = paths[1].removingPercentEncoding else {
-                request.logger.error("no ")
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
             

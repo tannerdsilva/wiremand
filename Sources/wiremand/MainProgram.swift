@@ -16,10 +16,7 @@ struct WiremanD {
         return String(validatingUTF8:getpwuid(geteuid()).pointee.pw_name) ?? ""
     }
     static func getCurrentDatabasePath() -> URL {
-        return getCurrentDatabasePath(home:URL(fileURLWithPath:String(cString:getpwuid(getuid())!.pointee.pw_dir)))
-    }
-    static func getCurrentDatabasePath(home:URL) -> URL {
-        return home.appendingPathComponent("wiremand-dbi")
+        return URL(fileURLWithPath:String(cString:getpwuid(getuid())!.pointee.pw_dir))
     }
 
     static func main() async throws {
@@ -53,8 +50,9 @@ struct WiremanD {
                 } while ipv6Scope == nil
 
                 print("installing software...")
+                
                 // install software
-                let installCommand = try await Command(bash:"apt-get update && apt-get install wireguard dnsmasq -y").runSync()
+                let installCommand = try await Command(bash:"apt-get update && apt-get install wireguard dnsmasq stubby nginx certbot -y").runSync()
                 guard installCommand.succeeded == true else {
                     print("unable to install dnsmasq and wireguard")
                     exit(6)
@@ -92,22 +90,21 @@ struct WiremanD {
                     var buildConfig = "listen-address=\(ipv6Scope!.address)\n"
                     buildConfig += "interface=\(interfaceName)\n"
                     buildConfig += "bind-interfaces\n"
-                    buildConfig += "server=2606:4700:4700::1111\n"
-                    buildConfig += "server=2606:4700:4700::1001\n"
-                    buildConfig += "server=1.1.1.1\n"
-                    buildConfig += "server=1.0.0.1\n"
+                    buildConfig += "server=::1\n"
+                    buildConfig += "server=127.0.0.1\n"
+                    buildConfig += "user=wiremand\n"
+                    buildConfig += "group=wiremand\n"
                     try dnsMasqConfFile.writeAll(buildConfig.utf8)
                 })
                 
                 print("making user `wiremand`...")
                 
                 // make the user
-                let makeUser = try await Command(bash:"useradd -md /var/lib/wiremand wiremand").runSync()
+                let makeUser = try await Command(bash:"useradd -md /var/lib/wiremand -g www-data wiremand").runSync()
                 guard makeUser.succeeded == true else {
                     print("unable to create `wiremand` user on the system")
                     exit(8)
                 }
-                
                 
                 // get the uid and gid of our new user
                 guard let getUsername = getpwnam("wiremand") else {
@@ -116,9 +113,17 @@ struct WiremanD {
                 }
                 print("\t->\tcreated new uid \(getUsername.pointee.pw_uid) and gid \(getUsername.pointee.pw_gid)")
                 
-                print("determining wg paths...")
+                // enable ipv6 forwarding on this system
+                let sysctlFwdFD = try FileDescriptor.open("/etc/sysctl.d/10-ip-forward.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
+                try sysctlFwdFD.closeAfter({
+                    let makeLine = "net.ipv6.conf.all.forwarding=1\n"
+                    try sysctlFwdFD.writeAll(makeLine.utf8)
+                })
+                
+                print("determining tool paths...")
                 
                 // find wireguard and wg-quick
+                let whichCertbot = try await Command(bash:"which certbot").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
                 let whichWg = try await Command(bash:"which wg").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
                 let whichWgQuick = try await Command(bash:"which wg-quick").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
                 
@@ -134,9 +139,9 @@ struct WiremanD {
                 try sudoersFD.closeAfter({
                     var sudoAddition = "wiremand ALL = NOPASSWD: \(whichWg)\n"
                     sudoAddition += "wiremand ALL = NOPASSWD: \(whichWgQuick)\n"
+                    sudoAddition += "wiremand ALL = NOPASSWD: \(whichCertbot)\n"
                     try sudoersFD.writeAll(sudoAddition.utf8)
                 })
-
                 
                 print("installing executable into /opt...")
                 
@@ -150,7 +155,7 @@ struct WiremanD {
                 print("installing systemd service for wiremand...")
                 
                 // install the systemd service for the daemon
-                let systemdFD = try FileDescriptor.open("/etc/systemd/system/wiremand.service", .writeOnly, options:[.create], permissions:[.ownerRead, .ownerWrite, .groupRead, .otherRead])
+                let systemdFD = try FileDescriptor.open("/etc/systemd/system/wiremand.service", .writeOnly, options:[.create, .truncate], permissions:[.ownerRead, .ownerWrite, .groupRead, .otherRead])
                 try systemdFD.closeAfter({
                     var buildConfig = "[Unit]\n"
                     buildConfig += "Description=wireguard management daemon\n"
@@ -166,13 +171,40 @@ struct WiremanD {
                     buildConfig += "WantedBy=multi-user.target\n"
                     try systemdFD.writeAll(buildConfig.utf8)
                 })
+                
+                let enableWiremand = try await Command(bash:"systemctl enable wiremand").runSync()
+                guard enableWiremand.succeeded == true else {
+                    print("unable to enable wiremand service")
+                    exit(15)
+                }
+                
+                // begin configuring nginx
+                var nginxOwn = try await Command(bash:"chown root:wiremand /etc/nginx && chown root:wiremand /etc/nginx/conf.d && chown root:wiremand /etc/nginx/sites-enabled").runSync()
+                guard nginxOwn.succeeded == true else {
+                    print("unable to change ownership of nginx directories to include wiremand in group")
+                    exit(10)
+                }
+                nginxOwn = try await Command(bash:"chmod 775 /etc/nginx && chmod 775 /etc/nginx/conf.d && chmod 775 /etc/nginx/sites-enabled").runSync()
+                guard nginxOwn.succeeded == true else {
+                    print("unable to change mode of nginx directories to include wiremand in group")
+                    exit(11)
+                }
+                
+                // write the upstream config
+                let nginxUpstreams = try FileDescriptor.open("/etc/nginx/conf.d/upstreams", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWrite, .groupRead, .otherRead])
+                try nginxUpstreams.closeAfter({
+                    var buildUpstream = "upstream wiremandv4 {\n\tserver 127.0.0.1:8080;\n}\nupstream wiremandv6 {\n\tserver [::1]:8080;\n}\n"
+                    try nginxUpstreams.writeAll(buildUpstream.utf8)
+                })
+                
+                print("\(setuid(getUsername.pointee.pw_uid))")
+                print("\(setgid(getUsername.pointee.pw_gid))")
             }
             
             $0.command("make_domain",
                 Argument<String>("domain", description:"the domain to add to the system")
             ) { domainName in
                 
-//                let wireguardDatabase =
             }
             
             $0.command("run") {

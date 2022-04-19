@@ -102,7 +102,7 @@ class WireguardDatabase {
     let networkV6_subnetName:Database
 	
 	init(directory:URL) throws {
-		let wgDBPath = directory.appendingPathComponent("wireguard_dbi")
+		let wgDBPath = directory.appendingPathComponent("wireguard-dbi")
 		let makeEnv = try Environment(path:wgDBPath.path, flags:[.noSubDir], mapSize:4000000000, maxReaders:128, maxDBs:32)
 		
 		let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
@@ -136,11 +136,11 @@ class WireguardDatabase {
             // get the servers ipv6 block
             let ipv6Block = try self.metadata.getEntry(type:NetworkV6.self, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTrans)!
             
-            // find a vacant subnet
+            // find a vacant subnet (subnet cannot already exist and subnet cannot overlap with the servers own internal IPv6 address)
             var suggestedSubnet:NetworkV6
             repeat {
                 suggestedSubnet = NetworkV6(cidr:ipv6Block.range.randomAddress().string + "/\(maskNumber)")!.maskingAddress()
-            } while try self.networkV6_subnetName.containsEntry(key:suggestedSubnet, tx:someTrans) == true
+            } while try self.networkV6_subnetName.containsEntry(key:suggestedSubnet, tx:someTrans) == true && suggestedSubnet.contains(ipv6Block.address)
             
             // write the subnet and name to the database
             try self.subnetName_networkV6.setEntry(value:suggestedSubnet, forKey:name, tx:someTrans)
@@ -149,17 +149,32 @@ class WireguardDatabase {
             return suggestedSubnet
         }
     }
+    struct SubnetInfo {
+        let name:String
+        let network:NetworkV6
+    }
+    func allSubnets() throws -> [SubnetInfo] {
+        return try env.transact(readOnly:true) { someTrans in
+            let subnetNameCursor = try subnetName_networkV6.cursor(tx:someTrans)
+            var buildSubnets = [SubnetInfo]()
+            for curKV in subnetNameCursor {
+                buildSubnets.append(SubnetInfo(name:String(curKV.key)!, network:NetworkV6(curKV.value)!))
+            }
+            return buildSubnets
+        }
+    }
     
     func clientMake(name:String, publicKey:String, subnet:String) throws -> AddressV6 {
         return try env.transact(readOnly:false) { someTrans in
             // validate the subnet exists by retrieving its network
             let subnetNetwork = try subnetName_networkV6.getEntry(type:NetworkV6.self, forKey:subnet, tx:someTrans)!
+            let serverInternalIP = try self.metadata.getEntry(type:NetworkV6.self, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTrans)!.address
             
             // find a non-conflicting address
             var newAddress:AddressV6
             repeat {
                 newAddress = subnetNetwork.range.randomAddress()
-            } while try self.ipv6_clientPub.containsEntry(key:newAddress, tx:someTrans) == true
+            } while try self.ipv6_clientPub.containsEntry(key:newAddress, tx:someTrans) == true && newAddress == serverInternalIP
             
             // write it to the database
             try self.clientPub_ipv6.setEntry(value:newAddress, forKey:publicKey, flags:[.noOverwrite], tx:someTrans)
