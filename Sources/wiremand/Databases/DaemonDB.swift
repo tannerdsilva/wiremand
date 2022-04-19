@@ -6,7 +6,7 @@ class DaemonDB {
     static func create(directory:URL, publicHTTPPort:UInt16, internalTCPPort_begin:UInt16, internalTCPPort_end:UInt16) throws {
         let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir])
         try makeEnv.transact(readOnly:false) { someTrans in
-            let makeDB = try makeEnv.openDatabase()
+            let makeDB = try makeEnv.openDatabase(tx:someTrans)
             try makeDB.setEntry(value:publicHTTPPort, forKey:Metadatas.daemonPublicListenPort.rawValue, tx:someTrans)
             try makeDB.setEntry(value:internalTCPPort_begin, forKey:Metadatas.daemonInternalTCPPort_begin.rawValue, tx:someTrans)
             try makeDB.setEntry(value:internalTCPPort_end, forKey:Metadatas.daemonInternalTCPPort_end.rawValue, tx:someTrans)
