@@ -7,7 +7,7 @@ class WireguardDatabase {
 		let wgDBPath = directory.appendingPathComponent("wireguard-dbi")
 		let makeEnv = try Environment(path:wgDBPath.path, flags:[.noSubDir], mapSize:4000000000, maxReaders:128, maxDBs:32)
 		
-		try makeEnv.transact({ someTransaction in
+        try makeEnv.transact(readOnly: false) { someTransaction in
 			let metadataDB = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTransaction)
 			
 			//make all the databases
@@ -25,7 +25,7 @@ class WireguardDatabase {
 			try metadataDB.setEntry(value:serverIPv6Block, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTransaction)
 			try metadataDB.setEntry(value:publicKey, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:someTransaction)
             try metadataDB.setEntry(value:defaultSubnetMask, forKey:Metadatas.wg_defaultSubnetMask.rawValue, tx:someTransaction)
-		})
+		}
 	}
 	
 	enum Metadatas:String {
