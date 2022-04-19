@@ -93,22 +93,22 @@ struct WiremanD {
                     buildConfig += "bind-interfaces\n"
                     buildConfig += "server=::1\n"
                     buildConfig += "server=127.0.0.1\n"
-                    buildConfig += "user=wiremand\n"
-                    buildConfig += "group=wiremand\n"
+                    buildConfig += "user=\(installUserName)\n"
+                    buildConfig += "group=\(installUserName)\n"
                     try dnsMasqConfFile.writeAll(buildConfig.utf8)
                 })
                 
                 print("making user `wiremand`...")
                 
                 // make the user
-                let makeUser = try await Command(bash:"useradd -md /var/lib/wiremand -U -G www-data wiremand").runSync()
+                let makeUser = try await Command(bash:"useradd -md /var/lib/\(installUserName) -U -G www-data \(installUserName)").runSync()
                 guard makeUser.succeeded == true else {
                     print("unable to create `wiremand` user on the system")
                     exit(8)
                 }
                 
                 // get the uid and gid of our new user
-                guard let getUsername = getpwnam("wiremand") else {
+                guard let getUsername = getpwnam(installUserName) else {
                     print("unable to get uid and gid for wiremand")
                     exit(9)
                 }
@@ -133,14 +133,14 @@ struct WiremanD {
                     exit(9)
                 }
 
-                print("installing soduers modifications for `wiremand` user...")
+                print("installing soduers modifications for `\(installUserName)` user...")
                 
                 // add the sudoers modifications for this user
-                let sudoersFD = try FileDescriptor.open("/etc/sudoers.d/wiremand", .writeOnly, options:[.create, .truncate], permissions: [.ownerRead, .groupRead])
+                let sudoersFD = try FileDescriptor.open("/etc/sudoers.d/\(installUserName)", .writeOnly, options:[.create, .truncate], permissions: [.ownerRead, .groupRead])
                 try sudoersFD.closeAfter({
-                    var sudoAddition = "wiremand ALL = NOPASSWD: \(whichWg)\n"
-                    sudoAddition += "wiremand ALL = NOPASSWD: \(whichWgQuick)\n"
-                    sudoAddition += "wiremand ALL = NOPASSWD: \(whichCertbot)\n"
+                    var sudoAddition = "\(installUserName) ALL = NOPASSWD: \(whichWg)\n"
+                    sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichWgQuick)\n"
+                    sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichCertbot)\n"
                     try sudoersFD.writeAll(sudoAddition.utf8)
                 })
                 
@@ -163,8 +163,8 @@ struct WiremanD {
                     buildConfig += "After=network-online.target\n"
                     buildConfig += "Wants=network-online.target\n\n"
                     buildConfig += "[Service]\n"
-                    buildConfig += "User=wiremand\n"
-                    buildConfig += "Group=wiremand\n"
+                    buildConfig += "User=\(installUserName)\n"
+                    buildConfig += "Group=\(installUserName)\n"
                     buildConfig += "Type=exec\n"
                     buildConfig += "ExecStart=/opt/wiremand run\n"
                     buildConfig += "Restart=always\n\n"
@@ -180,7 +180,7 @@ struct WiremanD {
                 }
                 
                 // begin configuring nginx
-                var nginxOwn = try await Command(bash:"chown root:wiremand /etc/nginx && chown root:wiremand /etc/nginx/conf.d && chown root:wiremand /etc/nginx/sites-enabled").runSync()
+                var nginxOwn = try await Command(bash:"chown root:\(installUserName) /etc/nginx && chown root:\(installUserName) /etc/nginx/conf.d && chown root:\(installUserName) /etc/nginx/sites-enabled").runSync()
                 guard nginxOwn.succeeded == true else {
                     print("unable to change ownership of nginx directories to include wiremand in group")
                     exit(10)
@@ -198,13 +198,13 @@ struct WiremanD {
                     try nginxUpstreams.writeAll(buildUpstream.utf8)
                 })
      
-                let homeDir = URL(fileURLWithPath:"/var/lib/wiremand/")
+                let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
                 let daemonDB = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), internalTCPPort_begin: UInt16(tcpPrintPortBegin), internalTCPPort_end: UInt16(tcpPrintPortEnd))
                 let wgDB = try! WireguardDatabase.createDatabase(directory: homeDir, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_serverPublicListenPort: UInt16(wgPort), serverIPv6Block: ipv6Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
                 
-                let ownIt = try await Command(bash: "chown -R wiremand:wiremand /var/lib/wiremand/").runSync()
+                let ownIt = try await Command(bash: "chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/").runSync()
                 guard ownIt.succeeded == true else {
-                    fatalError("unable to change ownership of /var/lib/wiremand/ directory")
+                    fatalError("unable to change ownership of /var/lib/\(installUserName)/ directory")
                 }
             }
             
