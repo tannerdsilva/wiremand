@@ -171,6 +171,22 @@ class WireguardDatabase {
             return (suggestedSubnet, randomString)
         }
     }
+    
+    func validate(subnetHash:String, securityKey:String) throws -> Bool {
+        return try env.transact(readOnly:true) { someTrans in
+            do {
+                let currentSecurityKey = try self.subnetHash_securityKey.getEntry(type:String.self, forKey:subnetHash, tx:someTrans)
+                if (currentSecurityKey == securityKey) {
+                    return true
+                } else {
+                    return false
+                }
+            } catch LMDBError.notFound {
+                return false
+            }
+        }
+    }
+    
     struct SubnetInfo {
         let name:String
         let network:NetworkV6

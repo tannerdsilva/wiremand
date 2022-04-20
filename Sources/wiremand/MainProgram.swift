@@ -232,7 +232,12 @@ struct WiremanD {
             }
             
             $0.command("run") {
-                print("running daemon...")
+                let dbPath = getCurrentDatabasePath()
+                let daemonDB = try DaemonDB(directory:dbPath, running:true)
+                let wireguardDB = try WireguardDatabase(directory:dbPath)
+                let webserver = try PublicHTTPWebServer(wgDatabase:wireguardDB, port:daemonDB.getPublicHTTPPort())
+                try webserver.run()
+                webserver.wait()
                 exit(5)
             }
         }.run()

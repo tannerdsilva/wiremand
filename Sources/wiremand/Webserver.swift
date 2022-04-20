@@ -7,10 +7,10 @@ class PublicHTTPWebServer {
     
     let wgAPI:WireguardHTTPHandler
     
-    init(wgDatabase:WireguardDatabase, port:Int) throws {
+    init(wgDatabase:WireguardDatabase, port:UInt16) throws {
         let wgapi = try WireguardHTTPHandler(wg_db:wgDatabase)
-        let v4 = HBApplication(configuration:.init(address:.hostname("127.0.0.1", port:port)))
-        let v6 = HBApplication(configuration:.init(address:.hostname("::1", port:port)))
+        let v4 = HBApplication(configuration:.init(address:.hostname("127.0.0.1", port:Int(port))))
+        let v6 = HBApplication(configuration:.init(address:.hostname("::1", port:Int(port))))
         self.ipv6Application = v6
         self.ipv4Application = v4
         self.wgAPI = wgapi
@@ -19,6 +19,13 @@ class PublicHTTPWebServer {
     func run() throws {
         ipv6Application.router.add("wg_makekey", method:.GET, responder:wgAPI)
         ipv4Application.router.add("wg_makekey", method:.GET, responder:wgAPI)
+        try ipv4Application.start()
+        try ipv6Application.start()
+    }
+    
+    func wait() {
+        ipv6Application.wait()
+        ipv4Application.wait()
     }
 }
 
@@ -51,6 +58,11 @@ public class WireguardHTTPHandler:HBResponder {
             }
             guard let inputDomainHash = request.uri.queryParameters["dk"] else {
                 request.logger.error("no domain key provided")
+                return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+            }
+            
+            guard try wgDatabase.validate(subnetHash:inputDomainHash, securityKey:securityKey) == true else {
+                request.logger.error("domain + security validation failed")
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
             
