@@ -142,32 +142,32 @@ class WireguardDatabase {
         }
         return try env.transact(readOnly:false) { someTrans in
             // get the default subnet mask size
-            let maskNumber = try self.metadata.getEntry(type:UInt8.self, forKey:Metadatas.wg_defaultSubnetMask.rawValue, tx:someTrans)!
+            let maskNumber = try! self.metadata.getEntry(type:UInt8.self, forKey:Metadatas.wg_defaultSubnetMask.rawValue, tx:someTrans)!
             // get the servers ipv6 block
-            let ipv6Block = try self.metadata.getEntry(type:NetworkV6.self, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTrans)!
+            let ipv6Block = try! self.metadata.getEntry(type:NetworkV6.self, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTrans)!
             
             // find a vacant subnet (subnet cannot already exist and subnet cannot overlap with the servers own internal IPv6 address)
             var suggestedSubnet:NetworkV6
             repeat {
                 suggestedSubnet = NetworkV6(cidr:ipv6Block.range.randomAddress().string + "/\(maskNumber)")!.maskingAddress()
-            } while try self.networkV6_subnetName.containsEntry(key:suggestedSubnet, tx:someTrans) == true && suggestedSubnet.contains(ipv6Block.address)
+            } while try! self.networkV6_subnetName.containsEntry(key:suggestedSubnet, tx:someTrans) == true && suggestedSubnet.contains(ipv6Block.address)
             
             // write the subnet and name to the database
             try self.subnetName_networkV6.setEntry(value:suggestedSubnet, forKey:name, tx:someTrans)
             try self.networkV6_subnetName.setEntry(value:name, forKey:suggestedSubnet, tx:someTrans)
             
             // read 512 bytes of random data from the system
-            let randomFD = try FileDescriptor.open("/dev/urandom", .readOnly)
+            let randomFD = try! FileDescriptor.open("/dev/urandom", .readOnly)
             defer {
                 try! randomFD.close()
             }
             var totalRead = 0
             repeat {
-                totalRead += try randomFD.read(into:UnsafeMutableRawBufferPointer(start:randomBuffer!.advanced(by:totalRead), count:512))
+                totalRead += try! randomFD.read(into:UnsafeMutableRawBufferPointer(start:randomBuffer!.advanced(by:totalRead), count:512))
             } while totalRead < 512
             
             let randomString = Data(bytes:randomBuffer!, count:64).base64EncodedString()
-            try self.subnetHash_securityKey.setEntry(value:randomString, forKey:name, tx:someTrans)
+            try! self.subnetHash_securityKey.setEntry(value:randomString, forKey:name, tx:someTrans)
             return (suggestedSubnet, randomString)
         }
     }

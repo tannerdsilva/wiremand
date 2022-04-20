@@ -223,7 +223,7 @@ struct WiremanD {
                 try await CertbotExecute.acquireSSL(domain: domainName.lowercased())
                 try NginxExecutor.install(domain: domainName.lowercased())
                 try await NginxExecutor.reload()
-                let (newSubnet, newSK) = try wgDB.subnetMake(name: domainName.lowercased())
+                let (newSubnet, newSK) = try! wgDB.subnetMake(name: domainName.lowercased())
                 let domainHash = try WiremanD.hash(domain:domainName)
                 print("created domain \(domainName)")
                 print("\t->sk: \(newSK)")
