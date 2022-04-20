@@ -18,6 +18,10 @@ struct WiremanD {
     static func getCurrentDatabasePath() -> URL {
         return URL(fileURLWithPath:String(cString:getpwuid(getuid())!.pointee.pw_dir))
     }
+    static func hash(domain:String) throws -> String {
+        let domainData = domain.lowercased().data(using:.utf8)!
+        return try Blake2bHasher.hash(data:domainData, length:64).base64EncodedString()
+    }
 
     static func main() async throws {
         await AsyncGroup {
@@ -195,8 +199,8 @@ struct WiremanD {
                 // write the upstream config
                 let nginxUpstreams = try FileDescriptor.open("/etc/nginx/conf.d/upstreams.conf", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWrite, .groupRead, .otherRead])
                 try nginxUpstreams.closeAfter({
-                    var buildUpstream = "upstream wiremandv4 {\n\tserver 127.0.0.1:8080;\n}\nupstream wiremandv6 {\n\tserver [::1]:8080;\n}\n"
-                    try nginxUpstreams.writeAll(buildUpstream.utf8)
+                    let buildUpstream = "upstream wiremandv4 {\n\tserver 127.0.0.1:8080;\n}\nupstream wiremandv6 {\n\tserver [::1]:8080;\n}\n"
+                    _ = try nginxUpstreams.writeAll(buildUpstream.utf8)
                 })
      
                 let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
@@ -220,7 +224,7 @@ struct WiremanD {
                 try NginxExecutor.install(domain: domainName.lowercased())
                 try await NginxExecutor.reload()
                 let (newSubnet, newSK) = try wgDB.subnetMake(name: domainName.lowercased())
-                let domainHash = try Blake2bHasher.hash(data:Data(domainName.lowercased().utf8), length:64).base64EncodedString()
+                let domainHash = try WiremanD.hash(subnet:domainName)
                 print("created domain \(domainName)")
                 print("\t->sk: \(newSK)")
                 print("\t->dk: \(domainHash)")

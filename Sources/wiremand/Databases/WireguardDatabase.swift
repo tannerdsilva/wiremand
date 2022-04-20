@@ -87,8 +87,8 @@ class WireguardDatabase {
         ///Maps a given subnet CIDR to its respective subnet name
         case networkV6_subnetName = "networkV6_subnetName" //NetworkV6:String
         
-        ///Maps a given subnet to its respective security key
-        case subnetName_securityKey = "subnetName_securityKey" //String:String
+        ///Maps a given subnet name hash to its respective security key
+        case subnetHash_securityKey = "subnetHash_securityKey" //String:String
     }
     // basics
 	let env:Environment
@@ -104,7 +104,7 @@ class WireguardDatabase {
     // subnet info
 	let subnetName_networkV6:Database
     let networkV6_subnetName:Database
-    let subnetName_securityKey:Database
+    let subnetHash_securityKey:Database
 	
 	init(directory:URL) throws {
 		let wgDBPath = directory.appendingPathComponent("wireguard-dbi")
@@ -120,7 +120,7 @@ class WireguardDatabase {
 			let clientPub_subnetName = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, tx:someTrans)
 			let subnetName_networkV6 = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, tx:someTrans)
             let networkV6_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, tx:someTrans)
-            let subnetName_securityKey = try makeEnv.openDatabase(named:Databases.subnetName_securityKey.rawValue, tx:someTrans)
+            let subnetName_securityKey = try makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, tx:someTrans)
             return [metadata, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey]
 		}
         self.env = makeEnv
@@ -132,11 +132,11 @@ class WireguardDatabase {
         self.clientPub_subnetName = dbs[5]
         self.subnetName_networkV6 = dbs[6]
         self.networkV6_subnetName = dbs[7]
-        self.subnetName_securityKey = dbs[8]
+        self.subnetHash_securityKey = dbs[8]
 	}
     
     func subnetMake(name:String) throws -> (NetworkV6, String) {
-        let randomBuffer = malloc(32);
+        let randomBuffer = malloc(512);
         defer {
             free(randomBuffer)
         }
@@ -156,14 +156,18 @@ class WireguardDatabase {
             try self.subnetName_networkV6.setEntry(value:suggestedSubnet, forKey:name, tx:someTrans)
             try self.networkV6_subnetName.setEntry(value:name, forKey:suggestedSubnet, tx:someTrans)
             
-            // read 32 bytes of random data from the system
+            // read 512 bytes of random data from the system
             let randomFD = try FileDescriptor.open("/dev/urandom", .readOnly)
             defer {
-                try? randomFD.close()
+                try! randomFD.close()
             }
-            while try randomFD.read(into:UnsafeMutableRawBufferPointer(start:randomBuffer, count:32)) < 32 {}
-            let randomString = Data(bytes:randomBuffer!, count:32).base64EncodedString()
-            try self.subnetName_securityKey.setEntry(value:randomString, forKey:name, tx:someTrans)
+            var totalRead = 0
+            repeat {
+                totalRead += try randomFD.read(into:UnsafeMutableRawBufferPointer(start:randomBuffer!.advanced(by:totalRead), count:512))
+            } while totalRead < 512
+            
+            let randomString = Data(bytes:randomBuffer!, count:64).base64EncodedString()
+            try self.subnetHash_securityKey.setEntry(value:randomString, forKey:name, tx:someTrans)
             return (suggestedSubnet, randomString)
         }
     }

@@ -17,14 +17,8 @@ class PublicHTTPWebServer {
     }
     
     func run() throws {
-//        ipv6Application.router.add("wg_addpeer", method:.POST, responder:wgAPI)
-//        ipv4Application.router.add("wg_addpeer", method:.POST, responder:wgAPI)
-        
         ipv6Application.router.add("wg_makekey", method:.GET, responder:wgAPI)
         ipv4Application.router.add("wg_makekey", method:.GET, responder:wgAPI)
-        
-//        ipv6Application.router.add("wg_updatekey", method:.POST, responder:wgAPI)
-//        ipv4Application.router.add("wg_updatekey", method:.POST, responder:wgAPI)
     }
 }
 
@@ -49,16 +43,14 @@ public class WireguardHTTPHandler:HBResponder {
                 request.logger.error("unable to extract http host and export with .utf8")
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
-            let httpDomainHash = try Blake2bHasher.hash(data:domainData, length:64)
-            let httpDomainHashB64 = httpDomainHash.base64EncodedString()
+            let httpDomainHash = try WiremanD.hash(subnet:domainString)
             
-            // extract the provided domain hash
-            guard paths.count > 1, let inputDomainHashB64 = paths[1].removingPercentEncoding else {
+            guard let securityKey = request.uri.queryParameters["sk"] else {
+                request.logger.error("no security key provided")
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
-            
-            // validate that the http domain hash is the same as the provided domain hash
-            guard httpDomainHashB64 == inputDomainHashB64 else {
+            guard let inputDomainHash = request.uri.queryParameters["dk"] else {
+                request.logger.error("no domain key provided")
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
             
