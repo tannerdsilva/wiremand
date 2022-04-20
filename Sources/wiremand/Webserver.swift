@@ -43,7 +43,7 @@ public class WireguardHTTPHandler:HBResponder {
                 request.logger.error("unable to extract http host and export with .utf8")
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
-            let httpDomainHash = try WiremanD.hash(subnet:domainString)
+            let httpDomainHash = try WiremanD.hash(domain:domainString)
             
             guard let securityKey = request.uri.queryParameters["sk"] else {
                 request.logger.error("no security key provided")

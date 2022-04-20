@@ -224,7 +224,7 @@ struct WiremanD {
                 try NginxExecutor.install(domain: domainName.lowercased())
                 try await NginxExecutor.reload()
                 let (newSubnet, newSK) = try wgDB.subnetMake(name: domainName.lowercased())
-                let domainHash = try WiremanD.hash(subnet:domainName)
+                let domainHash = try WiremanD.hash(domain:domainName)
                 print("created domain \(domainName)")
                 print("\t->sk: \(newSK)")
                 print("\t->dk: \(domainHash)")
