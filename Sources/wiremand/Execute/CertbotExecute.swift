@@ -6,7 +6,7 @@ struct CertbotExecute {
         case unableToAcquireSSL([String], [String])
     }
     static func acquireSSL(domain:String) async throws {
-        let acquireSSL = try await Command(bash:"sudo certbot certonly --webroot -w /var/www/html -n -m tsilva@escalantegolf.com -d \(domain)").runSync()
+        let acquireSSL = try await Command(bash:"sudo certbot certonly --webroot -w /var/www/html -n --agree-tos -m tsilva@escalantegolf.com -d \(domain)").runSync()
         guard acquireSSL.succeeded == true else {
             throw Error.unableToAcquireSSL(acquireSSL.stdout.compactMap({ String(data:$0, encoding:.utf8) }), acquireSSL.stderr.compactMap({ String(data:$0, encoding:.utf8) }))
         }
