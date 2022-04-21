@@ -190,13 +190,18 @@ class WireguardDatabase {
     struct SubnetInfo {
         let name:String
         let network:NetworkV6
+        let securityKey:String
     }
     func allSubnets() throws -> [SubnetInfo] {
         return try env.transact(readOnly:true) { someTrans in
             let subnetNameCursor = try subnetName_networkV6.cursor(tx:someTrans)
+            let securityKeyCursor = try subnetHash_securityKey.cursor(tx:someTrans)
             var buildSubnets = [SubnetInfo]()
             for curKV in subnetNameCursor {
-                buildSubnets.append(SubnetInfo(name:String(curKV.key)!, network:NetworkV6(curKV.value)!))
+                let name = String(curKV.key)!
+                let hashed = try WiremanD.hash(domain:name)
+                let securityKey = String(try securityKeyCursor.getEntry(.set, key:hashed).value)!
+                buildSubnets.append(SubnetInfo(name:name, network:NetworkV6(curKV.value)!, securityKey:securityKey))
             }
             return buildSubnets
         }

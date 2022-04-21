@@ -213,7 +213,7 @@ struct WiremanD {
                 }
             }
             
-            $0.command("make_domain",
+            $0.command("domain_make",
                 Argument<String>("domain", description:"the domain to add to the system")
             ) { domainName in
                 guard getCurrentUser() == "wiremand" else {
@@ -231,7 +231,24 @@ struct WiremanD {
                 print("\t->subnet: \(newSubnet.cidrString)")
             }
             
+            $0.command("domain_list") {
+                guard getCurrentUser() == "wiremand" else {
+                    fatalError("this program must be run as `wiremand` user")
+                }
+                let wgDB = try WireguardDatabase(directory:getCurrentDatabasePath())
+                let allDomains = try wgDB.allSubnets()
+                for curDomain in allDomains {
+                    print("\(curDomain.name)")
+                    print(Colors.Yellow("\t- sk: \(curDomain.securityKey)"))
+                    print(Colors.Cyan("\t- dk: \(try WiremanD.hash(domain:curDomain.name)))"))
+                    print(Colors.dim("\t\t- subnet: \(curDomain.network.cidrString)"))
+                }
+            }
+            
             $0.command("run") {
+                guard getCurrentUser() == "wiremand" else {
+                    fatalError("this function must be run as the wiremand user")
+                }
                 let dbPath = getCurrentDatabasePath()
                 let daemonDB = try DaemonDB(directory:dbPath, running:true)
                 let wireguardDB = try WireguardDatabase(directory:dbPath)
