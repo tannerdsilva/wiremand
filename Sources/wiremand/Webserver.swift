@@ -44,9 +44,15 @@ public class WireguardHTTPHandler:HBResponder {
             // parse the paths
             let paths = request.uri.path.split(separator:"/", omittingEmptySubsequences:true)
             
+            guard let domainString = request.uri.host?.lowercased() else {
+                request.logger.error("no host was found in the uri")
+                return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+            }
+            
+            request.logger.info("key request being made for \(domainString)")
+            
             // unpack the domain from the HTTP data
-            guard let domainString = request.uri.host?.lowercased(),
-                  let domainData = domainString.data(using:.utf8) else {
+            guard let domainData = domainString.data(using:.utf8) else {
                 request.logger.error("unable to extract http host and export with .utf8")
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
