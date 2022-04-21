@@ -44,6 +44,8 @@ public class WireguardHTTPHandler:HBResponder {
             // parse the paths
             let paths = request.uri.path.split(separator:"/", omittingEmptySubsequences:true)
             
+            request.logger.info("\(request.uri.string)")
+                                
             guard let domainString = request.uri.host?.lowercased() else {
                 request.logger.error("no host was found in the uri")
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))

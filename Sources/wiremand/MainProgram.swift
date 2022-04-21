@@ -240,7 +240,7 @@ struct WiremanD {
                 for curDomain in allDomains {
                     print("\(curDomain.name)")
                     print(Colors.Yellow("\t- sk: \(curDomain.securityKey)"))
-                    print(Colors.Cyan("\t- dk: \(try WiremanD.hash(domain:curDomain.name)))"))
+                    print(Colors.Cyan("\t- dk: \(try WiremanD.hash(domain:curDomain.name))"))
                     print(Colors.dim("\t\t- subnet: \(curDomain.network.cidrString)"))
                 }
             }
