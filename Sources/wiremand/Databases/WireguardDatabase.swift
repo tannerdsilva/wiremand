@@ -167,7 +167,8 @@ class WireguardDatabase {
             } while totalRead < 512
             
             let randomString = Data(bytes:randomBuffer!, count:64).base64EncodedString()
-            try! self.subnetHash_securityKey.setEntry(value:randomString, forKey:name, tx:someTrans)
+            let domainHash = try WiremanD.hash(domain:name)
+            try! self.subnetHash_securityKey.setEntry(value:randomString, forKey:domainHash, tx:someTrans)
             return (suggestedSubnet, randomString)
         }
     }
