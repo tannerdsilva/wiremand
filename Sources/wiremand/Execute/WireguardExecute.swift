@@ -40,7 +40,7 @@ struct WireguardExecutor {
         mktemp(tempPath)
         let newData = Data(bytes:tempPath!, count:strlen(tempPath!))
         let pathAsString = String(data:newData, encoding:.utf8)!
-        let newFD = FileDescriptor.open(pathAsString, .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute])
+        let newFD = try FileDescriptor.open(pathAsString, .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute])
         _ = try newFD.closeAfter {
             try newFD.writeAll(key.presharedKey.utf8)
         }
