@@ -31,6 +31,7 @@ struct WireguardExecutor {
 	}
     
     static func installNew(key:VPNKey, address:AddressV6, interfaceName:String) async throws {
+        print("sudo wg set \(interfaceName) peer \(key.publicKey) allowed-ips \(address.string)/128 preshared-key \(key.presharedKey)")
         let installKey = try await Command(bash:"sudo wg set \(interfaceName) peer \(key.publicKey) allowed-ips \(address.string)/128 preshared-key \(key.presharedKey)").runSync()
         guard installKey.succeeded == true else {
             throw Error.wireguardCmdError
