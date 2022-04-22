@@ -42,7 +42,7 @@ struct WireguardExecutor {
             try newFD.writeAll(key.presharedKey.utf8)
         }
         defer {
-            remove(tempPath)
+//            remove(tempPath)
         }
         let newData = Data(bytes:tempPath!, count:strlen(tempPath!))
         let pathAsString = String(data:newData, encoding:.utf8)!
