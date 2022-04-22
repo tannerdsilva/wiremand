@@ -36,8 +36,8 @@ struct WireguardExecutor {
         defer {
             free(tempPath)
         }
-        strcpy(tempPath, "/tmp/wg_genkey_XXXXXXXXX");
-        let newFD = FileDescriptor(rawValue:mkstemp(tempPath))
+        strcpy(tempPath!, "/tmp/wg_genkey_XXXXXXXXX");
+        let newFD = FileDescriptor(rawValue:mkstemp(tempPath!))
         _ = try newFD.closeAfter {
             try newFD.writeAll(key.presharedKey.utf8)
         }
