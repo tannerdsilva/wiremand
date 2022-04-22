@@ -49,6 +49,10 @@ struct WireguardExecutor {
         print("sudo wg set \(interfaceName) peer \(key.publicKey) allowed-ips \(address.string)/128 preshared-key \(pathAsString)")
         let installKey = try await Command(bash:"sudo wg set \(interfaceName) peer \(key.publicKey) allowed-ips \(address.string)/128 preshared-key \(key.presharedKey)").runSync()
         guard installKey.succeeded == true else {
+            let stderrLines = installKey.stderr.compactMap({ String(data:$0, encoding:.utf8) })
+            for errLine in stderrLines {
+                print(Colors.Red("\(errLine)"))
+            }
             throw Error.wireguardCmdError
         }
     }
