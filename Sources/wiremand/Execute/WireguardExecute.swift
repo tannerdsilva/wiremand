@@ -37,7 +37,7 @@ struct WireguardExecutor {
             free(tempPath)
         }
         strcpy(tempPath!, "/tmp/wg_genkey_XXXXXXXXX")
-        mktemp(tempPath)
+        mktemp(tempPath!)
         let newData = Data(bytes:tempPath!, count:strlen(tempPath!))
         let pathAsString = String(data:newData, encoding:.utf8)!
         let newFD = try FileDescriptor.open(pathAsString, .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute])
