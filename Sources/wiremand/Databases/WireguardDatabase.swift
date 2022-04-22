@@ -53,13 +53,14 @@ class WireguardDatabase {
 		return try self.metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:tx)!
 	}
     
-    func getWireguardConfigMetas() throws -> (String, UInt16, NetworkV6, String) {
-        return try env.transact(readOnly:true) { someTrans -> (String, UInt16, NetworkV6, String) in
+    func getWireguardConfigMetas() throws -> (String, UInt16, NetworkV6, String, String) {
+        return try env.transact(readOnly:true) { someTrans -> (String, UInt16, NetworkV6, String, String) in
             let getDNSName = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTrans)!
             let getPort = try metadata.getEntry(type:UInt16.self, forKey:Metadatas.wg_serverPublicListenPort.rawValue, tx:someTrans)!
             let ipv6Block = try metadata.getEntry(type:NetworkV6.self, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTrans)!
             let serverPubKey = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:someTrans)!
-            return (getDNSName, getPort, ipv6Block, serverPubKey)
+            let publicInterfaceName = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_primaryInterfaceName.rawValue, tx:someTrans)!
+            return (getDNSName, getPort, ipv6Block, serverPubKey, publicInterfaceName)
         }
     }
 	
