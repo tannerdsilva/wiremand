@@ -37,15 +37,16 @@ struct WireguardExecutor {
             free(tempPath)
         }
         strcpy(tempPath!, "/tmp/wg_genkey_XXXXXXXXX")
-        let newFD = FileDescriptor(rawValue:mkstemp(tempPath!))
+        mktemp(tempPath)
+        let newData = Data(bytes:tempPath!, count:strlen(tempPath!))
+        let pathAsString = String(data:newData, encoding:.utf8)!
+        let newFD = FileDescriptor.open(pathAsString, .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute])
         _ = try newFD.closeAfter {
             try newFD.writeAll(key.presharedKey.utf8)
         }
         defer {
 //            remove(tempPath)
         }
-        let newData = Data(bytes:tempPath!, count:strlen(tempPath!))
-        let pathAsString = String(data:newData, encoding:.utf8)!
         print("sudo wg set \(interfaceName) peer \(key.publicKey) allowed-ips \(address.string)/128 preshared-key \(pathAsString)")
         let installKey = try await Command(bash:"sudo wg set \(interfaceName) peer \(key.publicKey) allowed-ips \(address.string)/128 preshared-key \(key.presharedKey)").runSync()
         guard installKey.succeeded == true else {
