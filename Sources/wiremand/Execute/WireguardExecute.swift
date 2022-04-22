@@ -1,6 +1,7 @@
 import Foundation
 import SwiftSlash
 import AddressKit
+import SystemPackage
 
 struct WireguardExecutor {
 	enum Error:Swift.Error {
@@ -31,7 +32,21 @@ struct WireguardExecutor {
 	}
     
     static func installNew(key:VPNKey, address:AddressV6, interfaceName:String) async throws {
-        print("sudo wg set \(interfaceName) peer \(key.publicKey) allowed-ips \(address.string)/128 preshared-key \(key.presharedKey)")
+        let tempPath = malloc(64);
+        defer {
+            free(tempPath)
+        }
+        strcpy(tempPath, "/tmp/wg_genkey_XXXXXXXXX");
+        let newFD = FileDescriptor(rawValue:mkstemp(tempPath))
+        _ = try newFD.closeAfter {
+            try newFD.writeAll(key.presharedKey.utf8)
+        }
+        defer {
+            remove(tempPath)
+        }
+        let newData = Data(bytes:tempPath!, count:strlen(tempPath!))
+        let pathAsString = String(data:newData, encoding:.utf8)!
+        print("sudo wg set \(interfaceName) peer \(key.publicKey) allowed-ips \(address.string)/128 preshared-key \(pathAsString)")
         let installKey = try await Command(bash:"sudo wg set \(interfaceName) peer \(key.publicKey) allowed-ips \(address.string)/128 preshared-key \(key.presharedKey)").runSync()
         guard installKey.succeeded == true else {
             throw Error.wireguardCmdError
