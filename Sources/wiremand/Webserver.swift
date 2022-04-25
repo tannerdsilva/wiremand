@@ -64,7 +64,7 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
             // validate the security key for the given domain hash in the database
-            guard try wgDatabase.validate(subnetHash:inputDomainHash, securityKey:securityKey) == true else {
+            guard try wgDatabase.validateSecurity(dk:inputDomainHash, sk:securityKey) == true else {
                 request.logger.error("domain + security validation failed")
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
@@ -76,7 +76,7 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
             let keyPromise = request.eventLoop.makePromise(of:HBResponse.self)
             keyPromise.completeWithTask({ [wgdb = wgDatabase] in
                 // we will make the keys on behalf of the client
-                let newKeys = try await WireguardExecutor.generateNewKey()
+                let newKeys = try await WireguardExecutor.generate()
                 
                 let newClientAddress = try wgdb.clientMake(name:keyName, publicKey:newKeys.publicKey, subnet:domainString)
                 
@@ -96,7 +96,7 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
                 var buildBytes = ByteBuffer()
                 buildBytes.writeString(buildKey)
                 
-                try await WireguardExecutor.installNew(key:newKeys, address:newClientAddress, interfaceName:interfaceName)
+                try await WireguardExecutor.install(key:newKeys, address:newClientAddress, interfaceName:interfaceName)
                 return HBResponse(status: .ok, body:.byteBuffer(buildBytes))
             })
             return keyPromise.futureResult

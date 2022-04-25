@@ -13,7 +13,7 @@ struct WireguardExecutor {
 		let presharedKey:String 
 	}
 	
-	static func generateNewKey() async throws -> VPNKey {
+	static func generate() async throws -> VPNKey {
 		let makePriKey = try await Command(bash:"wg genkey").runSync()
 		guard makePriKey.succeeded == true, let privateKey = makePriKey.stdout.compactMap({ String(data:$0, encoding:.utf8) }).first else {
 			throw Error.wireguardCmdError
@@ -31,7 +31,7 @@ struct WireguardExecutor {
 		return VPNKey(privateKey:privateKey, publicKey:publicKey, presharedKey:psk)
 	}
     
-    static func installNew(key:VPNKey, address:AddressV6, interfaceName:String) async throws {
+    static func install(key:VPNKey, address:AddressV6, interfaceName:String) async throws {
         let tempPath = malloc(64);
         defer {
             free(tempPath)
@@ -41,14 +41,21 @@ struct WireguardExecutor {
         let newData = Data(bytes:tempPath!, count:strlen(tempPath!))
         let pathAsString = String(data:newData, encoding:.utf8)!
         let newFD = try FileDescriptor.open(pathAsString, .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute])
-        _ = try newFD.closeAfter {
-            try newFD.writeAll(key.presharedKey.utf8)
-        }
         defer {
             remove(tempPath)
         }
+        _ = try newFD.closeAfter {
+            try newFD.writeAll(key.presharedKey.utf8)
+        }
         let installKey = try await Command(bash:"sudo wg set \(interfaceName) peer \(key.publicKey) allowed-ips \(address.string)/128 preshared-key \(pathAsString)").runSync()
         guard installKey.succeeded == true else {
+            throw Error.wireguardCmdError
+        }
+    }
+    
+    static func uninstall(publicKey:String, interfaceName:String) async throws {
+        let removeKey = try await Command(bash:"sudo wg set \(interfaceName) peer \(publicKey) remove").runSync()
+        guard removeKey.succeeded == true else {
             throw Error.wireguardCmdError
         }
     }

@@ -66,7 +66,7 @@ struct WiremanD {
                 print("generating wireguard keys...")
                 
                 // set up the wireguard interface
-                let newKeys = try await WireguardExecutor.generateNewKey()
+                let newKeys = try await WireguardExecutor.generate()
                 
                 print("writing wireguard configuration...")
                 
@@ -94,11 +94,15 @@ struct WiremanD {
                 try dnsMasqConfFile.closeAfter({
                     var buildConfig = "listen-address=\(ipv6Scope!.address)\n"
                     buildConfig += "interface=\(interfaceName)\n"
+                    buildConfig += "except-interface=lo\n"
                     buildConfig += "bind-interfaces\n"
                     buildConfig += "server=::1\n"
                     buildConfig += "server=127.0.0.1\n"
                     buildConfig += "user=\(installUserName)\n"
                     buildConfig += "group=\(installUserName)\n"
+                    buildConfig += "no-hosts\n"
+                    buildConfig += "addn-hosts=/var/lib/\(installUserName)/hosts-auto\n"
+                    buildConfig += "addn-hosts=/var/lib/\(installUserName)/hosts-manual\n"
                     try dnsMasqConfFile.writeAll(buildConfig.utf8)
                 })
                 
@@ -132,10 +136,6 @@ struct WiremanD {
                 let whichWg = try await Command(bash:"which wg").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
                 let whichWgQuick = try await Command(bash:"which wg-quick").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
                 let whichSystemcCTL = try await Command(bash:"which systemctl").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
-                guard whichWg.count > 0 && whichWg.contains("/") == true && whichWgQuick.count > 0 && whichWgQuick.contains("/") == true else {
-                    print("unable to locate `wg` and `wg-quick`")
-                    exit(9)
-                }
 
                 print("installing soduers modifications for `\(installUserName)` user...")
                 
@@ -207,7 +207,7 @@ struct WiremanD {
                 let daemonDB = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), internalTCPPort_begin: UInt16(tcpPrintPortBegin), internalTCPPort_end: UInt16(tcpPrintPortEnd))
                 let wgDB = try! WireguardDatabase.createDatabase(directory: homeDir, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_serverPublicListenPort: UInt16(wgPort), serverIPv6Block: ipv6Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
                 
-                let ownIt = try await Command(bash: "chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/").runSync()
+                let ownIt = try await Command(bash:"chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/").runSync()
                 guard ownIt.succeeded == true else {
                     fatalError("unable to change ownership of /var/lib/\(installUserName)/ directory")
                 }
@@ -225,7 +225,7 @@ struct WiremanD {
                 try await NginxExecutor.reload()
                 let (newSubnet, newSK) = try! wgDB.subnetMake(name: domainName.lowercased())
                 let domainHash = try WiremanD.hash(domain:domainName)
-                print("created domain \(domainName)")
+                print("[OK] - created domain \(domainName)")
                 print("\t->sk: \(newSK)")
                 print("\t->dk: \(domainHash)")
                 print("\t->subnet: \(newSubnet.cidrString)")
@@ -241,18 +241,57 @@ struct WiremanD {
                     print("\(curDomain.name)")
                     print(Colors.Yellow("\t- sk: \(curDomain.securityKey)"))
                     print(Colors.Cyan("\t- dk: \(try WiremanD.hash(domain:curDomain.name))"))
-                    print(Colors.dim("\t\t- subnet: \(curDomain.network.cidrString)"))
+                    print(Colors.dim("\t- subnet: \(curDomain.network.cidrString)"))
                 }
             }
             
             $0.command("run") {
+                enum Error:Swift.Error {
+                    case handshakeCheckError
+                }
                 guard getCurrentUser() == "wiremand" else {
                     fatalError("this function must be run as the wiremand user")
                 }
                 let dbPath = getCurrentDatabasePath()
                 let daemonDB = try DaemonDB(directory:dbPath, running:true)
-                let wireguardDB = try WireguardDatabase(directory:dbPath)
-                let webserver = try PublicHTTPWebServer(wgDatabase:wireguardDB, port:daemonDB.getPublicHTTPPort())
+                let interfaceName = try daemonDB.wireguardDatabase.primaryInterfaceName()
+                
+                /*let handshakeValidationTask = DBScheduledTask(daemonDB:daemonDB, scheduledTask: .latestWireguardHandshakesCheck, { [interfaceName] in
+                    // run the shell command to check for the handshakes associated with the various public keys
+                    let checkHandshakes = try await Command(bash:"sudo wg show \(interfaceName) latest-handshakes").runSync()
+                    guard checkHandshakes.succeeded == true else {
+                        throw Error.handshakeCheckError
+                    }
+
+                    // interpret the handshake data
+                    // nonzero handhakes will be stored here
+                    var handshakes = [String:Date]()
+                    // zero handshakes will be stored here
+                    var zeros = Set<String>()
+                    for curLine in checkHandshakes.stdout {
+                        // split the data by tabs
+                        let splitLine = curLine.split(separator:9)
+                        // validate the data between the split
+                        guard splitLine.count > 1, let publicKeyString = String(data:splitLine[0], encoding:.utf8), let handshakeTime = String(data:splitLine[1], encoding:.utf8), let asTimeInterval = TimeInterval(handshakeTime) else {
+                            throw Error.handshakeCheckError
+                        }
+
+                        // assign the public key to either the nonzero or zero handshakes variables
+                        if asTimeInterval == 0 {
+                            zeros.update(with:publicKeyString)
+                        } else {
+                            handshakes[publicKeyString] = Date(timeIntervalSince1970:asTimeInterval)
+                        }
+                    }
+
+                    // save the handshake data to the database
+                    let removeDatabase = try daemonDB.wireguardDatabase.processHandshakes(handshakes, zeros:zeros)
+                    for curRemove in removeDatabase {
+                        try? await WireguardExecutor.uninstall(publicKey:curRemove, interfaceName:interfaceName)
+                    }
+                })*/
+                
+                let webserver = try PublicHTTPWebServer(wgDatabase:daemonDB.wireguardDatabase, port:daemonDB.getPublicHTTPPort())
                 try webserver.run()
                 webserver.wait()
                 exit(5)
