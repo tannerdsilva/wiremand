@@ -211,6 +211,8 @@ struct WiremanD {
                 guard ownIt.succeeded == true else {
                     fatalError("unable to change ownership of /var/lib/\(installUserName)/ directory")
                 }
+                
+                print(Colors.Green("[OK] - Installation complete. Please restart this machine."))
             }
             
             $0.command("domain_make",
