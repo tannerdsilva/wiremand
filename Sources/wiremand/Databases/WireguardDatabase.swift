@@ -446,12 +446,14 @@ class WireguardDatabase {
             }
             
             // if there are more keys in the database than were passed into this function, we must remove any of the outstanding keys from the db before returning
-            if try (handshakes.count + zeros.count - removeKeys.count) < clientPub_clientName.getStatistics(tx:someTrans).entries {
+            if try (handshakes.count + zeros.count - removeKeys.count - 1) < clientPub_clientName.getStatistics(tx:someTrans).entries {
                 for curClient in clientAddressCursor {
                     let pubKey = String(curClient.key)!
                     if (handshakes[pubKey] == nil && zeros.contains(pubKey) == false) {
                         // remove the client from the database. this public key does not need to be added to the `removeKeys` because it never existed in the database
-                        try _clientRemove(publicKey:pubKey, tx:someTrans)
+                        do {
+                            try _clientRemove(publicKey:pubKey, tx:someTrans)
+                        } catch Error.immutableClient {}
                     }
                 }
             }
