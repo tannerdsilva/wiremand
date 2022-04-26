@@ -7,16 +7,14 @@ extension Task:MDB_convertible {
         guard MemoryLayout<Self>.stride == value.mv_size else {
             return nil
         }
-        let alignment = MemoryLayout<Self>.alignment
-        self = value.mv_data.load(fromByteOffset:alignment, as:Self.self)
+        self = value.mv_data.bindMemory(to:Self.self, capacity:1).pointee
     }
     
     public init?(noCopy value: MDB_val) {
         guard MemoryLayout<Self>.stride == value.mv_size else {
             return nil
         }
-        let alignment = MemoryLayout<Self>.alignment
-        self = value.mv_data.load(fromByteOffset:alignment, as:Self.self)
+        self = value.mv_data.bindMemory(to:Self.self, capacity:1).pointee
     }
     
     public func asMDB_val<R>(_ valFunc: (inout MDB_val) throws -> R) rethrows -> R {
