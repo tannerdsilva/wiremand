@@ -261,7 +261,7 @@ class WireguardDatabase {
         try self.clientPub_createdOn.setEntry(value:Date(), forKey:publicKey, flags:[.noOverwrite], tx:tx)
         try self.clientPub_subnetName.setEntry(value:subnet, forKey:publicKey, flags:[.noOverwrite], tx:tx)
         
-        try self.subnetName_clientPub.setEntry(value:publicKey, forKey:subnet, flags:[.noOverwrite], tx:tx)
+        try self.subnetName_clientPub.setEntry(value:publicKey, forKey:subnet, tx:tx)
         
         return newAddress
     }
