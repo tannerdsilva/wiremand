@@ -13,6 +13,7 @@ class WireguardDatabase {
 			
 			//make all the databases
 			_ = try makeEnv.openDatabase(named:Databases.clientPub_ipv6.rawValue, flags:[.create], tx:someTransaction)
+			_ = try makeEnv.openDatabase(named:Databases.ipv6_clientPub.rawValue, flags:[.create], tx:someTransaction)
 			_ = try makeEnv.openDatabase(named:Databases.clientPub_clientName.rawValue, flags:[.create], tx:someTransaction)
 			_ = try makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, flags:[.create], tx:someTransaction)
 			_ = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, flags:[.create], tx:someTransaction)
@@ -265,7 +266,7 @@ class WireguardDatabase {
         return newAddress
     }
     func clientMake(name:String, publicKey:String, subnet:String) throws -> AddressV6 {
-        return try env.transact(readOnly:true) { someTrans in
+        return try env.transact(readOnly:false) { someTrans in
             return try _clientMake(name:name, publicKey:publicKey, subnet:subnet, tx:someTrans)
         }
     }
