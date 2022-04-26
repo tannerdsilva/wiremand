@@ -446,7 +446,7 @@ class WireguardDatabase {
             }
             
             // if there are more keys in the database than were passed into this function, we must remove any of the outstanding keys from the db before returning
-            if try (handshakes.count + zeros.count - removeKeys.count - 1) < clientPub_clientName.getStatistics(tx:someTrans).entries {
+            if try (handshakes.count + zeros.count - removeKeys.count) < (clientPub_clientName.getStatistics(tx:someTrans).entries - 1) {
                 for curClient in clientAddressCursor {
                     let pubKey = String(curClient.key)!
                     if (handshakes[pubKey] == nil && zeros.contains(pubKey) == false) {
