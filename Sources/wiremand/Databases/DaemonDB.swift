@@ -4,17 +4,19 @@ import CLMDB
 
 extension Task:MDB_convertible {
     public init?(_ value: MDB_val) {
-        guard MemoryLayout<Task<Success, Failure>>.stride == value.mv_size else {
+        guard MemoryLayout<Self>.stride == value.mv_size else {
             return nil
         }
-        self = value.mv_data.load(as:Task<Success, Failure>.self)
+        let alignment = MemoryLayout<Self>.alignment
+        self = value.mv_data.load(fromByteOffset:alignment, as:Self.self)
     }
     
     public init?(noCopy value: MDB_val) {
-        guard MemoryLayout<Task<Success, Failure>>.stride == value.mv_size else {
+        guard MemoryLayout<Self>.stride == value.mv_size else {
             return nil
         }
-        self = value.mv_data.load(as:Task<Success, Failure>.self)
+        let alignment = MemoryLayout<Self>.alignment
+        self = value.mv_data.load(fromByteOffset:alignment, as:Self.self)
     }
     
     public func asMDB_val<R>(_ valFunc: (inout MDB_val) throws -> R) rethrows -> R {
