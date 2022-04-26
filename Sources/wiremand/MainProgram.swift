@@ -257,7 +257,15 @@ struct WiremanD {
                 let dbPath = getCurrentDatabasePath()
                 let daemonDB = try DaemonDB(directory:dbPath, running:true)
                 let interfaceName = try daemonDB.wireguardDatabase.primaryInterfaceName()
-                
+                try daemonDB.launchSchedule(.latestWireguardHandshakesCheck, interval:2, {
+                    print("this is a test task fire \(Date())")
+                })
+                Task.detached {
+                    try await Task.sleep(nanoseconds: 1000000000 * 12)
+                    print("canceling task")
+                    try daemonDB.cancelSchedule(.latestWireguardHandshakesCheck)
+                    print("canceled task yay")
+                }
                 /*let handshakeValidationTask = DBScheduledTask(daemonDB:daemonDB, scheduledTask: .latestWireguardHandshakesCheck, { [interfaceName] in
                     // run the shell command to check for the handshakes associated with the various public keys
                     let checkHandshakes = try await Command(bash:"sudo wg show \(interfaceName) latest-handshakes").runSync()

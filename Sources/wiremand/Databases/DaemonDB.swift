@@ -41,7 +41,7 @@ class DaemonDB {
     
     enum Databases:String {
         case metadata = "metadataDB"
-        case scheduleTasks = "schedule_tasks" // Schedule:Task
+        case scheduleTasks = "schedule_tasks" // Schedule:Task<(), Swift.Error>
         case scheduleInterval = "schedule_interval" // Schedule:TimeInterval
         case scheduleLastFireDate = "schedule_lastFire" // Schedule:Date?
     }
@@ -92,7 +92,7 @@ class DaemonDB {
                     }
                 } catch LMDBError.notFound {}
                 try metadataDB.setEntry(value:getpid(), forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)
-                
+                try scheduledTasks.deleteAllEntries(tx:someTrans)
             }
             return [metadataDB, scheduledTasks, scheduleIntervalDB, scheduleLastFire]
         }
@@ -125,7 +125,7 @@ class DaemonDB {
                 nextFire = Date()
             }
 
-            let newTask = Task.detached { [mdbEnv = env, intervalDB = scheduleInterval, lastFire = scheduleLastFire, referenceDate = nextFire, initInterval = interval] in
+            let newTask = Task<(), Swift.Error>.detached { [mdbEnv = env, intervalDB = scheduleInterval, lastFire = scheduleLastFire, referenceDate = nextFire, initInterval = interval] in
                 var nextTarget = referenceDate
                 var runningInterval = initInterval
                 while Task.isCancelled == false {
@@ -143,8 +143,17 @@ class DaemonDB {
                     }
                 }
             }
+            
             try self.scheduledTasks.setEntry(value:newTask, forKey:schedule.rawValue, tx:installTaskTrans)
         }
+    }
+    func cancelSchedule(_ schedule:Schedule) throws {
+        do {
+            try env.transact(readOnly:false) { someTrans in
+                let loadTask = try self.scheduledTasks.getEntry(type:Task<(), Swift.Error>.self, forKey:schedule.rawValue, tx:someTrans)!
+                loadTask.cancel()
+            }
+        } catch LMDBError.notFound {}
     }
     
     deinit {
