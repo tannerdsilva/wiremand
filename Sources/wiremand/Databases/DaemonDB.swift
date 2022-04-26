@@ -152,6 +152,7 @@ class DaemonDB {
             try env.transact(readOnly:false) { someTrans in
                 let loadTask = try self.scheduledTasks.getEntry(type:Task<(), Swift.Error>.self, forKey:schedule.rawValue, tx:someTrans)!
                 loadTask.cancel()
+                try self.scheduledTasks.deleteEntry(key:schedule.rawValue, tx:someTrans)
             }
         } catch LMDBError.notFound {}
     }

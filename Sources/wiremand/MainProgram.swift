@@ -257,50 +257,46 @@ struct WiremanD {
                 let dbPath = getCurrentDatabasePath()
                 let daemonDB = try DaemonDB(directory:dbPath, running:true)
                 let interfaceName = try daemonDB.wireguardDatabase.primaryInterfaceName()
-                try daemonDB.launchSchedule(.latestWireguardHandshakesCheck, interval:2, {
-                    print("this is a test task fire \(Date())")
-                })
-                Task.detached {
-                    try await Task.sleep(nanoseconds: 1000000000 * 12)
-                    print("canceling task")
-                    try daemonDB.cancelSchedule(.latestWireguardHandshakesCheck)
-                    print("canceled task yay")
-                }
-                /*let handshakeValidationTask = DBScheduledTask(daemonDB:daemonDB, scheduledTask: .latestWireguardHandshakesCheck, { [interfaceName] in
-                    // run the shell command to check for the handshakes associated with the various public keys
-                    let checkHandshakes = try await Command(bash:"sudo wg show \(interfaceName) latest-handshakes").runSync()
-                    guard checkHandshakes.succeeded == true else {
-                        throw Error.handshakeCheckError
-                    }
-
-                    // interpret the handshake data
-                    // nonzero handhakes will be stored here
-                    var handshakes = [String:Date]()
-                    // zero handshakes will be stored here
-                    var zeros = Set<String>()
-                    for curLine in checkHandshakes.stdout {
-                        // split the data by tabs
-                        let splitLine = curLine.split(separator:9)
-                        // validate the data between the split
-                        guard splitLine.count > 1, let publicKeyString = String(data:splitLine[0], encoding:.utf8), let handshakeTime = String(data:splitLine[1], encoding:.utf8), let asTimeInterval = TimeInterval(handshakeTime) else {
+                try daemonDB.launchSchedule(.latestWireguardHandshakesCheck, interval:2, { [wgdb = daemonDB.wireguardDatabase] in
+                    do {
+                        // run the shell command to check for the handshakes associated with the various public keys
+                        let checkHandshakes = try await Command(bash:"sudo wg show \(interfaceName) latest-handshakes").runSync()
+                        guard checkHandshakes.succeeded == true else {
                             throw Error.handshakeCheckError
                         }
 
-                        // assign the public key to either the nonzero or zero handshakes variables
-                        if asTimeInterval == 0 {
-                            zeros.update(with:publicKeyString)
-                        } else {
-                            handshakes[publicKeyString] = Date(timeIntervalSince1970:asTimeInterval)
-                        }
-                    }
+                        // interpret the handshake data
+                        // nonzero handhakes will be stored here
+                        var handshakes = [String:Date]()
+                        // zero handshakes will be stored here
+                        var zeros = Set<String>()
+                        for curLine in checkHandshakes.stdout {
+                            // split the data by tabs
+                            let splitLine = curLine.split(separator:9)
+                            // validate the data between the split
+                            guard splitLine.count > 1, let publicKeyString = String(data:splitLine[0], encoding:.utf8), let handshakeTime = String(data:splitLine[1], encoding:.utf8), let asTimeInterval = TimeInterval(handshakeTime) else {
+                                throw Error.handshakeCheckError
+                            }
 
-                    // save the handshake data to the database
-                    let removeDatabase = try daemonDB.wireguardDatabase.processHandshakes(handshakes, zeros:zeros)
-                    for curRemove in removeDatabase {
-                        try? await WireguardExecutor.uninstall(publicKey:curRemove, interfaceName:interfaceName)
+                            // assign the public key to either the nonzero or zero handshakes variables
+                            if asTimeInterval == 0 {
+                                zeros.update(with:publicKeyString)
+                            } else {
+                                handshakes[publicKeyString] = Date(timeIntervalSince1970:asTimeInterval)
+                            }
+                        }
+                        print("found \(handshakes.count) handshakes and \(zeros.count) zeros")
+                        // save the handshake data to the database
+                        let removeDatabase = try wgdb.processHandshakes(handshakes, zeros:zeros)
+                        for curRemove in removeDatabase {
+                            print("removing \(curRemove)")
+                            try? await WireguardExecutor.uninstall(publicKey:curRemove, interfaceName:interfaceName)
+                        }
+                    } catch let error {
+                        print("task error: \(error)")
                     }
-                })*/
-                
+                })
+
                 let webserver = try PublicHTTPWebServer(wgDatabase:daemonDB.wireguardDatabase, port:daemonDB.getPublicHTTPPort())
                 try webserver.run()
                 webserver.wait()
