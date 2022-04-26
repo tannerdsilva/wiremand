@@ -4,6 +4,13 @@ import Foundation
 import SystemPackage
 
 class WireguardDatabase {
+    enum Error:Swift.Error {
+        case immutableClient
+    }
+    fileprivate static func hash(clientName:String) throws -> Data {
+        let stringData = Data(clientName.utf8)
+        return try Blake2bHasher.hash(data:stringData, length:32)
+    }
     static func createDatabase(directory:URL, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, publicKey:String, defaultSubnetMask:UInt8, noHandshakeInvalidationInterval:TimeInterval = 900, handshakeInvalidationInterval:TimeInterval = 2629800) throws {
 		let wgDBPath = directory.appendingPathComponent("wireguard-dbi")
 		let makeEnv = try Environment(path:wgDBPath.path, flags:[.noSubDir], mapSize:4000000000, maxReaders:128, maxDBs:32)
@@ -12,16 +19,35 @@ class WireguardDatabase {
 			let metadataDB = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTransaction)
 			
 			//make all the databases
-			_ = try makeEnv.openDatabase(named:Databases.clientPub_ipv6.rawValue, flags:[.create], tx:someTransaction)
-			_ = try makeEnv.openDatabase(named:Databases.ipv6_clientPub.rawValue, flags:[.create], tx:someTransaction)
-			_ = try makeEnv.openDatabase(named:Databases.clientPub_clientName.rawValue, flags:[.create], tx:someTransaction)
-			_ = try makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, flags:[.create], tx:someTransaction)
-			_ = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, flags:[.create], tx:someTransaction)
+			let pub_ip6 = try makeEnv.openDatabase(named:Databases.clientPub_ipv6.rawValue, flags:[.create], tx:someTransaction)
+			let ip6_pub = try makeEnv.openDatabase(named:Databases.ipv6_clientPub.rawValue, flags:[.create], tx:someTransaction)
+			let pub_name = try makeEnv.openDatabase(named:Databases.clientPub_clientName.rawValue, flags:[.create], tx:someTransaction)
+			let pub_create = try makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, flags:[.create], tx:someTransaction)
+			let pub_subname = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, flags:[.create], tx:someTransaction)
             _ = try makeEnv.openDatabase(named:Databases.clientPub_handshakeDate.rawValue, flags:[.create], tx:someTransaction)
-			_ = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, flags:[.create], tx:someTransaction)
-            _ = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[.create], tx:someTransaction)
+			let subnetName_network = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, flags:[.create], tx:someTransaction)
+            let network_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[.create], tx:someTransaction)
             _ = try makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, flags:[.create], tx:someTransaction)
-            _ = try makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.create, .dupSort], tx:someTransaction)
+            let subnetName_clientPub = try makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.create, .dupSort], tx:someTransaction)
+            let subnetName_clientNameHash = try makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.create, .dupSort], tx:someTransaction)
+            
+            //install subnet and client info into this database. subnet is the wireguard public domain name, client name is 'localhost'
+            let myClientName = "localhost"
+            let myAddress = serverIPv6Block.address
+            let mySubnet = NetworkV6(myAddress.string + "/\(defaultSubnetMask)")!.maskingAddress()
+            let mySubnetName = wg_serverPublicDomainName
+            
+            try pub_ip6.setEntry(value:myAddress, forKey:publicKey, tx:someTransaction)
+            try ip6_pub.setEntry(value:publicKey, forKey:myAddress, tx:someTransaction)
+            try pub_name.setEntry(value:myClientName, forKey:publicKey, tx:someTransaction)
+            try pub_create.setEntry(value:Date(), forKey:publicKey, tx:someTransaction)
+            try pub_subname.setEntry(value:mySubnetName, forKey:publicKey, tx:someTransaction)
+            
+            try subnetName_network.setEntry(value:mySubnet, forKey:mySubnetName, tx:someTransaction)
+            try network_subnetName.setEntry(value:mySubnetName, forKey:mySubnet, tx:someTransaction)
+            
+            try subnetName_clientPub.setEntry(value:publicKey, forKey:mySubnetName, tx:someTransaction)
+            try subnetName_clientNameHash.setEntry(value:try Self.hash(clientName:myClientName), forKey:mySubnetName, tx:someTransaction)
             
 			//assign required metadata values
 			try metadataDB.setEntry(value:wg_primaryInterfaceName, forKey:Metadatas.wg_primaryInterfaceName.rawValue, tx:someTransaction)
@@ -100,10 +126,14 @@ class WireguardDatabase {
         case networkV6_subnetName = "networkV6_subnetName" //NetworkV6:String
         
         ///Maps a given subnet name hash to its respective security key
-        case subnetHash_securityKey = "subnetHash_securityKey" //String:String
+        /// - not specified on subnets that do not have the public api activated
+        case subnetHash_securityKey = "subnetHash_securityKey" //String:String?
         
         ///Maps a given subnet name to the various public keys that it encompasses
-        case subnetName_clientPub = "subnetName_clientPub"
+        case subnetName_clientPub = "subnetName_clientPub" //String:String
+        
+        ///Maps a given subnet name to the various client name that reside within it. This prevents name conflicts
+        case subnetName_clientNameHash = "subnetName_clientNameHash" //String:Data
     }
     
     // basics
@@ -122,7 +152,10 @@ class WireguardDatabase {
 	let subnetName_networkV6:Database
     let networkV6_subnetName:Database
     let subnetHash_securityKey:Database
+    
+    // subnet + client info
     let subnetName_clientPub:Database
+    let subnetName_clientNameHash:Database
 	
 	init(directory:URL) throws {
 		let wgDBPath = directory.appendingPathComponent("wireguard-dbi")
@@ -141,7 +174,8 @@ class WireguardDatabase {
             let networkV6_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[], tx:someTrans)
             let subnetName_securityKey = try makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, flags:[], tx:someTrans)
             let subnetName_clientPub = try makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.dupSort], tx:someTrans)
-            return [metadata, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub]
+            let subnetName_clientNameHash = try makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.dupSort], tx:someTrans)
+            return [metadata, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub, subnetName_clientNameHash]
 		}
         self.env = makeEnv
         self.metadata = dbs[0]
@@ -155,13 +189,14 @@ class WireguardDatabase {
         self.networkV6_subnetName = dbs[8]
         self.subnetHash_securityKey = dbs[9]
         self.subnetName_clientPub = dbs[10]
+        self.subnetName_clientNameHash = dbs[11]
 	}
     
     // make a subnet
     struct SubnetInfo {
         let name:String
         let network:NetworkV6
-        let securityKey:String
+        let securityKey:String?
     }
     func subnetMake(name:String) throws -> (NetworkV6, String) {
         let randomBuffer = malloc(512);
@@ -170,33 +205,33 @@ class WireguardDatabase {
         }
         return try env.transact(readOnly:false) { someTrans in
             // get the default subnet mask size
-            let maskNumber = try! self.metadata.getEntry(type:UInt8.self, forKey:Metadatas.wg_defaultSubnetMask.rawValue, tx:someTrans)!
+            let maskNumber = try self.metadata.getEntry(type:UInt8.self, forKey:Metadatas.wg_defaultSubnetMask.rawValue, tx:someTrans)!
             // get the servers ipv6 block
-            let ipv6Block = try! self.metadata.getEntry(type:NetworkV6.self, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTrans)!
-            
+            let ipv6Block = try self.metadata.getEntry(type:NetworkV6.self, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTrans)!
+
             // find a vacant subnet (subnet cannot already exist and subnet cannot overlap with the servers own internal IPv6 address)
             var suggestedSubnet:NetworkV6
             repeat {
                 suggestedSubnet = NetworkV6(cidr:ipv6Block.range.randomAddress().string + "/\(maskNumber)")!.maskingAddress()
-            } while try! self.networkV6_subnetName.containsEntry(key:suggestedSubnet, tx:someTrans) == true && suggestedSubnet.contains(ipv6Block.address)
+            } while try self.networkV6_subnetName.containsEntry(key:suggestedSubnet, tx:someTrans) == true
             
             // write the subnet and name to the database
-            try self.subnetName_networkV6.setEntry(value:suggestedSubnet, forKey:name, tx:someTrans)
-            try self.networkV6_subnetName.setEntry(value:name, forKey:suggestedSubnet, tx:someTrans)
+            try self.subnetName_networkV6.setEntry(value:suggestedSubnet, forKey:name, flags:[.noOverwrite], tx:someTrans)
+            try self.networkV6_subnetName.setEntry(value:name, forKey:suggestedSubnet, flags:[.noOverwrite], tx:someTrans)
             
             // read 512 bytes of random data from the system
-            let randomFD = try! FileDescriptor.open("/dev/urandom", .readOnly)
+            let randomFD = try FileDescriptor.open("/dev/urandom", .readOnly)
             defer {
                 try! randomFD.close()
             }
             var totalRead = 0
             repeat {
-                totalRead += try! randomFD.read(into:UnsafeMutableRawBufferPointer(start:randomBuffer!.advanced(by:totalRead), count:512))
+                totalRead += try randomFD.read(into:UnsafeMutableRawBufferPointer(start:randomBuffer!.advanced(by:totalRead), count:512))
             } while totalRead < 512
             
             let randomString = Data(bytes:randomBuffer!, count:64).base64EncodedString()
             let domainHash = try WiremanD.hash(domain:name)
-            try! self.subnetHash_securityKey.setEntry(value:randomString, forKey:domainHash, tx:someTrans)
+            try self.subnetHash_securityKey.setEntry(value:randomString, forKey:domainHash, tx:someTrans)
             return (suggestedSubnet, randomString)
         }
     }
@@ -224,7 +259,12 @@ class WireguardDatabase {
             for curKV in subnetNameCursor {
                 let name = String(curKV.key)!
                 let hashed = try WiremanD.hash(domain:name)
-                let securityKey = String(try securityKeyCursor.getEntry(.set, key:hashed).value)!
+                let securityKey:String?
+                do {
+                    securityKey = String(try securityKeyCursor.getEntry(.set, key:hashed).value)!
+                } catch LMDBError.notFound {
+                    securityKey = nil
+                }
                 buildSubnets.append(SubnetInfo(name:name, network:NetworkV6(curKV.value)!, securityKey:securityKey))
             }
             return buildSubnets
@@ -246,13 +286,12 @@ class WireguardDatabase {
     fileprivate func _clientMake(name:String, publicKey:String, subnet:String, tx:Transaction) throws -> AddressV6 {
         // validate the subnet exists by retrieving its network
         let subnetNetwork = try subnetName_networkV6.getEntry(type:NetworkV6.self, forKey:subnet, tx:tx)!
-        let serverInternalIP = try self.metadata.getEntry(type:NetworkV6.self, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:tx)!.address
         
         // find a non-conflicting address
         var newAddress:AddressV6
         repeat {
             newAddress = subnetNetwork.range.randomAddress()
-        } while try self.ipv6_clientPub.containsEntry(key:newAddress, tx:tx) == true && newAddress == serverInternalIP
+        } while try self.ipv6_clientPub.containsEntry(key:newAddress, tx:tx) == true
         
         // write it to the database
         try self.clientPub_ipv6.setEntry(value:newAddress, forKey:publicKey, flags:[.noOverwrite], tx:tx)
@@ -261,7 +300,8 @@ class WireguardDatabase {
         try self.clientPub_createdOn.setEntry(value:Date(), forKey:publicKey, flags:[.noOverwrite], tx:tx)
         try self.clientPub_subnetName.setEntry(value:subnet, forKey:publicKey, flags:[.noOverwrite], tx:tx)
         
-        try self.subnetName_clientPub.setEntry(value:publicKey, forKey:subnet, tx:tx)
+        try self.subnetName_clientPub.setEntry(value:publicKey, forKey:subnet, flags:[.noDupData], tx:tx)
+        try self.subnetName_clientNameHash.setEntry(value:try Self.hash(clientName:name), forKey:subnet, flags:[.noDupData], tx:tx)
         
         return newAddress
     }
@@ -271,19 +311,26 @@ class WireguardDatabase {
         }
     }
     fileprivate func _clientRemove(publicKey:String, tx:Transaction) throws {
+        // validate that our own key is not being removed
+        let myPubKey = try self.metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:tx)!
+        guard publicKey != myPubKey else {
+            throw Error.immutableClient
+        }
         // get the clients address
         let clientAddress = try self.clientPub_ipv6.getEntry(type:AddressV6.self, forKey:publicKey, tx:tx)!
         let clientSubnet = try self.clientPub_subnetName.getEntry(type:String.self, forKey:publicKey, tx:tx)!
+        let clientName = try self.clientPub_clientName.getEntry(type:String.self, forKey:publicKey, tx:tx)!
         
         // with this info we can delete everything else from the database
         try self.clientPub_ipv6.deleteEntry(key:publicKey, tx:tx)
         try self.ipv6_clientPub.deleteEntry(key:clientAddress, tx:tx)
         try self.clientPub_clientName.deleteEntry(key:publicKey, tx:tx)
         try self.clientPub_subnetName.deleteEntry(key:publicKey, tx:tx)
-        try self.subnetName_clientPub.deleteEntry(key:clientSubnet, value:publicKey, tx:tx)
         do {
             try self.clientPub_handshakeDate.deleteEntry(key:publicKey, tx:tx)
         } catch LMDBError.notFound {}
+        try self.subnetName_clientPub.deleteEntry(key:clientSubnet, value:publicKey, tx:tx)
+        try self.subnetName_clientNameHash.deleteEntry(key:clientSubnet, value:try Self.hash(clientName:clientName), tx:tx)
     }
     func clientRemove(publicKey:String, tx:Transaction) throws {
         try env.transact(readOnly:false) { someTrans in

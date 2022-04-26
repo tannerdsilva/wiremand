@@ -105,6 +105,7 @@ class DaemonDB {
     }
     enum Schedule:String {
         case latestWireguardHandshakesCheck = "_wg_latestHandshakesCheck"
+        case certbotRenewalCheck = "_wg_"
     }
     func launchSchedule(_ schedule:Schedule, interval:TimeInterval, _ task:@escaping @Sendable () async -> Void) throws {
         try env.transact(readOnly:false) { installTaskTrans in
@@ -164,6 +165,7 @@ class DaemonDB {
                 let checkPid = try metadata.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
                 if curPID == checkPid {
                     try metadata.deleteEntry(key:checkPid, tx:someTrans)
+                    try scheduledTasks.deleteAllEntries(tx:someTrans)
                 }
             } catch LMDBError.notFound {}
         }
