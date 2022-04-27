@@ -3,6 +3,7 @@ import Commander
 import AddressKit
 import SystemPackage
 import SwiftSlash
+import QuickLMDB
 
 extension NetworkV6 {
     func maskingAddress() -> NetworkV6 {
@@ -253,8 +254,86 @@ struct WiremanD {
             
             $0.command("client_make",
                 Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
-                Option<String?>("name", default:nil, description:"the name of the client that the key will be created for")
-            ) { subnetName, clientName in
+                Option<String?>("name", default:nil, description:"the name of the client that the key will be created for"),
+                Option<String?>("publicKey", default:nil, description:"the public key of the client that is being added"),
+                Flag("noDNS", default:false, description:"do not include DNS information in the configuration")
+            ) { subnetName, clientName, pk, noDNS in
+                guard getCurrentUser() == "wiremand" else {
+                    fatalError("this function must be run as the wiremand user")
+                }
+                let dbPath = getCurrentDatabasePath()
+                let daemonDB = try DaemonDB(directory:dbPath, running:false)
+                
+                var useSubnet:String? = subnetName
+                if (useSubnet == nil || useSubnet!.count == 0) {
+                    print("Please chose a subnet for this client:")
+                    let allSubnets = try daemonDB.wireguardDatabase.allSubnets()
+                    for curSub in allSubnets {
+                        print(Colors.dim("\t-\t\(curSub.name)"))
+                    }
+                    repeat {
+                        print("subnet name: ", terminator:"")
+                        useSubnet = readLine()
+                    } while useSubnet == nil || useSubnet!.count == 0
+                }
+                guard try daemonDB.wireguardDatabase.validateSubnet(name:useSubnet!) == true else {
+                    fatalError("the subnet name '\(useSubnet!)' does not exist")
+                }
+                
+                var useClient:String? = clientName
+                if (useClient == nil || useClient!.count == 0) {
+                    let allClients = try daemonDB.wireguardDatabase.allClients(subnet:useSubnet)
+                    switch allClients.count {
+                        case 0:
+                            print(Colors.Yellow("There are no clients on this subnet yet."))
+                        default:
+                            print(Colors.Yellow("There are \(allClients.count) clients on this subnet:"))
+                            for curClient in allClients {
+                                print(Colors.dim("\t-\t\(curClient.name)"))
+                            }
+                    }
+                    repeat {
+                        print("client name: ", terminator:"")
+                        useClient = readLine()
+                    } while useClient == nil && useClient!.count == 0
+                }
+                guard try daemonDB.wireguardDatabase.validateNewClientName(subnet:useSubnet!, clientName:useClient!) == true else {
+                    fatalError("the client name '\(useClient!)' cannot be used")
+                }
+                
+                // we will make the keys on behalf of the client
+                let newKeys = try await WireguardExecutor.generate()
+                
+                var usePublicKey:String? = pk
+                var usePSK:String = newKeys.presharedKey
+                if (usePublicKey == nil) {
+                    usePublicKey = newKeys.publicKey
+                }
+                
+                let newClientAddress = try daemonDB.wireguardDatabase.clientMake(name:useClient!, publicKey:usePublicKey!, subnet:useSubnet!)
+                
+                let (wg_dns_name, wg_port, wg_internal_network, serverPub, interfaceName) = try daemonDB.wireguardDatabase.getWireguardConfigMetas()
+                
+                var buildKey = "[Interface]\n"
+                if pk == nil {
+                    buildKey += "PrivateKey = " + newKeys.privateKey + "\n"
+                }
+                buildKey += "Address = " + newClientAddress.string + "/128\n"
+                if noDNS == false {
+                    buildKey += "DNS = " + wg_internal_network.address.string + "\n"
+                }
+                buildKey += "[Peer]\n"
+                buildKey += "PublicKey = " + serverPub + "\n"
+                buildKey += "PresharedKey = " + newKeys.presharedKey + "\n"
+                buildKey += "AllowedIPs = " + wg_internal_network.cidrString + "\n"
+                buildKey += "Endpoint = " + wg_dns_name + ":\(wg_port)" + "\n"
+                buildKey += "PersistentKeepalive = 25" + "\n"
+                
+                try await WireguardExecutor.install(publicKey: usePublicKey!, presharedKey: usePSK, address: newClientAddress, interfaceName: interfaceName)
+                let securityKey = try daemonDB.wireguardDatabase.serveConfiguration(buildKey, forPublicKey:usePublicKey!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)
+                let subnetHash = try WiremanD.hash(domain:useSubnet!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)
+                let buildURL = "https://\(useSubnet!)/wg_getkey?dk=\(subnetHash)&sk=\(securityKey)&pk=\(usePublicKey!.addingPercentEncoding(withAllowedCharacters:.alphanumerics))"
+                print("\(buildURL)")
                 exit(5)
                 
             }
@@ -269,7 +348,7 @@ struct WiremanD {
                 let dbPath = getCurrentDatabasePath()
                 let daemonDB = try DaemonDB(directory:dbPath, running:true)
                 let interfaceName = try daemonDB.wireguardDatabase.primaryInterfaceName()
-                try daemonDB.launchSchedule(.latestWireguardHandshakesCheck, interval:2, { [wgdb = daemonDB.wireguardDatabase] in
+                try daemonDB.launchSchedule(.latestWireguardHandshakesCheck, interval:10, { [wgdb = daemonDB.wireguardDatabase] in
                     do {
                         // run the shell command to check for the handshakes associated with the various public keys
                         let checkHandshakes = try await Command(bash:"sudo wg show \(interfaceName) latest-handshakes").runSync()
@@ -297,7 +376,6 @@ struct WiremanD {
                                 handshakes[publicKeyString] = Date(timeIntervalSince1970:asTimeInterval)
                             }
                         }
-                        print("found \(handshakes.count) handshakes and \(zeros.count) zeros")
                         // save the handshake data to the database
                         let removeDatabase = try wgdb.processHandshakes(handshakes, zeros:zeros)
                         for curRemove in removeDatabase {

@@ -50,6 +50,8 @@ class WireguardDatabase {
             let subnetName_clientPub = try makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.create, .dupSort], tx:someTransaction)
             let subnetName_clientNameHash = try makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.create, .dupSort], tx:someTransaction)
             
+            _ = try makeEnv.openDatabase(named:Databases.webServe__clientPub_configData.rawValue, flags:[.create], tx:someTransaction)
+            
             //install subnet and client info into this database. subnet is the wireguard public domain name, client name is 'localhost'
             let myClientName = "localhost"
             let myAddress = serverIPv6Block.address
@@ -154,6 +156,9 @@ class WireguardDatabase {
         
         ///Maps a given subnet name to the various client name that reside within it. This prevents name conflicts
         case subnetName_clientNameHash = "subnetName_clientNameHash" //String:Data
+        
+        ///Maps a given client public key to the config data that may be served
+        case webServe__clientPub_configData = "__webserve_clientPub_configData" //String:String
     }
     
     // basics
@@ -176,7 +181,34 @@ class WireguardDatabase {
     // subnet + client info
     let subnetName_clientPub:Database
     let subnetName_clientNameHash:Database
+    
+    // webserve for configs
+    let webserve__clientPub_configData:Database
 	
+    func serveConfiguration(_ configString:String, forPublicKey publicKey:String) throws -> String {
+        try env.transact(readOnly:false) { someTrans in
+            // validate that the current public key exists
+            let subnetName = try clientPub_subnetName.getEntry(type:String.self, forKey:publicKey, tx:someTrans)!
+
+            // write the data into the webserve databases
+            try webserve__clientPub_configData.setEntry(value:configString, forKey:publicKey, flags:[.noOverwrite], tx:someTrans)
+            
+            // get the subnet security key
+            return try subnetHash_securityKey.getEntry(type:String.self, forKey:try WiremanD.hash(domain:subnetName), tx:someTrans)!
+        }
+    }
+    func getConfiguration(publicKey:String, subnetName:String) throws -> String {
+        try env.transact(readOnly:true) { someTrans in
+            // check the subnet name and validate that it matches
+            let sn = try clientPub_subnetName.getEntry(type:String.self, forKey:publicKey, tx:someTrans)!
+            guard subnetName == sn else {
+                throw LMDBError.notFound
+            }
+            
+            return try self.webserve__clientPub_configData.getEntry(type:String.self, forKey:publicKey, tx:someTrans)!
+        }
+    }
+    
 	init(directory:URL) throws {
 		let wgDBPath = directory.appendingPathComponent("wireguard-dbi")
 		let makeEnv = try Environment(path:wgDBPath.path, flags:[.noSubDir], mapSize:4000000000, maxReaders:128, maxDBs:32)
@@ -195,7 +227,8 @@ class WireguardDatabase {
             let subnetName_securityKey = try makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, flags:[], tx:someTrans)
             let subnetName_clientPub = try makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.dupSort], tx:someTrans)
             let subnetName_clientNameHash = try makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.dupSort], tx:someTrans)
-            return [metadata, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub, subnetName_clientNameHash]
+            let ws_clientPub_configData = try makeEnv.openDatabase(named:Databases.webServe__clientPub_configData.rawValue, flags:[], tx:someTrans)
+            return [metadata, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub, subnetName_clientNameHash, ws_clientPub_configData]
 		}
         self.env = makeEnv
         self.metadata = dbs[0]
@@ -210,6 +243,7 @@ class WireguardDatabase {
         self.subnetHash_securityKey = dbs[9]
         self.subnetName_clientPub = dbs[10]
         self.subnetName_clientNameHash = dbs[11]
+        self.webserve__clientPub_configData = dbs[12]
 	}
     
     // make a subnet
@@ -332,6 +366,9 @@ class WireguardDatabase {
         } catch LMDBError.notFound {}
         try self.subnetName_clientPub.deleteEntry(key:clientSubnet, value:publicKey, tx:tx)
         try self.subnetName_clientNameHash.deleteEntry(key:clientSubnet, value:try Self.hash(clientName:clientName), tx:tx)
+        do {
+            try self.webserve__clientPub_configData.deleteEntry(key:publicKey, tx:tx)
+        } catch LMDBError.notFound {}
     }
     func clientRemove(publicKey:String, tx:Transaction) throws {
         try env.transact(readOnly:false) { someTrans in
@@ -356,8 +393,8 @@ class WireguardDatabase {
         } else {
             // only the clients of a certain subnet are requested
             let subnetNameCursor = try self.subnetName_clientPub.cursor(tx:tx)
-            _ = try subnetNameCursor.getEntry(.set, key:subnet!)
             do {
+                _ = try subnetNameCursor.getEntry(.set, key:subnet!)
                 var operation = Cursor.Operation.firstDup
                 repeat {
                     let getCurrentPub = try subnetNameCursor.getEntry(operation).value
@@ -373,13 +410,31 @@ class WireguardDatabase {
                         break;
                     }
                 } while true
-            } catch LMDBError.notFound {}
+            } catch LMDBError.notFound {
+                if (try self.subnetName_networkV6.containsEntry(key:subnet!, tx:tx) == false) {
+                    throw LMDBError.notFound
+                }
+            }
             return buildClients
         }
     }
     func allClients(subnet:String? = nil) throws -> Set<ClientInfo> {
         try env.transact(readOnly:true) { someTrans in
             return try _allClients(subnet:subnet, tx:someTrans)
+        }
+    }
+    func validateNewClientName(subnet:String, clientName:String) throws -> Bool {
+        try env.transact(readOnly:true) { someTrans -> Bool in
+            if try subnetName_networkV6.containsEntry(key:subnet, tx:someTrans) == true {
+                let nameCursor = try subnetName_clientNameHash.cursor(tx:someTrans)
+                
+                let subnetHash = try WiremanD.hash(domain:subnet)
+                let clientNameHash = try Self.hash(clientName:clientName)
+                if try nameCursor.containsEntry(key:subnetHash, value:clientNameHash) == false {
+                    return true
+                }
+            }
+            return false
         }
     }
     
@@ -417,6 +472,11 @@ class WireguardDatabase {
                     } catch LMDBError.notFound {
                         // assign a handshake value if it cannot be found in the database
                         try clientHandshakeCursor.setEntry(value:curClient.value, forKey:curClient.key)
+                        
+                        // remove a webserve config entry for this user if one exists
+                        do {
+                            try webserve__clientPub_configData.deleteEntry(key:curClient.key, tx:someTrans)
+                        } catch LMDBError.notFound {}
                     }
                 } else {
                     // return the key as unfound if they cannot be found in the database
@@ -447,14 +507,19 @@ class WireguardDatabase {
             }
             
             // if there are more keys in the database than were passed into this function, we must remove any of the outstanding keys from the db before returning
+            // this mechanism only applies to clients that are more than 60 seconds old (since keys are added to the database before they are added to the wireguard interface)
             if try (handshakes.count + zeros.count - removeKeys.count) < (clientPub_clientName.getStatistics(tx:someTrans).entries - 1) {
+                let clientDateCursor = try self.clientPub_createdOn.cursor(tx:someTrans)
                 for curClient in clientAddressCursor {
-                    let pubKey = String(curClient.key)!
-                    if (handshakes[pubKey] == nil && zeros.contains(pubKey) == false) {
-                        // remove the client from the database. this public key does not need to be added to the `removeKeys` because it never existed in the database
-                        do {
-                            try _clientRemove(publicKey:pubKey, tx:someTrans)
-                        } catch Error.immutableClient {}
+                    let createDate = Date(try clientDateCursor.getEntry(.set, key:curClient.key).value)!
+                    if (createDate.timeIntervalSinceNow < -60) {
+                        let pubKey = String(curClient.key)!
+                        if (handshakes[pubKey] == nil && zeros.contains(pubKey) == false) {
+                            // remove the client from the database. this public key does not need to be added to the `removeKeys` because it never existed in the wireguard interface
+                            do {
+                                try _clientRemove(publicKey:pubKey, tx:someTrans)
+                            } catch Error.immutableClient {}
+                        }
                     }
                 }
             }
