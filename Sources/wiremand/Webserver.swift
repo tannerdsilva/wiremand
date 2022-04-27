@@ -28,7 +28,20 @@ class PublicHTTPWebServer {
         ipv4Application.wait()
     }
 }
-
+fileprivate struct Wireguard_GetKeyResponder:HBResponder {
+    
+    let wgDatabase:WireguardDatabase
+    
+    init(wg_db:WireguardDatabase) {
+        wgDatabase = wg_db
+    }
+    
+    public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
+        do {
+            return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+        }
+    }
+}
 fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
     let wgDatabase:WireguardDatabase
     let wgServerPort:UInt16

@@ -41,9 +41,9 @@ class DaemonDB {
     
     enum Databases:String {
         case metadata = "metadataDB"
-        case scheduleTasks = "schedule_tasks" // Schedule:Task<(), Swift.Error>
-        case scheduleInterval = "schedule_interval" // Schedule:TimeInterval
-        case scheduleLastFireDate = "schedule_lastFire" // Schedule:Date?
+        case scheduleTasks = "schedule_tasks"				// Schedule:Task<(), Swift.Error>
+        case scheduleInterval = "schedule_interval"			// Schedule:TimeInterval
+        case scheduleLastFireDate = "schedule_lastFire"		// Schedule:Date?
     }
     enum Error:Swift.Error {
         case daemonAlreadyRunning

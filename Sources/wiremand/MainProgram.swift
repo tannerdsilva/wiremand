@@ -212,6 +212,10 @@ struct WiremanD {
                     fatalError("unable to change ownership of /var/lib/\(installUserName)/ directory")
                 }
                 
+                try await CertbotExecute.acquireSSL(domain:endpoint!.lowercased())
+                try NginxExecutor.install(domain:endpoint!.lowercased())
+                try await NginxExecutor.reload()
+                
                 print(Colors.Green("[OK] - Installation complete. Please restart this machine."))
             }
             
@@ -245,6 +249,14 @@ struct WiremanD {
                     print(Colors.Cyan("\t- dk: \(try WiremanD.hash(domain:curDomain.name))"))
                     print(Colors.dim("\t- subnet: \(curDomain.network.cidrString)"))
                 }
+            }
+            
+            $0.command("client_make",
+                Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
+                Option<String?>("name", default:nil, description:"the name of the client that the key will be created for")
+            ) { subnetName, clientName in
+                exit(5)
+                
             }
             
             $0.command("run") {

@@ -11,6 +11,25 @@ class WireguardDatabase {
         let stringData = Data(clientName.utf8)
         return try Blake2bHasher.hash(data:stringData, length:32)
     }
+    fileprivate static func generateRandomData() throws -> Data {
+        // read 512 bytes of random data from the system
+        let randomBuffer = malloc(512);
+        defer {
+            free(randomBuffer)
+        }
+        let randomFD = try FileDescriptor.open("/dev/urandom", .readOnly)
+        defer {
+            close(randomFD.rawValue)
+        }
+        var totalRead = 0
+        repeat {
+            totalRead += try randomFD.read(into:UnsafeMutableRawBufferPointer(start:randomBuffer!.advanced(by:totalRead), count:512))
+        } while totalRead < 512
+        return Data(bytes:randomBuffer!, count:64)
+    }
+    fileprivate static func newSecurityKey() throws -> String {
+        return try Self.generateRandomData().base64EncodedString()
+    }
     static func createDatabase(directory:URL, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, publicKey:String, defaultSubnetMask:UInt8, noHandshakeInvalidationInterval:TimeInterval = 900, handshakeInvalidationInterval:TimeInterval = 2629800) throws {
 		let wgDBPath = directory.appendingPathComponent("wireguard-dbi")
 		let makeEnv = try Environment(path:wgDBPath.path, flags:[.noSubDir], mapSize:4000000000, maxReaders:128, maxDBs:32)
@@ -27,7 +46,7 @@ class WireguardDatabase {
             _ = try makeEnv.openDatabase(named:Databases.clientPub_handshakeDate.rawValue, flags:[.create], tx:someTransaction)
 			let subnetName_network = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, flags:[.create], tx:someTransaction)
             let network_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[.create], tx:someTransaction)
-            _ = try makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, flags:[.create], tx:someTransaction)
+            let subnetHash_securityKey = try makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, flags:[.create], tx:someTransaction)
             let subnetName_clientPub = try makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.create, .dupSort], tx:someTransaction)
             let subnetName_clientNameHash = try makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.create, .dupSort], tx:someTransaction)
             
@@ -36,6 +55,7 @@ class WireguardDatabase {
             let myAddress = serverIPv6Block.address
             let mySubnet = NetworkV6(myAddress.string + "/\(defaultSubnetMask)")!.maskingAddress()
             let mySubnetName = wg_serverPublicDomainName
+            let mySubnetHash = try WiremanD.hash(domain:mySubnetName)
             
             try pub_ip6.setEntry(value:myAddress, forKey:publicKey, tx:someTransaction)
             try ip6_pub.setEntry(value:publicKey, forKey:myAddress, tx:someTransaction)
@@ -45,7 +65,7 @@ class WireguardDatabase {
             
             try subnetName_network.setEntry(value:mySubnet, forKey:mySubnetName, tx:someTransaction)
             try network_subnetName.setEntry(value:mySubnetName, forKey:mySubnet, tx:someTransaction)
-            
+            try subnetHash_securityKey.setEntry(value:try newSecurityKey(), forKey:mySubnetHash, tx:someTransaction)
             try subnetName_clientPub.setEntry(value:publicKey, forKey:mySubnetName, tx:someTransaction)
             try subnetName_clientNameHash.setEntry(value:try Self.hash(clientName:myClientName), forKey:mySubnetName, tx:someTransaction)
             
@@ -127,7 +147,7 @@ class WireguardDatabase {
         
         ///Maps a given subnet name hash to its respective security key
         /// - not specified on subnets that do not have the public api activated
-        case subnetHash_securityKey = "subnetHash_securityKey" //String:String?
+        case subnetHash_securityKey = "subnetHash_securityKey" //String:String
         
         ///Maps a given subnet name to the various public keys that it encompasses
         case subnetName_clientPub = "subnetName_clientPub" //String:String
@@ -196,13 +216,9 @@ class WireguardDatabase {
     struct SubnetInfo {
         let name:String
         let network:NetworkV6
-        let securityKey:String?
+        let securityKey:String
     }
     func subnetMake(name:String) throws -> (NetworkV6, String) {
-        let randomBuffer = malloc(512);
-        defer {
-            free(randomBuffer)
-        }
         return try env.transact(readOnly:false) { someTrans in
             // get the default subnet mask size
             let maskNumber = try self.metadata.getEntry(type:UInt8.self, forKey:Metadatas.wg_defaultSubnetMask.rawValue, tx:someTrans)!
@@ -219,17 +235,7 @@ class WireguardDatabase {
             try self.subnetName_networkV6.setEntry(value:suggestedSubnet, forKey:name, flags:[.noOverwrite], tx:someTrans)
             try self.networkV6_subnetName.setEntry(value:name, forKey:suggestedSubnet, flags:[.noOverwrite], tx:someTrans)
             
-            // read 512 bytes of random data from the system
-            let randomFD = try FileDescriptor.open("/dev/urandom", .readOnly)
-            defer {
-                try! randomFD.close()
-            }
-            var totalRead = 0
-            repeat {
-                totalRead += try randomFD.read(into:UnsafeMutableRawBufferPointer(start:randomBuffer!.advanced(by:totalRead), count:512))
-            } while totalRead < 512
-            
-            let randomString = Data(bytes:randomBuffer!, count:64).base64EncodedString()
+            let randomString = try Self.newSecurityKey()
             let domainHash = try WiremanD.hash(domain:name)
             try self.subnetHash_securityKey.setEntry(value:randomString, forKey:domainHash, tx:someTrans)
             return (suggestedSubnet, randomString)
@@ -259,12 +265,7 @@ class WireguardDatabase {
             for curKV in subnetNameCursor {
                 let name = String(curKV.key)!
                 let hashed = try WiremanD.hash(domain:name)
-                let securityKey:String?
-                do {
-                    securityKey = String(try securityKeyCursor.getEntry(.set, key:hashed).value)!
-                } catch LMDBError.notFound {
-                    securityKey = nil
-                }
+                let securityKey:String = String(try securityKeyCursor.getEntry(.set, key:hashed).value)!
                 buildSubnets.append(SubnetInfo(name:name, network:NetworkV6(curKV.value)!, securityKey:securityKey))
             }
             return buildSubnets
