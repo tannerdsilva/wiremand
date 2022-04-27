@@ -330,9 +330,9 @@ struct WiremanD {
                 buildKey += "PersistentKeepalive = 25" + "\n"
                 
                 try await WireguardExecutor.install(publicKey: usePublicKey!, presharedKey: usePSK, address: newClientAddress, interfaceName: interfaceName)
-                let securityKey = try daemonDB.wireguardDatabase.serveConfiguration(buildKey, forPublicKey:usePublicKey!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)
-                let subnetHash = try WiremanD.hash(domain:useSubnet!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)
-                let buildURL = "https://\(useSubnet!)/wg_getkey?dk=\(subnetHash)&sk=\(securityKey)&pk=\(usePublicKey!.addingPercentEncoding(withAllowedCharacters:.alphanumerics))"
+                let securityKey = try daemonDB.wireguardDatabase.serveConfiguration(buildKey, forPublicKey:usePublicKey!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)!
+                let subnetHash = try WiremanD.hash(domain:useSubnet!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)!
+                let buildURL = "https://\(useSubnet!)/wg_getkey?dk=\(subnetHash)&sk=\(securityKey)&pk=\(usePublicKey!.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)"
                 print("\(buildURL)")
                 exit(5)
                 
