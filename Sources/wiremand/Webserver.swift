@@ -1,5 +1,6 @@
 import Foundation
 import Hummingbird
+import NIOFoundationCompat
 
 class PublicHTTPWebServer {
     let ipv4Application:HBApplication
