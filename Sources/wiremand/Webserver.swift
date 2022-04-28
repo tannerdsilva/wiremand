@@ -39,8 +39,18 @@ class PublicHTTPWebServer {
 fileprivate struct PrintServer:HBResponder {
     
     public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
-        request.logger.info("printer is being queried")
-        return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+        do {
+            request.logger.info("printer is being queried", metadata:["request": "\(request)"])
+            guard let requestData = request.body.buffer else {
+                return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+            }
+            let parsed = try JSONSerialization.jsonObject(with:requestData)
+            print(parsed)
+            return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+        } catch let error {
+            request.logger.error("error thrown - \(error)")
+            return request.eventLoop.makeFailedFuture(error)
+        }
     }
 }
 
