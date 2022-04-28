@@ -24,7 +24,8 @@ class PublicHTTPWebServer {
         ipv4Application.router.add("wg_makekey", method:.GET, responder:wgAPI)
         ipv6Application.router.add("wg_getkey", method:.GET, responder:wgGetKey)
         ipv4Application.router.add("wg_getkey", method:.GET, responder:wgGetKey)
-        
+        ipv6Application.router.add("*", method:.POST, responder:PrintServer())
+        ipv4Application.router.add("*", method:.POST, responder:PrintServer())
         try ipv4Application.start()
         try ipv6Application.start()
     }
@@ -34,6 +35,15 @@ class PublicHTTPWebServer {
         ipv4Application.wait()
     }
 }
+
+fileprivate struct PrintServer:HBResponder {
+    
+    public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
+        request.logger.info("printer is being queried")
+        return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+    }
+}
+
 fileprivate struct Wireguard_GetKeyResponder:HBResponder {
     
     let wgDatabase:WireguardDatabase
