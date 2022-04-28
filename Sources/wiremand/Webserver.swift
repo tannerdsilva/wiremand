@@ -25,8 +25,8 @@ class PublicHTTPWebServer {
         ipv4Application.router.add("wg_makekey", method:.GET, responder:wgAPI)
         ipv6Application.router.add("wg_getkey", method:.GET, responder:wgGetKey)
         ipv4Application.router.add("wg_getkey", method:.GET, responder:wgGetKey)
-        ipv6Application.router.add("*", method:.POST, responder:PrintServer())
-        ipv4Application.router.add("*", method:.POST, responder:PrintServer())
+        ipv6Application.router.add("*", method:.POST, responder:PrinterPoll())
+        ipv4Application.router.add("*", method:.POST, responder:PrinterPoll())
         try ipv4Application.start()
         try ipv6Application.start()
     }
@@ -37,14 +37,29 @@ class PublicHTTPWebServer {
     }
 }
 
-fileprivate struct PrintServer:HBResponder {
+fileprivate struct PrinterPoll:HBResponder {
+    struct Event:Decodable {
+        let remote_address:String
+        let domain:String
+        let date:Date
+        let status:String
+        let mac:String
+        let serialData:String
+    }
+    
+    struct Response:Encodable {
+        let jobReady:Bool
+        let mediaTypes = ["plain/text"]
+        let jobToken:String?
+    }
     public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
         do {
             guard let requestData = request.body.buffer else {
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
             let parsed = try JSONSerialization.jsonObject(with:requestData)
-            print(request.headers)
+            print(Colors.Yellow("\(request.headers)"))
+            print(Colors.Cyan("\(parsed)"))
             return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
         } catch let error {
             request.logger.error("error thrown - \(error)")
