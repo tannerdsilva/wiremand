@@ -54,9 +54,15 @@ fileprivate struct PrinterPoll:HBResponder {
     }
     public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
         do {
+            // check which domain the user is requesting from
+            guard let domainString = request.headers["Host"].first?.lowercased() else {
+                request.logger.error("no host was found in the uri")
+                return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+            }
+            
             guard let authorization = request.headers["Authorization"].first else {
                 request.logger.error("unauthorized request was made to /printer")
-                return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized))
+                return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized, headers:HTTPHeaders([("WWW-Authenticate", "Basic realm=\"\(domainString)\"")])))
             }
             guard let requestData = request.body.buffer else {
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
@@ -119,9 +125,9 @@ fileprivate struct Wireguard_GetKeyResponder:HBResponder {
             let config = try wgDatabase.getConfiguration(publicKey:publicKey, subnetName:domainString)
             
             var writeBuffer = ByteBuffer()
-            writeBuffer.writeString(config)
+            writeBuffer.writeString(config.configuration)
             
-            var newResponse = HBResponse(status:.ok, headers:HTTPHeaders([("Content-Disposition", "attachment; filename=wiremand.conf;"), ("Content-Type", "text/plain")]), body:.byteBuffer(writeBuffer))
+            var newResponse = HBResponse(status:.ok, headers:HTTPHeaders([("Content-Disposition", "attachment; filename=\(config).conf;"), ("Content-Type", "text/plain")]), body:.byteBuffer(writeBuffer))
             
             return request.eventLoop.makeSucceededFuture(newResponse)
         } catch let error {

@@ -197,15 +197,15 @@ class WireguardDatabase {
             return try subnetHash_securityKey.getEntry(type:String.self, forKey:try WiremanD.hash(domain:subnetName), tx:someTrans)!
         }
     }
-    func getConfiguration(publicKey:String, subnetName:String) throws -> String {
+    func getConfiguration(publicKey:String, subnetName:String) throws -> (configuration:String, name:String) {
         try env.transact(readOnly:true) { someTrans in
             // check the subnet name and validate that it matches
             let sn = try clientPub_subnetName.getEntry(type:String.self, forKey:publicKey, tx:someTrans)!
             guard subnetName == sn else {
                 throw LMDBError.notFound
             }
-            
-            return try self.webserve__clientPub_configData.getEntry(type:String.self, forKey:publicKey, tx:someTrans)!
+            let getName = try clientPub_clientName.getEntry(type:String.self, forKey:publicKey, tx:someTrans)!
+            return (configuration:try self.webserve__clientPub_configData.getEntry(type:String.self, forKey:publicKey, tx:someTrans)!, name:getName)
         }
     }
     
