@@ -44,7 +44,7 @@ fileprivate struct PrintServer:HBResponder {
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
             let parsed = try JSONSerialization.jsonObject(with:requestData)
-            print(request.remoteAddress)
+            print(request.headers)
             return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
         } catch let error {
             request.logger.error("error thrown - \(error)")
