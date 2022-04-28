@@ -54,6 +54,10 @@ fileprivate struct PrinterPoll:HBResponder {
     }
     public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
         do {
+            guard let authorization = request.headers["Authorization"].first else {
+                request.logger.error("unauthorized request was made to /printer")
+                return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized))
+            }
             guard let requestData = request.body.buffer else {
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
