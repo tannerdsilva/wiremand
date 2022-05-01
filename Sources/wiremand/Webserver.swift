@@ -2,22 +2,43 @@ import Foundation
 import Hummingbird
 import NIOFoundationCompat
 
+extension String {
+	fileprivate func makeAuthData() -> PrintDB.AuthData? {
+		guard self.contains(" ") == true else {
+			return nil
+		}
+		let splitSpace = self.split(separator:" ", omittingEmptySubsequences:false)
+		guard splitSpace.count == 2, splitSpace[0] == "Basic", let decodedData = Data(base64Encoded: self), let decodedString = String(data:decodedData, encoding:.utf8), decodedString.contains(":") else {
+			return nil
+		}
+		
+		let splitAuthPlain = decodedString.split(separator:":", omittingEmptySubsequences:false)
+		guard splitAuthPlain.contains(":") == true, splitAuthPlain.count == 2 else {
+			return nil
+		}
+		return PrintDB.AuthData(un:String(splitAuthPlain[0]), pw:String(splitAuthPlain[1]))
+	}
+}
+
 class PublicHTTPWebServer {
     let ipv4Application:HBApplication
     let ipv6Application:HBApplication
     
     fileprivate let wgAPI:Wireguard_MakeKeyResponder
     fileprivate let wgGetKey:Wireguard_GetKeyResponder
-    
-    init(wgDatabase:WireguardDatabase, port:UInt16) throws {
+	fileprivate let pp:PrinterPoll
+	
+	init(wgDatabase:WireguardDatabase, pp:PrintDB, port:UInt16) throws {
         let wgapi = try Wireguard_MakeKeyResponder(wg_db:wgDatabase)
         let wgget = Wireguard_GetKeyResponder(wg_db: wgDatabase)
+		let makePP = PrinterPoll(printDB:pp)
         let v4 = HBApplication(configuration:.init(address:.hostname("127.0.0.1", port:Int(port))))
         let v6 = HBApplication(configuration:.init(address:.hostname("::1", port:Int(port))))
         self.ipv6Application = v6
         self.ipv4Application = v4
         self.wgAPI = wgapi
         self.wgGetKey = wgget
+		self.pp = makePP
     }
     
     func run() throws {
@@ -25,8 +46,8 @@ class PublicHTTPWebServer {
         ipv4Application.router.add("wg_makekey", method:.GET, responder:wgAPI)
         ipv6Application.router.add("wg_getkey", method:.GET, responder:wgGetKey)
         ipv4Application.router.add("wg_getkey", method:.GET, responder:wgGetKey)
-        ipv6Application.router.add("*", method:.POST, responder:PrinterPoll())
-        ipv4Application.router.add("*", method:.POST, responder:PrinterPoll())
+        ipv6Application.router.add("*", method:.POST, responder:pp)
+        ipv4Application.router.add("*", method:.POST, responder:pp)
         try ipv4Application.start()
         try ipv6Application.start()
     }
@@ -38,37 +59,73 @@ class PublicHTTPWebServer {
 }
 
 fileprivate struct PrinterPoll:HBResponder {
-    struct Event:Decodable {
-        let remote_address:String
-        let domain:String
-        let date:Date
-        let status:String
-        let mac:String
-        let serialData:String
-    }
-    
     struct Response:Encodable {
         let jobReady:Bool
         let mediaTypes = ["plain/text"]
         let jobToken:String?
     }
-    public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
+	
+	let printDB:PrintDB
+	
+	public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
+		// check for the remote address
+		guard let remoteAddress = request.headers["X-Real-IP"].first?.lowercased() else {
+			request.logger.error("no remote address was found in this request")
+			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+		}
+		// check which domain the user is requesting from
+		guard let domainString = request.headers["Host"].first?.lowercased() else {
+			request.logger.error("no domain was found in this request", metadata:["remote":"\(remoteAddress)"])
+			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+		}
+		// check for the mac address
+		guard let mac = request.headers["X-Star-Mac"].first?.lowercased() else {
+			request.logger.error("no mac address was found in this request", metadata:["remote":"\(remoteAddress)"])
+			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+		}
         do {
-            // check which domain the user is requesting from
-            guard let domainString = request.headers["Host"].first?.lowercased() else {
-                request.logger.error("no host was found in the uri")
-                return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-            }
-            
-            guard let authorization = request.headers["Authorization"].first else {
-                request.logger.error("unauthorized request was made to /printer")
-                return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized, headers:HTTPHeaders([("WWW-Authenticate", "Basic realm=\"\(domainString)\"")])))
-            }
+			// check for the user agent
+			guard let userAgent = request.headers["User-Agent"].first else {
+				request.logger.error("no user agent was found in this request", metadata:["remote":"\(remoteAddress)"])
+				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+			}
+			// check for the serial number
+			guard let serial = request.headers["X-Star-Serial-Number"].first else {
+				request.logger.error("no serial number was found in this request", metadata:["remote":"\(remoteAddress)"])
+				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+			}
+
+			guard let requestData = request.body.buffer else {
+				request.logger.error("no request body was found", metadata:["remote":"\(remoteAddress)"])
+				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+			}
+			guard let parsed = try JSONSerialization.jsonObject(with:requestData) as? [String:Any], let statusCode = parsed["statusCode"] as? String, let decodeStatusCode = statusCode.removingPercentEncoding else {
+				request.logger.error("unable to parse json body for this request", metadata:["remote":"\(remoteAddress)"])
+				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+			}
+			
+			// mark the date
+			let date = Date()
+			
+			// this is the function that will actually return a useful and accurate response to the printer
+			let authorization = request.headers["Authorization"].first?.makeAuthData()
+			request.logger.info("decoded username and password", metadata:["username":"\(authorization?.un)", "password":"\(authorization?.pw)"])
+			do {
+				let jobCode = try printDB.checkForPrintJobs(mac:mac, ua:userAgent, serial:serial, status:statusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
+			} catch PrintDB.AuthorizationError.unauthorized {
+				request.logger.info("unauthorized printer poll", metadata:["mac": "\(mac)"])
+				return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized))
+			} catch let PrintDB.AuthorizationError.reauthorizationRequired(authRealm) {
+				return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized, headers:HTTPHeaders([("WWW-Authenticate", "Basic realm=\"\(authRealm)\"")])))
+			} catch let PrintDB.AuthorizationError.invalidScope(correctRealm) {
+				request.logger.info("printer is polling incorrect subnet", metadata:["mac": "\(mac)", "currentPollSubnet": "\(domainString)", "correctPollSubnet": "\(correctRealm)"])
+				return request.eventLoop.makeSucceededFuture(HBResponse(status:.forbidden))
+			}
+			
             guard let requestData = request.body.buffer else {
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
-            let parsed = try JSONSerialization.jsonObject(with:requestData)
-            print(Colors.Yellow("\(request.headers)"))
+			print(Colors.Yellow("\(request.headers)"))
             print(Colors.Cyan("\(parsed)"))
             return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
         } catch let error {

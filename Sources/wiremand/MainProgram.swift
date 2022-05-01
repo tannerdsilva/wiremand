@@ -387,7 +387,7 @@ struct WiremanD {
                     }
                 })
 
-                let webserver = try PublicHTTPWebServer(wgDatabase:daemonDB.wireguardDatabase, port:daemonDB.getPublicHTTPPort())
+				let webserver = try PublicHTTPWebServer(wgDatabase:daemonDB.wireguardDatabase, pp:daemonDB.printerDatabase, port:daemonDB.getPublicHTTPPort())
                 try webserver.run()
                 webserver.wait()
                 exit(5)

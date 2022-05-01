@@ -27,12 +27,12 @@ extension Task:MDB_convertible {
 
 class DaemonDB {
     static func create(directory:URL, publicHTTPPort:UInt16, internalTCPPort_begin:UInt16, internalTCPPort_end:UInt16) throws {
-        let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir])
+		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir], mode: [.ownerReadWriteExecute])
         try makeEnv.transact(readOnly:false) { someTrans in
             let metadata = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
-            let scheduledTasks = try makeEnv.openDatabase(named:Databases.scheduleTasks.rawValue, flags:[.create], tx:someTrans)
-            let scheduleInterval = try makeEnv.openDatabase(named:Databases.scheduleInterval.rawValue, flags:[.create], tx:someTrans)
-            let scheduleLastFire = try makeEnv.openDatabase(named:Databases.scheduleLastFireDate.rawValue, flags:[.create], tx:someTrans)
+            _ = try makeEnv.openDatabase(named:Databases.scheduleTasks.rawValue, flags:[.create], tx:someTrans)
+            _ = try makeEnv.openDatabase(named:Databases.scheduleInterval.rawValue, flags:[.create], tx:someTrans)
+            _ = try makeEnv.openDatabase(named:Databases.scheduleLastFireDate.rawValue, flags:[.create], tx:someTrans)
             try metadata.setEntry(value:publicHTTPPort, forKey:Metadatas.daemonPublicListenPort.rawValue, tx:someTrans)
             try metadata.setEntry(value:internalTCPPort_begin, forKey:Metadatas.daemonInternalTCPPort_begin.rawValue, tx:someTrans)
             try metadata.setEntry(value:internalTCPPort_end, forKey:Metadatas.daemonInternalTCPPort_end.rawValue, tx:someTrans)
@@ -75,7 +75,8 @@ class DaemonDB {
     let scheduleLastFire:Database
     
     let wireguardDatabase:WireguardDatabase
-    
+	let printerDatabase:PrintDB
+	
     init(directory:URL, running:Bool = true) throws {
         let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir])
         let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
@@ -102,6 +103,7 @@ class DaemonDB {
         self.scheduleInterval = dbs[2]
         self.scheduleLastFire = dbs[3]
         self.wireguardDatabase = try WireguardDatabase(directory:directory)
+		self.printerDatabase = try PrintDB(directory:directory)
     }
     enum Schedule:String {
         case latestWireguardHandshakesCheck = "_wg_latestHandshakesCheck"
