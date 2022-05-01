@@ -120,44 +120,44 @@ class WireguardDatabase {
     }
 	
     enum Databases:String {
-        case metadata = "wg_metadata_db"
+        case metadata = "wgdb_metadata_db"
         
         ///Maps a client public key to their respective ipv6 address assignment
-        case clientPub_ipv6 = "clientPub_IPv6" //String:AddressV6
+        case clientPub_ipv6 = "wgdb_clientPub_IPv6" //String:AddressV6
         
         ///Maps a client ipv6 address to their public key
-        case ipv6_clientPub = "IPv6_clientPub" //AddressV6:String
+        case ipv6_clientPub = "wgdb_IPv6_clientPub" //AddressV6:String
         
         ///Maps a client public key to their respective client name
-        case clientPub_clientName = "clientPub_clientName" //String:String
+        case clientPub_clientName = "wgdb_clientPub_clientName" //String:String
 
         ///Maps a client public key to their keys respective creation date
-        case clientPub_createdOn = "clientPub_createDate" //String:Date
+        case clientPub_createdOn = "wgdb_clientPub_createDate" //String:Date
         
         ///Maps a client public key to their respective subnet
-        case clientPub_subnetName = "clientPub_subnetName" //String:String
+        case clientPub_subnetName = "wgdb_clientPub_subnetName" //String:String
         
         ///Maps a client public key to their respective handshake date
-        case clientPub_handshakeDate = "clientPub_handshakeDate" //String:Date? (optional value)
+        case clientPub_handshakeDate = "wgdb_clientPub_handshakeDate" //String:Date? (optional value)
         
         ///Maps a given subnet name to its respective IPv6 network
-        case subnetName_networkV6 = "subnetName_networkV6" //String:NetworkV6
+        case subnetName_networkV6 = "wgdb_subnetName_networkV6" //String:NetworkV6
         
         ///Maps a given subnet CIDR to its respective subnet name
-        case networkV6_subnetName = "networkV6_subnetName" //NetworkV6:String
+        case networkV6_subnetName = "wgdb_networkV6_subnetName" //NetworkV6:String
         
         ///Maps a given subnet name hash to its respective security key
         /// - not specified on subnets that do not have the public api activated
-        case subnetHash_securityKey = "subnetHash_securityKey" //String:String
+        case subnetHash_securityKey = "wgdb_subnetHash_securityKey" //String:String
         
         ///Maps a given subnet name to the various public keys that it encompasses
-        case subnetName_clientPub = "subnetName_clientPub" //String:String
+        case subnetName_clientPub = "wgdb_subnetName_clientPub" //String:String
         
         ///Maps a given subnet name to the various client name that reside within it. This prevents name conflicts
-        case subnetName_clientNameHash = "subnetName_clientNameHash" //String:Data
+        case subnetName_clientNameHash = "wgdb_subnetName_clientNameHash" //String:Data
         
         ///Maps a given client public key to the config data that may be served
-        case webServe__clientPub_configData = "__webserve_clientPub_configData" //String:String
+        case webServe__clientPub_configData = "wgdb___webserve_clientPub_configData" //String:String
     }
     
     // basics

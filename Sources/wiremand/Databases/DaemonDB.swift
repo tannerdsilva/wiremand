@@ -27,7 +27,7 @@ extension Task:MDB_convertible {
 
 class DaemonDB {
     static func create(directory:URL, publicHTTPPort:UInt16, internalTCPPort_begin:UInt16, internalTCPPort_end:UInt16) throws -> Environment {
-		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir], mode: [.ownerReadWriteExecute])
+		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir], mapSize:75000000000, maxDBs:64, mode: [.ownerReadWriteExecute])
         try makeEnv.transact(readOnly:false) { someTrans in
             let metadata = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
             _ = try makeEnv.openDatabase(named:Databases.scheduleTasks.rawValue, flags:[.create], tx:someTrans)
@@ -42,9 +42,9 @@ class DaemonDB {
     
     enum Databases:String {
         case metadata = "daemon_metadata_db"
-        case scheduleTasks = "schedule_tasks"				// Schedule:Task<(), Swift.Error>
-        case scheduleInterval = "schedule_interval"			// Schedule:TimeInterval
-        case scheduleLastFireDate = "schedule_lastFire"		// Schedule:Date?
+        case scheduleTasks = "ddb_schedule_tasks"				// Schedule:Task<(), Swift.Error>
+        case scheduleInterval = "ddb_schedule_interval"			// Schedule:TimeInterval
+        case scheduleLastFireDate = "ddb_schedule_lastFire"		// Schedule:Date?
     }
     enum Error:Swift.Error {
         case daemonAlreadyRunning
