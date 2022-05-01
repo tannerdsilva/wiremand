@@ -205,8 +205,8 @@ struct WiremanD {
                 })
      
                 let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
-                let daemonDB = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), internalTCPPort_begin: UInt16(tcpPrintPortBegin), internalTCPPort_end: UInt16(tcpPrintPortEnd))
-                let wgDB = try! WireguardDatabase.createDatabase(directory: homeDir, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_serverPublicListenPort: UInt16(wgPort), serverIPv6Block: ipv6Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
+                let daemonDBEnv = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), internalTCPPort_begin: UInt16(tcpPrintPortBegin), internalTCPPort_end: UInt16(tcpPrintPortEnd))
+				let wgDB = try! WireguardDatabase.createDatabase(environment:daemonDBEnv, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_serverPublicListenPort: UInt16(wgPort), serverIPv6Block: ipv6Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
                 
                 let ownIt = try await Command(bash:"chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/").runSync()
                 guard ownIt.succeeded == true else {
@@ -226,11 +226,11 @@ struct WiremanD {
                 guard getCurrentUser() == "wiremand" else {
                     fatalError("this program must be run as `wiremand` user")
                 }
-                let wgDB = try WireguardDatabase(directory:getCurrentDatabasePath())
+				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
                 try await CertbotExecute.acquireSSL(domain: domainName.lowercased())
                 try NginxExecutor.install(domain: domainName.lowercased())
                 try await NginxExecutor.reload()
-                let (newSubnet, newSK) = try wgDB.subnetMake(name:domainName.lowercased())
+				let (newSubnet, newSK) = try daemonDB.wireguardDatabase.subnetMake(name:domainName.lowercased())
                 let domainHash = try WiremanD.hash(domain:domainName)
                 print("[OK] - created domain \(domainName)")
                 print("\t->sk: \(newSK)")
@@ -242,8 +242,9 @@ struct WiremanD {
                 guard getCurrentUser() == "wiremand" else {
                     fatalError("this program must be run as `wiremand` user")
                 }
-                let wgDB = try WireguardDatabase(directory:getCurrentDatabasePath())
-                let allDomains = try wgDB.allSubnets()
+				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath())
+				let wgDB = daemonDB.wireguardDatabase
+				let allDomains = try wgDB.allSubnets()
                 for curDomain in allDomains {
                     print("\(curDomain.name)")
                     print(Colors.Yellow("\t- sk: \(curDomain.securityKey)"))

@@ -2,7 +2,7 @@ import QuickLMDB
 import Foundation
 import CLMDB
 
-class PrintDB {
+struct PrintDB {
     actor Logger {
         struct Event {
             let date:Date
@@ -180,6 +180,9 @@ class PrintDB {
 	}
 	
 	func authorizeMacAddress(mac:String, subnet:String) throws -> (port:UInt16, username:String, password:String) {
+		defer {
+			try? env.sync()
+		}
 		return try env.transact(readOnly:false) { someTrans in
 			return try _addAuthorizedPrinter(mac:mac, subnet:subnet, tx:someTrans)
 		}
@@ -224,9 +227,8 @@ class PrintDB {
 		let pw:String
 	}
 
-    init(directory:URL) throws {
-		let envPath = directory.appendingPathComponent("print-dbi")
-        let makeEnv = try Environment(path:envPath.path, flags:[.noSubDir, .noSync], maxDBs:24)
+	init(environment:Environment, directory:URL) throws {
+        let makeEnv = environment
         let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
             let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
             let p_m = try makeEnv.openDatabase(named:Databases.tcpPortNumber_mac.rawValue, flags:[.create], tx:someTrans)

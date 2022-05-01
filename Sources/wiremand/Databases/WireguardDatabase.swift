@@ -30,10 +30,9 @@ class WireguardDatabase {
     fileprivate static func newSecurityKey() throws -> String {
         return try Self.generateRandomData().base64EncodedString()
     }
-    static func createDatabase(directory:URL, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, publicKey:String, defaultSubnetMask:UInt8, noHandshakeInvalidationInterval:TimeInterval = 900, handshakeInvalidationInterval:TimeInterval = 2629800) throws {
-		let wgDBPath = directory.appendingPathComponent("wireguard-dbi")
-		let makeEnv = try Environment(path:wgDBPath.path, flags:[.noSubDir], mapSize:4000000000, maxReaders:128, maxDBs:32)
-		
+	static func createDatabase(environment:Environment, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, publicKey:String, defaultSubnetMask:UInt8, noHandshakeInvalidationInterval:TimeInterval = 900, handshakeInvalidationInterval:TimeInterval = 2629800) throws {
+
+		let makeEnv = environment
         try makeEnv.transact(readOnly: false) { someTransaction in
 			let metadataDB = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTransaction)
 			
@@ -209,10 +208,8 @@ class WireguardDatabase {
         }
     }
     
-	init(directory:URL) throws {
-		let wgDBPath = directory.appendingPathComponent("wireguard-dbi")
-		let makeEnv = try Environment(path:wgDBPath.path, flags:[.noSubDir], mapSize:4000000000, maxReaders:128, maxDBs:32)
-		
+	init(environment:Environment) throws {
+		let makeEnv = environment
 		let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
 			// open all the databases
             let metadata = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[], tx:someTrans)
