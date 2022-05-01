@@ -251,6 +251,51 @@ struct WiremanD {
                     print(Colors.dim("\t- subnet: \(curDomain.network.cidrString)"))
                 }
             }
+			
+			$0.command("printer_authorize",
+			   Option<String?>("mac", default:nil, description:"the mac address of the printer to authorized"),
+			   Option<String?>("subnet", default:nil, description:"the subnet name that the printer will be assigned to")
+			) { mac, subnet in
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this function must be run as the wiremand user")
+				}
+				let dbPath = getCurrentDatabasePath()
+				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				
+				// ask for the subnet if needed
+				var useSubnet:String? = subnet
+				if (useSubnet == nil || useSubnet!.count == 0) {
+					print("Please chose a subnet for this printer:")
+					let allSubnets = try daemonDB.wireguardDatabase.allSubnets()
+					for curSub in allSubnets {
+						print(Colors.dim("\t-\t\(curSub.name)"))
+					}
+					repeat {
+						print("subnet name: ", terminator:"")
+						useSubnet = readLine()
+					} while useSubnet == nil || useSubnet!.count == 0
+				}
+				guard try daemonDB.wireguardDatabase.validateSubnet(name:useSubnet!) == true else {
+					fatalError("the subnet name '\(useSubnet!)' does not exist")
+				}
+				
+				var useMac:String? = mac
+				if (useMac == nil || useMac!.count == 0) {
+					print("Please enter a MAC address for this printer:")
+					let allAuthorized = Dictionary(grouping:try daemonDB.printerDatabase.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
+					for curSub in allAuthorized {
+						print(Colors.Yellow("- \(curSub.key)"))
+						for curMac in curSub.value {
+							print(Colors.dim("\t-\t\(curMac)"))
+						}
+					}
+					repeat {
+						print("mac address: ", terminator:"")
+						useMac = readLine()
+					} while useMac == nil || useMac!.count == 0
+				}
+				try daemonDB.printerDatabase.authorizeMacAddress(mac:useMac!.lowercased(), subnet:useSubnet!)
+			}
             
             $0.command("client_make",
                 Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),

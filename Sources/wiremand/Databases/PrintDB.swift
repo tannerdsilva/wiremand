@@ -53,7 +53,6 @@ class PrintDB {
 			self.lastMapResize = Date()
         }
 		
-
         func document(event:Event) throws {
 			if lastMapResize.timeIntervalSinceNow < -86400 {
 				let getSize:size_t = size_t((envPath.getFileSize() ?? 10000000000) + 5000000000)
@@ -147,12 +146,61 @@ class PrintDB {
     let metadata:Database
     
 	// for authorized printers
+	struct AuthorizedPrinter {
+		let mac:String
+		let port:UInt16
+		let username:String
+		let password:String
+		let subnet:String
+	}
     let port_mac:Database
     let mac_port:Database
 	let mac_un:Database
 	let mac_pw:Database
     let mac_subnetName:Database
-    
+	func _addAuthorizedPrinter(mac:String, subnet:String, tx:Transaction) throws -> (port:UInt16, username:String, password:String) {
+		let pw = String.random(length:12, separator:"-")
+		let un = String.random(length:12, separator:"-")
+		let newPort = try tx.transact(readOnly:false) { [pw, un] someTrans -> UInt16 in
+			var newPort:UInt16
+			let getFirstPort = try metadata.getEntry(type:UInt16.self, forKey:Metadatas.startPort.rawValue, tx:someTrans)!
+			let getLastPort = try metadata.getEntry(type:UInt16.self, forKey:Metadatas.endPort.rawValue, tx:someTrans)!
+			repeat {
+				newPort = UInt16.random(in:getFirstPort...getLastPort)
+			} while try self.port_mac.containsEntry(key:newPort, tx:someTrans) == true
+			
+			try port_mac.setEntry(value:mac, forKey:newPort, flags:[.noOverwrite], tx:someTrans)
+			try mac_port.setEntry(value:newPort, forKey:mac, flags:[.noOverwrite], tx:someTrans)
+			try mac_un.setEntry(value:un, forKey:mac, flags:[.noOverwrite], tx:someTrans)
+			try mac_pw.setEntry(value:pw, forKey:mac, flags:[.noOverwrite], tx:someTrans)
+			try mac_subnetName.setEntry(value:subnet, forKey:mac, flags:[.noOverwrite], tx:someTrans)
+			return newPort
+		}
+		return (newPort, un, pw)
+	}
+	
+	func authorizeMacAddress(mac:String, subnet:String) throws -> (port:UInt16, username:String, password:String) {
+		return try env.transact(readOnly:false) { someTrans in
+			return try _addAuthorizedPrinter(mac:mac, subnet:subnet, tx:someTrans)
+		}
+	}
+	
+	func getAuthorizedPrinterInfo() throws -> [AuthorizedPrinter] {
+		return try env.transact(readOnly:true) { someTrans in
+			let port_macCursor = try port_mac.cursor(tx:someTrans)
+			var buildList = [AuthorizedPrinter]()
+			for curMacPort in port_macCursor {
+				let macAddress = String(curMacPort.value)!
+				let portNumber = UInt16(curMacPort.key)!
+				let un = try mac_un.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!
+				let pw = try mac_pw.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!
+				let subnet = try mac_subnetName.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!
+				buildList.append(AuthorizedPrinter(mac:macAddress, port:portNumber, username:un, password:pw, subnet:subnet))
+			}
+			return buildList
+		}
+	}
+	
 	// jobs for authorized printers
     let mac_printJobDate:Database
     let macPrintHash_printJobData:Database
@@ -178,7 +226,7 @@ class PrintDB {
 
     init(directory:URL) throws {
 		let envPath = directory.appendingPathComponent("print-dbi")
-        let makeEnv = try Environment(path:envPath.path, flags:[.noSubDir, .noSync], maxDBs:32)
+        let makeEnv = try Environment(path:envPath.path, flags:[.noSubDir, .noSync], maxDBs:17)
         let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
             let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
             let p_m = try makeEnv.openDatabase(named:Databases.tcpPortNumber_mac.rawValue, flags:[.create], tx:someTrans)
@@ -270,16 +318,14 @@ class PrintDB {
 		})
 	}
 	func _documentSighting(mac:String, ua:String, serial:String, status:String, remoteAddress:String, date:Date, domain:String, auth:AuthData?, tx:Transaction) throws {
-		try tx.transact(readOnly:false) { sightingTrans in
-			try mac_lastSeen.setEntry(value:date, forKey:mac, tx:sightingTrans)
-			try mac_status.setEntry(value:status, forKey:mac, tx:sightingTrans)
-			try mac_userAgent.setEntry(value:ua, forKey:mac, tx:sightingTrans)
-			try mac_callingDomain.setEntry(value:domain, forKey:mac, tx:sightingTrans)
-			if (auth != nil) {
-				try mac_lastUN.setEntry(value:auth!.un, forKey:mac, tx:sightingTrans)
-				try mac_lastPW.setEntry(value:auth!.pw, forKey:mac, tx:sightingTrans)
-				try mac_lastAuthAttempt.setEntry(value:date, forKey:mac, tx:sightingTrans)
-			}
+		try mac_lastSeen.setEntry(value:date, forKey:mac, tx:tx)
+		try mac_status.setEntry(value:status, forKey:mac, tx:tx)
+		try mac_userAgent.setEntry(value:ua, forKey:mac, tx:tx)
+		try mac_callingDomain.setEntry(value:domain, forKey:mac, tx:tx)
+		if (auth != nil) {
+			try mac_lastUN.setEntry(value:auth!.un, forKey:mac, tx:tx)
+			try mac_lastPW.setEntry(value:auth!.pw, forKey:mac, tx:tx)
+			try mac_lastAuthAttempt.setEntry(value:date, forKey:mac, tx:tx)
 		}
 	}
 	enum AuthorizationError:Error {
