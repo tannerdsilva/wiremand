@@ -27,7 +27,7 @@ extension Task:MDB_convertible {
 
 class DaemonDB {
     static func create(directory:URL, publicHTTPPort:UInt16, internalTCPPort_begin:UInt16, internalTCPPort_end:UInt16) throws -> Environment {
-		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir], mapSize:75000000000, maxDBs:64, mode: [.ownerReadWriteExecute])
+		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir], mapSize:75000000000, maxDBs:128, mode: [.ownerReadWriteExecute])
         try makeEnv.transact(readOnly:false) { someTrans in
             let metadata = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
             _ = try makeEnv.openDatabase(named:Databases.scheduleTasks.rawValue, flags:[.create], tx:someTrans)
