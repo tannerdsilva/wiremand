@@ -5,10 +5,12 @@ import NIOFoundationCompat
 extension String {
 	fileprivate func makeAuthData() -> PrintDB.AuthData? {
 		guard self.contains(" ") == true else {
+			print(Colors.Red("\t no space found"))
 			return nil
 		}
 		let splitSpace = self.split(separator:" ", omittingEmptySubsequences:false)
 		guard splitSpace.count == 2, splitSpace[0] == "Basic", let decodedData = Data(base64Encoded: self), let decodedString = String(data:decodedData, encoding:.utf8), decodedString.contains(":") else {
+			print(Colors.Red("\t unable to decode :: \(splitSpace)"))
 			return nil
 		}
 		

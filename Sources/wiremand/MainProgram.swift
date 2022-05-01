@@ -305,7 +305,7 @@ struct WiremanD {
                 let newKeys = try await WireguardExecutor.generate()
                 
                 var usePublicKey:String? = pk
-                var usePSK:String = newKeys.presharedKey
+                let usePSK:String = newKeys.presharedKey
                 if (usePublicKey == nil) {
                     usePublicKey = newKeys.publicKey
                 }
