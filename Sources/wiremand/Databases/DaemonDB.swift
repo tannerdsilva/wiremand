@@ -79,7 +79,7 @@ class DaemonDB {
 	let printerDatabase:PrintDB
 	
     init(directory:URL, running:Bool = true) throws {
-		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir, .noSync], mapSize:75000000000, maxDBs:64)
+		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir, .noSync], mapSize:75000000000, maxDBs:128)
         let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
             let metadataDB = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[], tx:someTrans)
             let scheduledTasks = try makeEnv.openDatabase(named:Databases.scheduleTasks.rawValue, flags:[], tx:someTrans)
