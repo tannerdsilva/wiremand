@@ -16,6 +16,7 @@ extension String {
 		
 		let splitAuthPlain = decodedString.split(separator:":", omittingEmptySubsequences:false)
 		guard splitAuthPlain.contains(":") == true, splitAuthPlain.count == 2 else {
+			print(Colors.Red("\t unable to split"))
 			return nil
 		}
 		return PrintDB.AuthData(un:String(splitAuthPlain[0]), pw:String(splitAuthPlain[1]))
@@ -118,6 +119,7 @@ fileprivate struct PrinterPoll:HBResponder {
 				request.logger.info("unauthorized printer poll", metadata:["mac": "\(mac)"])
 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized))
 			} catch let PrintDB.AuthorizationError.reauthorizationRequired(authRealm) {
+				request.logger.info("requesting requthentication", metadata:["mac": "\(mac)"])
 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized, headers:HTTPHeaders([("WWW-Authenticate", "Basic realm=\"\(authRealm)\"")])))
 			} catch let PrintDB.AuthorizationError.invalidScope(correctRealm) {
 				request.logger.info("printer is polling incorrect subnet", metadata:["mac": "\(mac)", "currentPollSubnet": "\(domainString)", "correctPollSubnet": "\(correctRealm)"])
