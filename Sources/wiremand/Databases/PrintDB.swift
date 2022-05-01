@@ -178,7 +178,7 @@ class PrintDB {
 
     init(directory:URL) throws {
 		let envPath = directory.appendingPathComponent("print-dbi")
-        let makeEnv = try Environment(path:envPath.path, flags:[.noSubDir, .noSync])
+        let makeEnv = try Environment(path:envPath.path, flags:[.noSubDir, .noSync], maxDBs:32)
         let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
             let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
             let p_m = try makeEnv.openDatabase(named:Databases.tcpPortNumber_mac.rawValue, flags:[.create], tx:someTrans)
