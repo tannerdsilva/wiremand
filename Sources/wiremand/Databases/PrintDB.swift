@@ -348,27 +348,27 @@ class PrintDB {
 				throw AuthorizationError.invalidScope(subnetName)
 			}
 			
-			// get the last authorization date
-			let lastAuthorized:Date
-			do {
-				lastAuthorized = try mac_lastAuthenticated.getEntry(type:Date.self, forKey:mac, tx:authCheckTrans)!
-				guard lastAuthorized.timeIntervalSinceNow < -86400 else {
-					throw AuthorizationError.reauthorizationRequired(subnetName)
-				}
-			} catch LMDBError.notFound {
-				throw AuthorizationError.reauthorizationRequired(subnetName)
-			}
-			
-			// if the printer has pending jobs - the authorization requirements will shift into a more frequent interval
-			if try mac_printJobDate.containsEntry(key:mac, tx:authCheckTrans) {
-				// there are print jobs - user must reauthenticate if they haven't within the last hour
-				if lastAuthorized.timeIntervalSinceNow < -3600 {
-					throw AuthorizationError.reauthorizationRequired(subnetName)
-				}
-			}
-			
 			// now we need to actually determine if this printer will be authorized. this happens based on the value of the authorization value
 			if (auth == nil) {
+				// get the last authorization date
+				let lastAuthorized:Date
+				do {
+					lastAuthorized = try mac_lastAuthenticated.getEntry(type:Date.self, forKey:mac, tx:authCheckTrans)!
+					guard lastAuthorized.timeIntervalSinceNow < -86400 else {
+						throw AuthorizationError.reauthorizationRequired(subnetName)
+					}
+				} catch LMDBError.notFound {
+					throw AuthorizationError.reauthorizationRequired(subnetName)
+				}
+				
+				// if the printer has pending jobs - the authorization requirements will shift into a more frequent interval
+				if try mac_printJobDate.containsEntry(key:mac, tx:authCheckTrans) {
+					// there are print jobs - user must reauthenticate if they haven't within the last hour
+					if lastAuthorized.timeIntervalSinceNow < -3600 {
+						throw AuthorizationError.reauthorizationRequired(subnetName)
+					}
+				}
+				
 				// authorization data will need to be trusted from the previous metadata
 				do {
 					let checkSerial = try self.mac_serial.getEntry(type:String.self, forKey:mac, tx:authCheckTrans)!
