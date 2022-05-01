@@ -9,7 +9,7 @@ extension String {
 			return nil
 		}
 		let splitSpace = self.split(separator:" ", omittingEmptySubsequences:false)
-		guard splitSpace.count == 2, splitSpace[0] == "Basic", let decodedData = Data(base64Encoded:splitSpace[1]), let decodedString = String(data:decodedData, encoding:.utf8), decodedString.contains(":") else {
+		guard splitSpace.count == 2, splitSpace[0] == "Basic", let decodedData = Data(base64Encoded:String(splitSpace[1])), let decodedString = String(data:decodedData, encoding:.utf8), decodedString.contains(":") else {
 			print(Colors.Red("\t unable to decode :: \(splitSpace)"))
 			return nil
 		}
