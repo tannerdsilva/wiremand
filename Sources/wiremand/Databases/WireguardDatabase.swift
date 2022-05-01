@@ -34,20 +34,20 @@ class WireguardDatabase {
 
 		let makeEnv = environment
         try makeEnv.transact(readOnly: false) { someTransaction in
-			let metadataDB = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTransaction)
+			let metadataDB = try! makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTransaction)
 			
 			//make all the databases
-			let pub_ip6 = try makeEnv.openDatabase(named:Databases.clientPub_ipv6.rawValue, flags:[.create], tx:someTransaction)
-			let ip6_pub = try makeEnv.openDatabase(named:Databases.ipv6_clientPub.rawValue, flags:[.create], tx:someTransaction)
-			let pub_name = try makeEnv.openDatabase(named:Databases.clientPub_clientName.rawValue, flags:[.create], tx:someTransaction)
-			let pub_create = try makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, flags:[.create], tx:someTransaction)
-			let pub_subname = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, flags:[.create], tx:someTransaction)
+			let pub_ip6 = try! makeEnv.openDatabase(named:Databases.clientPub_ipv6.rawValue, flags:[.create], tx:someTransaction)
+			let ip6_pub = try! makeEnv.openDatabase(named:Databases.ipv6_clientPub.rawValue, flags:[.create], tx:someTransaction)
+			let pub_name = try! makeEnv.openDatabase(named:Databases.clientPub_clientName.rawValue, flags:[.create], tx:someTransaction)
+			let pub_create = try! makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, flags:[.create], tx:someTransaction)
+			let pub_subname = try! makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, flags:[.create], tx:someTransaction)
             _ = try makeEnv.openDatabase(named:Databases.clientPub_handshakeDate.rawValue, flags:[.create], tx:someTransaction)
-			let subnetName_network = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, flags:[.create], tx:someTransaction)
-            let network_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[.create], tx:someTransaction)
-            let subnetHash_securityKey = try makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, flags:[.create], tx:someTransaction)
-            let subnetName_clientPub = try makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.create, .dupSort], tx:someTransaction)
-            let subnetName_clientNameHash = try makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.create, .dupSort], tx:someTransaction)
+			let subnetName_network = try! makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, flags:[.create], tx:someTransaction)
+            let network_subnetName = try! makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[.create], tx:someTransaction)
+            let subnetHash_securityKey = try! makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, flags:[.create], tx:someTransaction)
+            let subnetName_clientPub = try! makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.create, .dupSort], tx:someTransaction)
+            let subnetName_clientNameHash = try! makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.create, .dupSort], tx:someTransaction)
             
             _ = try makeEnv.openDatabase(named:Databases.webServe__clientPub_configData.rawValue, flags:[.create], tx:someTransaction)
             
@@ -56,29 +56,29 @@ class WireguardDatabase {
             let myAddress = serverIPv6Block.address
             let mySubnet = NetworkV6(myAddress.string + "/\(defaultSubnetMask)")!.maskingAddress()
             let mySubnetName = wg_serverPublicDomainName
-            let mySubnetHash = try WiremanD.hash(domain:mySubnetName)
+            let mySubnetHash = try! WiremanD.hash(domain:mySubnetName)
             
-            try pub_ip6.setEntry(value:myAddress, forKey:publicKey, tx:someTransaction)
-            try ip6_pub.setEntry(value:publicKey, forKey:myAddress, tx:someTransaction)
-            try pub_name.setEntry(value:myClientName, forKey:publicKey, tx:someTransaction)
-            try pub_create.setEntry(value:Date(), forKey:publicKey, tx:someTransaction)
-            try pub_subname.setEntry(value:mySubnetName, forKey:publicKey, tx:someTransaction)
+            try! pub_ip6.setEntry(value:myAddress, forKey:publicKey, tx:someTransaction)
+            try! ip6_pub.setEntry(value:publicKey, forKey:myAddress, tx:someTransaction)
+            try! pub_name.setEntry(value:myClientName, forKey:publicKey, tx:someTransaction)
+            try! pub_create.setEntry(value:Date(), forKey:publicKey, tx:someTransaction)
+            try! pub_subname.setEntry(value:mySubnetName, forKey:publicKey, tx:someTransaction)
             
-            try subnetName_network.setEntry(value:mySubnet, forKey:mySubnetName, tx:someTransaction)
-            try network_subnetName.setEntry(value:mySubnetName, forKey:mySubnet, tx:someTransaction)
-            try subnetHash_securityKey.setEntry(value:try newSecurityKey(), forKey:mySubnetHash, tx:someTransaction)
-            try subnetName_clientPub.setEntry(value:publicKey, forKey:mySubnetName, tx:someTransaction)
-            try subnetName_clientNameHash.setEntry(value:try Self.hash(clientName:myClientName), forKey:mySubnetName, tx:someTransaction)
+            try! subnetName_network.setEntry(value:mySubnet, forKey:mySubnetName, tx:someTransaction)
+            try! network_subnetName.setEntry(value:mySubnetName, forKey:mySubnet, tx:someTransaction)
+            try! subnetHash_securityKey.setEntry(value:try! newSecurityKey(), forKey:mySubnetHash, tx:someTransaction)
+            try! subnetName_clientPub.setEntry(value:publicKey, forKey:mySubnetName, tx:someTransaction)
+            try! subnetName_clientNameHash.setEntry(value:try! Self.hash(clientName:myClientName), forKey:mySubnetName, tx:someTransaction)
             
 			//assign required metadata values
-			try metadataDB.setEntry(value:wg_primaryInterfaceName, forKey:Metadatas.wg_primaryInterfaceName.rawValue, tx:someTransaction)
-			try metadataDB.setEntry(value:wg_serverPublicDomainName, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTransaction)
-            try metadataDB.setEntry(value:wg_serverPublicListenPort, forKey:Metadatas.wg_serverPublicListenPort.rawValue, tx:someTransaction)
-			try metadataDB.setEntry(value:serverIPv6Block, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTransaction)
-			try metadataDB.setEntry(value:publicKey, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:someTransaction)
-            try metadataDB.setEntry(value:defaultSubnetMask, forKey:Metadatas.wg_defaultSubnetMask.rawValue, tx:someTransaction)
-            try metadataDB.setEntry(value:noHandshakeInvalidationInterval, forKey:Metadatas.wg_noHandshakeInvalidationInterval.rawValue, tx:someTransaction)
-            try metadataDB.setEntry(value:handshakeInvalidationInterval, forKey:Metadatas.wg_handshakeInvalidationInterval.rawValue, tx:someTransaction)
+			try! metadataDB.setEntry(value:wg_primaryInterfaceName, forKey:Metadatas.wg_primaryInterfaceName.rawValue, tx:someTransaction)
+			try! metadataDB.setEntry(value:wg_serverPublicDomainName, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTransaction)
+            try! metadataDB.setEntry(value:wg_serverPublicListenPort, forKey:Metadatas.wg_serverPublicListenPort.rawValue, tx:someTransaction)
+			try! metadataDB.setEntry(value:serverIPv6Block, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTransaction)
+			try! metadataDB.setEntry(value:publicKey, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:someTransaction)
+            try! metadataDB.setEntry(value:defaultSubnetMask, forKey:Metadatas.wg_defaultSubnetMask.rawValue, tx:someTransaction)
+            try! metadataDB.setEntry(value:noHandshakeInvalidationInterval, forKey:Metadatas.wg_noHandshakeInvalidationInterval.rawValue, tx:someTransaction)
+            try! metadataDB.setEntry(value:handshakeInvalidationInterval, forKey:Metadatas.wg_handshakeInvalidationInterval.rawValue, tx:someTransaction)
 		}
 	}
 	
@@ -120,7 +120,7 @@ class WireguardDatabase {
     }
 	
     enum Databases:String {
-        case metadata = "metadata"
+        case metadata = "wg_metadata_db"
         
         ///Maps a client public key to their respective ipv6 address assignment
         case clientPub_ipv6 = "clientPub_IPv6" //String:AddressV6
