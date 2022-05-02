@@ -393,7 +393,7 @@ struct PrintDB {
 					print(Colors.Red("UN AND PASS DO NOT MATCH"))
 					throw AuthorizationError.unauthorized
 				}
-				
+				print(Colors.Green("AUTHORIZATION MATCHED YAY"))
 				// authorization event just occurred. document the date and refresh the databases that are evaluated for auth caching
 				try self.mac_lastAuthenticated.setEntry(value:date, forKey:mac, tx:authCheckTrans)
 				try self.mac_serial.setEntry(value:serial, forKey:mac, tx:authCheckTrans)
