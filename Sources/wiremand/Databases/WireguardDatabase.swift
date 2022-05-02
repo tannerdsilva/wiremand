@@ -112,6 +112,9 @@ struct WireguardDatabase {
 	func getServerInternalNetwork(_ tx:Transaction? = nil) throws -> NetworkV6 {
 		return try self.metadata.getEntry(type:NetworkV6.self, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:tx)!
 	}
+	func getServerIPv4Network(_ tx:Transaction? = nil) throws -> NetworkV4 {
+		return try self.metadata.getEntry(type:NetworkV4.self, forKey:Metadatas.wg_serverIPv4Block.rawValue, tx:tx)!
+	}
 	func getServerPublicKey(_ tx:Transaction? = nil) throws -> String {
 		return try self.metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:tx)!
 	}
@@ -200,7 +203,6 @@ struct WireguardDatabase {
     
     // webserve for configs
     let webserve__clientPub_configData:Database
-	
     func serveConfiguration(_ configString:String, forPublicKey publicKey:String) throws -> String {
         try env.transact(readOnly:false) { someTrans in
             // validate that the current public key exists
@@ -392,6 +394,13 @@ struct WireguardDatabase {
         let clientSubnet = try self.clientPub_subnetName.getEntry(type:String.self, forKey:publicKey, tx:tx)!
         let clientName = try self.clientPub_clientName.getEntry(type:String.self, forKey:publicKey, tx:tx)!
         
+		// remove the ipv4 address if the client had one
+		do {
+			let ipv4Addr = try self.clientPub_ipv4.getEntry(type:AddressV4.self, forKey:publicKey, tx:tx)!
+			try self.clientPub_ipv4.deleteEntry(key:publicKey, tx:tx)
+			try self.ipv4_clientPub.deleteEntry(key:ipv4Addr, tx:tx)
+		} catch LMDBError.notFound {}
+		
         // with this info we can delete everything else from the database
         try self.clientPub_ipv6.deleteEntry(key:publicKey, tx:tx)
         try self.ipv6_clientPub.deleteEntry(key:clientAddress, tx:tx)

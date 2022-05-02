@@ -79,6 +79,7 @@ class EchoHandler:ChannelInboundHandler {
 	}
 	
 	func channelReadComplete(ctx: ChannelHandlerContext) {
+		print(Colors.Magenta("TCP read complete"))
 		ctx.flush()
 	}
 	

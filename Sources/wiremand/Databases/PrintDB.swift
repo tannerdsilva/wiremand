@@ -357,17 +357,14 @@ struct PrintDB {
 				do {
 					lastAuthorized = try mac_lastAuthenticated.getEntry(type:Date.self, forKey:mac, tx:authCheckTrans)!
 					guard lastAuthorized.timeIntervalSinceNow > -86400 else {
-						print(Colors.Red("this printer was never authorized \(lastAuthorized.timeIntervalSinceNow)"))
 						throw AuthorizationError.reauthorizationRequired(subnetName)
 					}
 				} catch LMDBError.notFound {
-					print(Colors.Red("Auth date not found"))
 					throw AuthorizationError.reauthorizationRequired(subnetName)
 				}
 				
 				// if the printer has pending jobs - the authorization requirements will shift into a more frequent interval
 				if try mac_printJobDate.containsEntry(key:mac, tx:authCheckTrans) {
-					print(Colors.Red("Has print jobs"))
 					// there are print jobs - user must reauthenticate if they haven't within the last hour
 					guard lastAuthorized.timeIntervalSinceNow > -3600 else {
 						throw AuthorizationError.reauthorizationRequired(subnetName)
@@ -379,27 +376,22 @@ struct PrintDB {
 					let checkSerial = try self.mac_serial.getEntry(type:String.self, forKey:mac, tx:authCheckTrans)!
 					let checkRemote = try self.mac_remoteAddress.getEntry(type:String.self, forKey:mac, tx:authCheckTrans)!
 					guard checkRemote == remoteAddress && checkSerial == serial else {
-						print(Colors.Red("serial and remote do not match"))
 						throw AuthorizationError.reauthorizationRequired(subnetName)
 					}
 				} catch LMDBError.notFound {
-					print(Colors.Red("serial and remote not found"))
 					throw AuthorizationError.reauthorizationRequired(subnetName)
 				}
 			} else {
 				let checkUn = try self.mac_un.getEntry(type:String.self, forKey:mac, tx:authCheckTrans)!
 				let checkPw = try self.mac_pw.getEntry(type:String.self, forKey:mac, tx:authCheckTrans)!
 				guard auth!.un == checkUn && auth!.pw == checkPw else {
-					print(Colors.Red("UN AND PASS DO NOT MATCH"))
 					throw AuthorizationError.unauthorized
 				}
-				print(Colors.Green("AUTHORIZATION MATCHED YAY"))
 				// authorization event just occurred. document the date and refresh the databases that are evaluated for auth caching
 				try self.mac_lastAuthenticated.setEntry(value:date, forKey:mac, tx:authCheckTrans)
 				try self.mac_serial.setEntry(value:serial, forKey:mac, tx:authCheckTrans)
 				try self.mac_remoteAddress.setEntry(value:remoteAddress, forKey:mac, tx:authCheckTrans)
 			}
-			print(Colors.blue("closing authroization function"))
 		}
 	}
 	

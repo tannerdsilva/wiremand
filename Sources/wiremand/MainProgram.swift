@@ -451,7 +451,17 @@ struct WiremanD {
                         print("task error: \(error)")
                     }
                 })
-
+				Task.detached(operation: {
+					let printers = try daemonDB.printerDatabase.getAuthorizedPrinterInfo()
+					for curPrinter in printers {
+						Task.detached(operation: {
+							let newServer = try EchoServer(host:try daemonDB.wireguardDatabase.getServerIPv4Network().address.string, port:Int(curPrinter.port))
+							print("[PRINT] Port \(curPrinter.port) assigned to MAC address: \(curPrinter.mac)")
+							try newServer.start()
+							print("[PRINT] Port \(curPrinter.port) is being closed.")
+						})
+					}
+				})
 				let webserver = try PublicHTTPWebServer(wgDatabase:daemonDB.wireguardDatabase, pp:daemonDB.printerDatabase, port:daemonDB.getPublicHTTPPort())
                 try webserver.run()
                 webserver.wait()
