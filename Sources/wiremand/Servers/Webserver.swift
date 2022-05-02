@@ -186,7 +186,7 @@ fileprivate struct Wireguard_GetKeyResponder:HBResponder {
             var writeBuffer = ByteBuffer()
             writeBuffer.writeString(config.configuration)
             
-            var newResponse = HBResponse(status:.ok, headers:HTTPHeaders([("Content-Disposition", "attachment; filename=\(config).conf"), ("Content-Type", "text/plain")]), body:.byteBuffer(writeBuffer))
+            var newResponse = HBResponse(status:.ok, headers:HTTPHeaders([("Content-Disposition", "attachment; filename=\(config).conf")]), body:.byteBuffer(writeBuffer))
             
             return request.eventLoop.makeSucceededFuture(newResponse)
         } catch let error {
