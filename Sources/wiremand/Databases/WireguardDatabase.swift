@@ -414,11 +414,29 @@ struct WireguardDatabase {
             try self.webserve__clientPub_configData.deleteEntry(key:publicKey, tx:tx)
         } catch LMDBError.notFound {}
     }
-    func clientRemove(publicKey:String, tx:Transaction) throws {
+    func clientRemove(publicKey:String) throws {
         try env.transact(readOnly:false) { someTrans in
-            try self._clientRemove(publicKey:publicKey, tx:tx)
+            try self._clientRemove(publicKey:publicKey, tx:someTrans)
         }
     }
+	func clientRemove(subnet:String, name:String) throws {
+		try env.transact(readOnly:false) { someTrans in
+			let getName = try self.clientPub_clientName.cursor(tx:someTrans)
+			let subnetNameHashCursor = try self.subnetName_clientNameHash.cursor(tx:someTrans)
+			for kv in getName {
+				let nameString = String(kv.value)!
+				if name == nameString {
+					let nameHash = try Self.hash(clientName:nameString)
+					if try subnetNameHashCursor.containsEntry(key:subnet, value:nameHash) == true {
+						try _clientRemove(publicKey:String(kv.key)!, tx:someTrans)
+						return
+					}
+				}
+			}
+			throw LMDBError.notFound
+		}
+	}
+	
     fileprivate func _allClients(subnet:String? = nil, tx:Transaction) throws -> Set<ClientInfo> {
         var buildClients = Set<ClientInfo>()
         let clientAddressCursor = try self.clientPub_ipv6.cursor(tx:tx)

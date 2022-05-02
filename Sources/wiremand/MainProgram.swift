@@ -136,7 +136,7 @@ struct WiremanD {
                 // enable ipv6 forwarding on this system
                 let sysctlFwdFD = try FileDescriptor.open("/etc/sysctl.d/10-ip-forward.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
                 try sysctlFwdFD.closeAfter({
-                    let makeLine = "net.ipv6.conf.all.forwarding=1\n"
+                    let makeLine = "net.ipv6.conf.all.forwarding=1\nnet.ipv4.ip_forward = 1\n"
                     try sysctlFwdFD.writeAll(makeLine.utf8)
                 })
                 
@@ -310,7 +310,57 @@ struct WiremanD {
 				print(Colors.Yellow("\t-\(printerMetadata.username)"))
 				print(Colors.Yellow("\t-\(printerMetadata.password)"))
 			}
-            
+			$0.command("client_revoke",
+			   Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
+			   Option<String?>("name", default:nil, description:"the name of the client that the key will be created for")
+			) { subnet, name in
+				let dbPath = getCurrentDatabasePath()
+				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				
+				var useSubnet:String? = subnet
+				if (useSubnet == nil || useSubnet!.count == 0) {
+
+					let allSubnets = try daemonDB.wireguardDatabase.allSubnets()
+					switch allSubnets.count {
+						case 0:
+							print("There is only one subnet configured - it has been automatically selected.")
+							useSubnet = allSubnets.first!.name
+						default:
+							print("Please select the subnet of the client you would like to remove:")
+							for curSub in allSubnets {
+								print(Colors.dim("\t-\t\(curSub.name)"))
+							}
+							repeat {
+								print("subnet name: ", terminator:"")
+								useSubnet = readLine()
+							} while useSubnet == nil || useSubnet!.count == 0
+					}
+				}
+				guard try daemonDB.wireguardDatabase.validateSubnet(name:useSubnet!) == true else {
+					fatalError("the subnet name '\(useSubnet!)' does not exist")
+				}
+				
+				var useClient:String? = name
+				if (useClient == nil || useClient!.count == 0) {
+					let allClients = try daemonDB.wireguardDatabase.allClients(subnet:useSubnet)
+					switch allClients.count {
+						case 0:
+							print(Colors.Yellow("There are no clients on this subnet yet."))
+							exit(1)
+						default:
+							print(Colors.Yellow("There are \(allClients.count) clients on this subnet:"))
+							for curClient in allClients {
+								print(Colors.dim("\t-\t\(curClient.name)"))
+							}
+					}
+					repeat {
+						print("client name: ", terminator:"")
+						useClient = readLine()
+					} while useClient == nil && useClient!.count == 0
+				}
+				try daemonDB.wireguardDatabase.clientRemove(subnet:useSubnet!, name:useClient!)
+
+			}
             $0.command("client_make",
                 Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
                 Option<String?>("name", default:nil, description:"the name of the client that the key will be created for"),
@@ -401,10 +451,9 @@ struct WiremanD {
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName)
                 let securityKey = try daemonDB.wireguardDatabase.serveConfiguration(buildKey, forPublicKey:usePublicKey!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)!
                 let subnetHash = try WiremanD.hash(domain:useSubnet!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)!
-                let buildURL = "https://\(useSubnet!)/wg_getkey?dk=\(subnetHash)&sk=\(securityKey)&pk=\(usePublicKey!.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)"
+                let buildURL = "\nhttps://\(useSubnet!)/wg_getkey?dk=\(subnetHash)&sk=\(securityKey)&pk=\(usePublicKey!.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
                 print("\(buildURL)")
-                exit(5)
-                
+                exit(0)
             }
             
             $0.command("run") {
