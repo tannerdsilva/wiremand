@@ -356,7 +356,7 @@ struct PrintDB {
 				let lastAuthorized:Date
 				do {
 					lastAuthorized = try mac_lastAuthenticated.getEntry(type:Date.self, forKey:mac, tx:authCheckTrans)!
-					guard lastAuthorized.timeIntervalSinceNow < -86400 else {
+					guard lastAuthorized.timeIntervalSinceNow > -86400 else {
 						print(Colors.Red("this printer was never authorized \(lastAuthorized.timeIntervalSinceNow)"))
 						throw AuthorizationError.reauthorizationRequired(subnetName)
 					}
@@ -369,7 +369,7 @@ struct PrintDB {
 				if try mac_printJobDate.containsEntry(key:mac, tx:authCheckTrans) {
 					print(Colors.Red("Has print jobs"))
 					// there are print jobs - user must reauthenticate if they haven't within the last hour
-					if lastAuthorized.timeIntervalSinceNow < -3600 {
+					guard lastAuthorized.timeIntervalSinceNow > -3600 else {
 						throw AuthorizationError.reauthorizationRequired(subnetName)
 					}
 				}
