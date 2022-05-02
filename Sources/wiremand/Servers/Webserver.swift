@@ -147,6 +147,7 @@ fileprivate struct Wireguard_GetKeyResponder:HBResponder {
     
     public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
         do {
+			request.logger.info("wg-getkey is being called")
             // check which domain the user is requesting from
             guard let domainString = request.headers["Host"].first?.lowercased() else {
                 request.logger.error("no host was found in the uri")
@@ -187,7 +188,7 @@ fileprivate struct Wireguard_GetKeyResponder:HBResponder {
             writeBuffer.writeString(config.configuration)
             
             var newResponse = HBResponse(status:.ok, headers:HTTPHeaders([("Content-Disposition", "attachment; filename=\(config).conf")]), body:.byteBuffer(writeBuffer))
-            
+			request.logger.info("returning key now")
             return request.eventLoop.makeSucceededFuture(newResponse)
         } catch let error {
             request.logger.error("error thrown - \(error)")
