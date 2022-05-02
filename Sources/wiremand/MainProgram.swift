@@ -85,7 +85,7 @@ struct WiremanD {
                     var buildConfig = "[Interface]\n"
                     buildConfig += "ListenPort = \(wgPort)\n"
                     buildConfig += "Address = \(ipv6Scope!.cidrString)\n"
-					buildConfig += "Address = \(ipv4Scope!.address)\n"
+					buildConfig += "Address = \(ipv4Scope!.cidrString)\n"
                     buildConfig += "PrivateKey = \(newKeys.privateKey)\n"
                     try wgConfigFile.writeAll(buildConfig.utf8)
                 })
@@ -448,9 +448,11 @@ struct WiremanD {
                         // save the handshake data to the database
                         let removeDatabase = try wgdb.processHandshakes(handshakes, zeros:zeros)
                         for curRemove in removeDatabase {
-                            print("removing \(curRemove)")
                             try? await WireguardExecutor.uninstall(publicKey:curRemove, interfaceName:interfaceName)
                         }
+						if (removeDatabase.count > 0) {
+							try? await WireguardExecutor.saveConfiguration(interfaceName:interfaceName)
+						}
                     } catch let error {
                         print("task error: \(error)")
                     }
