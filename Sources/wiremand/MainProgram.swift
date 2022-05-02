@@ -252,7 +252,7 @@ struct WiremanD {
                 guard getCurrentUser() == "wiremand" else {
                     fatalError("this program must be run as `wiremand` user")
                 }
-				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath())
+				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
 				let wgDB = daemonDB.wireguardDatabase
 				let allDomains = try wgDB.allSubnets()
                 for curDomain in allDomains {
@@ -391,7 +391,6 @@ struct WiremanD {
 				} else {
 					buildKey += "\n"
 				}
-				buildKey += "AllowedIPs"
                 buildKey += "Endpoint = " + wg_dns_name + ":\(wg_port)" + "\n"
                 buildKey += "PersistentKeepalive = 25" + "\n"
                 
