@@ -188,7 +188,7 @@ fileprivate struct Wireguard_GetKeyResponder:HBResponder {
             writeBuffer.writeString(config.configuration)
             
 			let configName = config.name.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
-            var newResponse = HBResponse(status:.ok, headers:HTTPHeaders([("Content-Disposition", "attachment; filename=\(configName).conf;")]), body:.byteBuffer(writeBuffer))
+            var newResponse = HBResponse(status:.ok, headers:HTTPHeaders([("Content-Disposition", "attachment; filename*=\(configName).conf;")]), body:.byteBuffer(writeBuffer))
 			request.logger.info("returning key now")
             return request.eventLoop.makeSucceededFuture(newResponse)
         } catch let error {
