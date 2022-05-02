@@ -7,7 +7,7 @@ extension String {
 		let baseLength = base.count
 		var randomString = ""
 		for i in 0..<length {
-			if (i % 4 == 0 && separator != nil) {
+			if (i % 4 == 0 && separator != nil && i != 0) {
 				randomString.append(separator!)
 			}
 			let randomIndex = Int.random(in:0..<baseLength)

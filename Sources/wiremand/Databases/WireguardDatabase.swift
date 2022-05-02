@@ -3,7 +3,7 @@ import AddressKit
 import Foundation
 import SystemPackage
 
-class WireguardDatabase {
+struct WireguardDatabase {
     enum Error:Swift.Error {
         case immutableClient
     }
@@ -30,24 +30,26 @@ class WireguardDatabase {
     fileprivate static func newSecurityKey() throws -> String {
         return try Self.generateRandomData().base64EncodedString()
     }
-	static func createDatabase(environment:Environment, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, publicKey:String, defaultSubnetMask:UInt8, noHandshakeInvalidationInterval:TimeInterval = 900, handshakeInvalidationInterval:TimeInterval = 2629800) throws {
+	static func createDatabase(environment:Environment, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, serverIPv4Block:NetworkV4, publicKey:String, defaultSubnetMask:UInt8, noHandshakeInvalidationInterval:TimeInterval = 900, handshakeInvalidationInterval:TimeInterval = 2629800) throws {
 
 		let makeEnv = environment
         try makeEnv.transact(readOnly: false) { someTransaction in
-			let metadataDB = try! makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTransaction)
+			let metadataDB = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTransaction)
 			
 			//make all the databases
-			let pub_ip6 = try! makeEnv.openDatabase(named:Databases.clientPub_ipv6.rawValue, flags:[.create], tx:someTransaction)
-			let ip6_pub = try! makeEnv.openDatabase(named:Databases.ipv6_clientPub.rawValue, flags:[.create], tx:someTransaction)
-			let pub_name = try! makeEnv.openDatabase(named:Databases.clientPub_clientName.rawValue, flags:[.create], tx:someTransaction)
-			let pub_create = try! makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, flags:[.create], tx:someTransaction)
-			let pub_subname = try! makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, flags:[.create], tx:someTransaction)
+			let clientPub_ipv4 = try makeEnv.openDatabase(named:Databases.clientPub_ipv4.rawValue, flags:[.create], tx:someTransaction)
+			let ipv4_clientPub = try makeEnv.openDatabase(named:Databases.ipv4_clientPub.rawValue, flags:[.create], tx:someTransaction)
+			let pub_ip6 = try makeEnv.openDatabase(named:Databases.clientPub_ipv6.rawValue, flags:[.create], tx:someTransaction)
+			let ip6_pub = try makeEnv.openDatabase(named:Databases.ipv6_clientPub.rawValue, flags:[.create], tx:someTransaction)
+			let pub_name = try makeEnv.openDatabase(named:Databases.clientPub_clientName.rawValue, flags:[.create], tx:someTransaction)
+			let pub_create = try makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, flags:[.create], tx:someTransaction)
+			let pub_subname = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, flags:[.create], tx:someTransaction)
             _ = try makeEnv.openDatabase(named:Databases.clientPub_handshakeDate.rawValue, flags:[.create], tx:someTransaction)
-			let subnetName_network = try! makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, flags:[.create], tx:someTransaction)
-            let network_subnetName = try! makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[.create], tx:someTransaction)
-            let subnetHash_securityKey = try! makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, flags:[.create], tx:someTransaction)
-            let subnetName_clientPub = try! makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.create, .dupSort], tx:someTransaction)
-            let subnetName_clientNameHash = try! makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.create, .dupSort], tx:someTransaction)
+			let subnetName_network = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, flags:[.create], tx:someTransaction)
+            let network_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[.create], tx:someTransaction)
+            let subnetHash_securityKey = try makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, flags:[.create], tx:someTransaction)
+            let subnetName_clientPub = try makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.create, .dupSort], tx:someTransaction)
+            let subnetName_clientNameHash = try makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.create, .dupSort], tx:someTransaction)
             
             _ = try makeEnv.openDatabase(named:Databases.webServe__clientPub_configData.rawValue, flags:[.create], tx:someTransaction)
             
@@ -56,29 +58,34 @@ class WireguardDatabase {
             let myAddress = serverIPv6Block.address
             let mySubnet = NetworkV6(myAddress.string + "/\(defaultSubnetMask)")!.maskingAddress()
             let mySubnetName = wg_serverPublicDomainName
-            let mySubnetHash = try! WiremanD.hash(domain:mySubnetName)
+            let mySubnetHash = try WiremanD.hash(domain:mySubnetName)
+			
+			let myIPv4 = serverIPv4Block.range.randomAddress()
             
-            try! pub_ip6.setEntry(value:myAddress, forKey:publicKey, tx:someTransaction)
-            try! ip6_pub.setEntry(value:publicKey, forKey:myAddress, tx:someTransaction)
-            try! pub_name.setEntry(value:myClientName, forKey:publicKey, tx:someTransaction)
-            try! pub_create.setEntry(value:Date(), forKey:publicKey, tx:someTransaction)
-            try! pub_subname.setEntry(value:mySubnetName, forKey:publicKey, tx:someTransaction)
+			try clientPub_ipv4.setEntry(value:myIPv4, forKey:publicKey, tx:someTransaction)
+			try ipv4_clientPub.setEntry(value:publicKey, forKey:myIPv4, tx:someTransaction)
+            try pub_ip6.setEntry(value:myAddress, forKey:publicKey, tx:someTransaction)
+            try ip6_pub.setEntry(value:publicKey, forKey:myAddress, tx:someTransaction)
+            try pub_name.setEntry(value:myClientName, forKey:publicKey, tx:someTransaction)
+            try pub_create.setEntry(value:Date(), forKey:publicKey, tx:someTransaction)
+            try pub_subname.setEntry(value:mySubnetName, forKey:publicKey, tx:someTransaction)
             
-            try! subnetName_network.setEntry(value:mySubnet, forKey:mySubnetName, tx:someTransaction)
-            try! network_subnetName.setEntry(value:mySubnetName, forKey:mySubnet, tx:someTransaction)
-            try! subnetHash_securityKey.setEntry(value:try! newSecurityKey(), forKey:mySubnetHash, tx:someTransaction)
-            try! subnetName_clientPub.setEntry(value:publicKey, forKey:mySubnetName, tx:someTransaction)
-            try! subnetName_clientNameHash.setEntry(value:try! Self.hash(clientName:myClientName), forKey:mySubnetName, tx:someTransaction)
+            try subnetName_network.setEntry(value:mySubnet, forKey:mySubnetName, tx:someTransaction)
+            try network_subnetName.setEntry(value:mySubnetName, forKey:mySubnet, tx:someTransaction)
+            try subnetHash_securityKey.setEntry(value:try newSecurityKey(), forKey:mySubnetHash, tx:someTransaction)
+            try subnetName_clientPub.setEntry(value:publicKey, forKey:mySubnetName, tx:someTransaction)
+            try subnetName_clientNameHash.setEntry(value:try Self.hash(clientName:myClientName), forKey:mySubnetName, tx:someTransaction)
             
 			//assign required metadata values
-			try! metadataDB.setEntry(value:wg_primaryInterfaceName, forKey:Metadatas.wg_primaryInterfaceName.rawValue, tx:someTransaction)
-			try! metadataDB.setEntry(value:wg_serverPublicDomainName, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTransaction)
-            try! metadataDB.setEntry(value:wg_serverPublicListenPort, forKey:Metadatas.wg_serverPublicListenPort.rawValue, tx:someTransaction)
-			try! metadataDB.setEntry(value:serverIPv6Block, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTransaction)
-			try! metadataDB.setEntry(value:publicKey, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:someTransaction)
-            try! metadataDB.setEntry(value:defaultSubnetMask, forKey:Metadatas.wg_defaultSubnetMask.rawValue, tx:someTransaction)
-            try! metadataDB.setEntry(value:noHandshakeInvalidationInterval, forKey:Metadatas.wg_noHandshakeInvalidationInterval.rawValue, tx:someTransaction)
-            try! metadataDB.setEntry(value:handshakeInvalidationInterval, forKey:Metadatas.wg_handshakeInvalidationInterval.rawValue, tx:someTransaction)
+			try metadataDB.setEntry(value:wg_primaryInterfaceName, forKey:Metadatas.wg_primaryInterfaceName.rawValue, tx:someTransaction)
+			try metadataDB.setEntry(value:wg_serverPublicDomainName, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTransaction)
+            try metadataDB.setEntry(value:wg_serverPublicListenPort, forKey:Metadatas.wg_serverPublicListenPort.rawValue, tx:someTransaction)
+			try metadataDB.setEntry(value:serverIPv6Block, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTransaction)
+			try metadataDB.setEntry(value:serverIPv4Block, forKey:Metadatas.wg_serverIPv4Block.rawValue, tx:someTransaction)
+			try metadataDB.setEntry(value:publicKey, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:someTransaction)
+            try metadataDB.setEntry(value:defaultSubnetMask, forKey:Metadatas.wg_defaultSubnetMask.rawValue, tx:someTransaction)
+            try metadataDB.setEntry(value:noHandshakeInvalidationInterval, forKey:Metadatas.wg_noHandshakeInvalidationInterval.rawValue, tx:someTransaction)
+            try metadataDB.setEntry(value:handshakeInvalidationInterval, forKey:Metadatas.wg_handshakeInvalidationInterval.rawValue, tx:someTransaction)
 		}
 	}
 	
@@ -87,6 +94,7 @@ class WireguardDatabase {
 		case wg_serverPublicDomainName = "wg_serverPublicDomainName" //String
         case wg_serverPublicListenPort = "wg_serverPublicListenPort" //UInt16
 		case wg_serverIPv6Block = "wg_serverIPv6Subnet" //NetworkV6 where address == servers own internal IP
+		case wg_serverIPv4Block = "wg_serverIPv4Subnet" //NetworkV4 where address == servers own internal IP
 		case wg_serverPublicKey = "serverPublicKey" //String
 		case wg_defaultSubnetMask = "defaultSubnetMask" //UInt8
         case wg_noHandshakeInvalidationInterval = "noHandshakeInvalidationInterval" //TimeInterval
@@ -108,20 +116,27 @@ class WireguardDatabase {
 		return try self.metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:tx)!
 	}
     
-    func getWireguardConfigMetas() throws -> (String, UInt16, NetworkV6, String, String) {
-        return try env.transact(readOnly:true) { someTrans -> (String, UInt16, NetworkV6, String, String) in
+    func getWireguardConfigMetas() throws -> (String, UInt16, NetworkV6, AddressV4, String, String) {
+        return try env.transact(readOnly:true) { someTrans -> (String, UInt16, NetworkV6, AddressV4, String, String) in
             let getDNSName = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTrans)!
             let getPort = try metadata.getEntry(type:UInt16.self, forKey:Metadatas.wg_serverPublicListenPort.rawValue, tx:someTrans)!
             let ipv6Block = try metadata.getEntry(type:NetworkV6.self, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTrans)!
+			let ipv4Address = try metadata.getEntry(type:NetworkV4.self, forKey:Metadatas.wg_serverIPv4Block.rawValue, tx:someTrans)!.address
             let serverPubKey = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:someTrans)!
             let publicInterfaceName = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_primaryInterfaceName.rawValue, tx:someTrans)!
-            return (getDNSName, getPort, ipv6Block, serverPubKey, publicInterfaceName)
+            return (getDNSName, getPort, ipv6Block, ipv4Address, serverPubKey, publicInterfaceName)
         }
     }
 	
     enum Databases:String {
         case metadata = "wgdb_metadata_db"
         
+		///Maps a client public key to their respective ipv4 address assignment (intended for small uses)
+		case clientPub_ipv4 = "wgdb_clientPub_IPv4"	//String:AddressV4
+		
+		///Maps a client ipv4 address assignment to their respective public key (intended for small uses)
+		case ipv4_clientPub = "wgdb_IPv4_clientPub"	//AddressV4:String
+		
         ///Maps a client public key to their respective ipv6 address assignment
         case clientPub_ipv6 = "wgdb_clientPub_IPv6" //String:AddressV6
         
@@ -165,6 +180,8 @@ class WireguardDatabase {
 	let metadata:Database
     
     // client info
+	let clientPub_ipv4:Database
+	let ipv4_clientPub:Database
 	let clientPub_ipv6:Database
     let ipv6_clientPub:Database
 	let clientPub_clientName:Database
@@ -213,6 +230,9 @@ class WireguardDatabase {
 		let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
 			// open all the databases
             let metadata = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[], tx:someTrans)
+			
+			let clientPub_ipv4 = try makeEnv.openDatabase(named:Databases.clientPub_ipv4.rawValue, flags:[], tx:someTrans)
+			let ipv4_clientPub = try makeEnv.openDatabase(named:Databases.ipv4_clientPub.rawValue, flags:[], tx:someTrans)
 			let clientPub_ipv6 = try makeEnv.openDatabase(named:Databases.clientPub_ipv6.rawValue, flags:[], tx:someTrans)
             let ipv6_clientPub = try makeEnv.openDatabase(named:Databases.ipv6_clientPub.rawValue, flags:[], tx:someTrans)
 			let clientPub_clientName = try makeEnv.openDatabase(named:Databases.clientPub_clientName.rawValue, flags:[], tx:someTrans)
@@ -225,22 +245,24 @@ class WireguardDatabase {
             let subnetName_clientPub = try makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.dupSort], tx:someTrans)
             let subnetName_clientNameHash = try makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.dupSort], tx:someTrans)
             let ws_clientPub_configData = try makeEnv.openDatabase(named:Databases.webServe__clientPub_configData.rawValue, flags:[], tx:someTrans)
-            return [metadata, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub, subnetName_clientNameHash, ws_clientPub_configData]
+            return [metadata, clientPub_ipv4, ipv4_clientPub, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub, subnetName_clientNameHash, ws_clientPub_configData]
 		}
         self.env = makeEnv
         self.metadata = dbs[0]
-        self.clientPub_ipv6 = dbs[1]
-        self.ipv6_clientPub = dbs[2]
-        self.clientPub_clientName = dbs[3]
-        self.clientPub_createdOn = dbs[4]
-        self.clientPub_subnetName = dbs[5]
-        self.clientPub_handshakeDate = dbs[6]
-        self.subnetName_networkV6 = dbs[7]
-        self.networkV6_subnetName = dbs[8]
-        self.subnetHash_securityKey = dbs[9]
-        self.subnetName_clientPub = dbs[10]
-        self.subnetName_clientNameHash = dbs[11]
-        self.webserve__clientPub_configData = dbs[12]
+		self.clientPub_ipv4 = dbs[1]
+		self.ipv4_clientPub = dbs[2]
+        self.clientPub_ipv6 = dbs[3]
+        self.ipv6_clientPub = dbs[4]
+        self.clientPub_clientName = dbs[5]
+        self.clientPub_createdOn = dbs[6]
+        self.clientPub_subnetName = dbs[7]
+        self.clientPub_handshakeDate = dbs[8]
+        self.subnetName_networkV6 = dbs[9]
+        self.networkV6_subnetName = dbs[10]
+        self.subnetHash_securityKey = dbs[11]
+        self.subnetName_clientPub = dbs[12]
+        self.subnetName_clientNameHash = dbs[13]
+        self.webserve__clientPub_configData = dbs[14]
 	}
     
     // make a subnet
@@ -315,16 +337,33 @@ class WireguardDatabase {
         let name:String
         let subnetName:String
     }
-    fileprivate func _clientMake(name:String, publicKey:String, subnet:String, tx:Transaction) throws -> AddressV6 {
+	fileprivate func _clientAssignIPv4(publicKey:String, tx:Transaction) throws -> AddressV4 {
+		let ipv4Subnet = try metadata.getEntry(type:NetworkV4.self, forKey:Metadatas.wg_serverIPv4Block.rawValue, tx:tx)!
+		var newV4:AddressV4
+		repeat {
+			newV4 = ipv4Subnet.range.randomAddress()
+		} while try self.ipv4_clientPub.containsEntry(key:newV4, tx:tx) == true
+		try self.clientPub_ipv4.setEntry(value:newV4, forKey:publicKey, tx:tx)
+		try self.ipv4_clientPub.setEntry(value:publicKey, forKey:newV4, tx:tx)
+		return newV4
+	}
+	fileprivate func _clientMake(name:String, publicKey:String, subnet:String, ipv4:Bool, tx:Transaction) throws -> (AddressV6, AddressV4?) {
         // validate the subnet exists by retrieving its network
         let subnetNetwork = try subnetName_networkV6.getEntry(type:NetworkV6.self, forKey:subnet, tx:tx)!
-        
+		
         // find a non-conflicting address
         var newAddress:AddressV6
         repeat {
             newAddress = subnetNetwork.range.randomAddress()
         } while try self.ipv6_clientPub.containsEntry(key:newAddress, tx:tx) == true
         
+		let v4Addr:AddressV4?
+		if (ipv4) {
+			v4Addr = try _clientAssignIPv4(publicKey:publicKey, tx:tx)
+		} else {
+			v4Addr = nil
+		}
+		
         // write it to the database
         try self.clientPub_ipv6.setEntry(value:newAddress, forKey:publicKey, flags:[.noOverwrite], tx:tx)
         try self.ipv6_clientPub.setEntry(value:publicKey, forKey:newAddress, flags:[.noOverwrite], tx:tx)
@@ -335,11 +374,11 @@ class WireguardDatabase {
         try self.subnetName_clientPub.setEntry(value:publicKey, forKey:subnet, flags:[.noDupData], tx:tx)
         try self.subnetName_clientNameHash.setEntry(value:try Self.hash(clientName:name), forKey:subnet, flags:[.noDupData], tx:tx)
         
-        return newAddress
+        return (newAddress, v4Addr)
     }
-    func clientMake(name:String, publicKey:String, subnet:String) throws -> AddressV6 {
+	func clientMake(name:String, publicKey:String, subnet:String, ipv4:Bool = false) throws -> (AddressV6, AddressV4?) {
         return try env.transact(readOnly:false) { someTrans in
-            return try _clientMake(name:name, publicKey:publicKey, subnet:subnet, tx:someTrans)
+			return try _clientMake(name:name, publicKey:publicKey, subnet:subnet, ipv4:ipv4, tx:someTrans)
         }
     }
     fileprivate func _clientRemove(publicKey:String, tx:Transaction) throws {

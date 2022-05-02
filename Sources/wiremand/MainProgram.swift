@@ -54,6 +54,15 @@ struct WiremanD {
                         ipv6Scope = asNetwork
                     }
                 } while ipv6Scope == nil
+				
+				// ask for the client ipv6 scope
+				var ipv4Scope:NetworkV4? = nil
+				repeat {
+					print("vpn ipv4 block (cidr where address is servers primary internal address): ", terminator:"")
+					if let asString = readLine(), let asNetwork = NetworkV4(cidr:asString) {
+						ipv4Scope = asNetwork
+					}
+				} while ipv4Scope == nil
 
                 print("installing software...")
                 
@@ -206,7 +215,7 @@ struct WiremanD {
      
                 let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
                 let daemonDBEnv = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), internalTCPPort_begin: UInt16(tcpPrintPortBegin), internalTCPPort_end: UInt16(tcpPrintPortEnd))
-				let wgDB = try WireguardDatabase.createDatabase(environment:daemonDBEnv, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_serverPublicListenPort: UInt16(wgPort), serverIPv6Block: ipv6Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
+				try WireguardDatabase.createDatabase(environment:daemonDBEnv, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_serverPublicListenPort: UInt16(wgPort), serverIPv6Block: ipv6Scope!, serverIPv4Block:ipv4Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
                 
                 let ownIt = try await Command(bash:"chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/").runSync()
                 guard ownIt.succeeded == true else {
@@ -302,8 +311,9 @@ struct WiremanD {
                 Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
                 Option<String?>("name", default:nil, description:"the name of the client that the key will be created for"),
                 Option<String?>("publicKey", default:nil, description:"the public key of the client that is being added"),
-                Flag("noDNS", default:false, description:"do not include DNS information in the configuration")
-            ) { subnetName, clientName, pk, noDNS in
+                Flag("noDNS", default:false, description:"do not include DNS information in the configuration"),
+				Flag("ipv4", default:false, description:"assign this client an ipv4 address as well as an ipv6 address")
+            ) { subnetName, clientName, pk, noDNS, withIPv4 in
                 guard getCurrentUser() == "wiremand" else {
                     fatalError("this function must be run as the wiremand user")
                 }
@@ -356,22 +366,31 @@ struct WiremanD {
                     usePublicKey = newKeys.publicKey
                 }
                 
-                let newClientAddress = try daemonDB.wireguardDatabase.clientMake(name:useClient!, publicKey:usePublicKey!, subnet:useSubnet!)
+                let (newClientAddress, optionalV4) = try daemonDB.wireguardDatabase.clientMake(name:useClient!, publicKey:usePublicKey!, subnet:useSubnet!, ipv4:withIPv4)
                 
-                let (wg_dns_name, wg_port, wg_internal_network, serverPub, interfaceName) = try daemonDB.wireguardDatabase.getWireguardConfigMetas()
+                let (wg_dns_name, wg_port, wg_internal_network, serverV4, serverPub, interfaceName) = try daemonDB.wireguardDatabase.getWireguardConfigMetas()
                 
                 var buildKey = "[Interface]\n"
                 if pk == nil {
                     buildKey += "PrivateKey = " + newKeys.privateKey + "\n"
                 }
                 buildKey += "Address = " + newClientAddress.string + "/128\n"
+				if optionalV4 != nil {
+					buildKey += "Address = " + optionalV4!.string + "/32\n"
+				}
                 if noDNS == false {
                     buildKey += "DNS = " + wg_internal_network.address.string + "\n"
                 }
                 buildKey += "[Peer]\n"
                 buildKey += "PublicKey = " + serverPub + "\n"
                 buildKey += "PresharedKey = " + newKeys.presharedKey + "\n"
-                buildKey += "AllowedIPs = " + wg_internal_network.cidrString + "\n"
+                buildKey += "AllowedIPs = " + wg_internal_network.cidrString
+				if (optionalV4 != nil) {
+					buildKey += ", \(serverV4)/32\n"
+				} else {
+					buildKey += "\n"
+				}
+				buildKey += "AllowedIPs"
                 buildKey += "Endpoint = " + wg_dns_name + ":\(wg_port)" + "\n"
                 buildKey += "PersistentKeepalive = 25" + "\n"
                 

@@ -244,18 +244,26 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
                 // we will make the keys on behalf of the client
                 let newKeys = try await WireguardExecutor.generate()
                 
-                let newClientAddress = try wgdb.clientMake(name:keyName, publicKey:newKeys.publicKey, subnet:domainString)
+                let (newClientAddress, optionalV4) = try wgdb.clientMake(name:keyName, publicKey:newKeys.publicKey, subnet:domainString, ipv4:false)
                 
-                let (wg_dns_name, wg_port, wg_internal_network, pubKey, interfaceName) = try wgdb.getWireguardConfigMetas()
+                let (wg_dns_name, wg_port, wg_internal_network, serverV4, pubKey, interfaceName) = try wgdb.getWireguardConfigMetas()
                 
                 var buildKey = "[Interface]\n"
                 buildKey += "PrivateKey = " + newKeys.privateKey + "\n"
                 buildKey += "Address = " + newClientAddress.string + "/128\n"
+				if optionalV4 != nil {
+					buildKey += "Address = " + optionalV4!.string + "/32\n"
+				}
                 buildKey += "DNS = " + wg_internal_network.address.string + "\n"
                 buildKey += "[Peer]\n"
                 buildKey += "PublicKey = " + pubKey + "\n"
                 buildKey += "PresharedKey = " + newKeys.presharedKey + "\n"
-                buildKey += "AllowedIPs = " + wg_internal_network.cidrString + "\n"
+                buildKey += "AllowedIPs = " + wg_internal_network.cidrString
+				if (optionalV4 != nil) {
+					buildKey += ", \(serverV4)/32\n"
+				} else {
+					buildKey += "\n"
+				}
                 buildKey += "Endpoint = " + wg_dns_name + ":\(wg_port)" + "\n"
                 buildKey += "PersistentKeepalive = 25" + "\n"
                 
