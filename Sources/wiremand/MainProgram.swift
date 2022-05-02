@@ -32,7 +32,7 @@ struct WiremanD {
                Option<Int>("wg_port", default:29300),
                Option<Int>("public_httpPort", default:8080),
                Option<Int>("private_tcpPrintPort_start", default:9100),
-               Option<Int>("private_tcpPrintPort_end", default:10100)
+               Option<Int>("private_tcpPrintPort_end", default:9300)
             ) { interfaceName, installUserName, wgPort, httpPort, tcpPrintPortBegin, tcpPrintPortEnd in
                 guard getCurrentUser() == "root" else {
                     print("You need to be root to install wiremand.")
@@ -305,7 +305,10 @@ struct WiremanD {
 						useMac = readLine()
 					} while useMac == nil || useMac!.count == 0
 				}
-				try daemonDB.printerDatabase.authorizeMacAddress(mac:useMac!.lowercased(), subnet:useSubnet!)
+				let printerMetadata = try daemonDB.printerDatabase.authorizeMacAddress(mac:useMac!.lowercased(), subnet:useSubnet!)
+				print(Colors.Green("[OK] - Printer assigned to local TCP port \(printerMetadata.port)"))
+				print(Colors.Yellow("\t-\(printerMetadata.username)"))
+				print(Colors.Yellow("\t-\(printerMetadata.password)"))
 			}
             
             $0.command("client_make",
