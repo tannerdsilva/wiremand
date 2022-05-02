@@ -376,6 +376,7 @@ struct WireguardDatabase {
         try self.subnetName_clientPub.setEntry(value:publicKey, forKey:subnet, flags:[.noDupData], tx:tx)
         try self.subnetName_clientNameHash.setEntry(value:try Self.hash(clientName:name), forKey:subnet, flags:[.noDupData], tx:tx)
         
+		print(Colors.Green("[OK] - Installed new client [name](\(name)), [publicKey](\(publicKey))"))
         return (newAddress, v4Addr)
     }
 	func clientMake(name:String, publicKey:String, subnet:String, ipv4:Bool = false) throws -> (AddressV6, AddressV4?) {
