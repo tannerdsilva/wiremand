@@ -149,6 +149,7 @@ class DaemonDB {
             }
             
             try self.scheduledTasks.setEntry(value:newTask, forKey:schedule.rawValue, tx:installTaskTrans)
+			try env.sync()
         }
     }
     func cancelSchedule(_ schedule:Schedule) throws {
@@ -159,6 +160,7 @@ class DaemonDB {
                 try self.scheduledTasks.deleteEntry(key:schedule.rawValue, tx:someTrans)
             }
         } catch LMDBError.notFound {}
+		try env.sync()
     }
     
     deinit {

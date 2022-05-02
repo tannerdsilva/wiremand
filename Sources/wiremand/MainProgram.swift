@@ -85,6 +85,7 @@ struct WiremanD {
                     var buildConfig = "[Interface]\n"
                     buildConfig += "ListenPort = \(wgPort)\n"
                     buildConfig += "Address = \(ipv6Scope!.cidrString)\n"
+					buildConfig += "Address = \(ipv4Scope!.address)\n"
                     buildConfig += "PrivateKey = \(newKeys.privateKey)\n"
                     try wgConfigFile.writeAll(buildConfig.utf8)
                 })
