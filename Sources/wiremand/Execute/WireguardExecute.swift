@@ -6,6 +6,7 @@ import SystemPackage
 struct WireguardExecutor {
 	enum Error:Swift.Error {
 		case wireguardCmdError
+		case wireguardQuickCmdError
 	}
 	struct VPNKey {
 		let privateKey:String
@@ -31,7 +32,7 @@ struct WireguardExecutor {
 		return VPNKey(privateKey:privateKey, publicKey:publicKey, presharedKey:psk)
 	}
     
-    static func install(publicKey:String, presharedKey:String, address:AddressV6, interfaceName:String) async throws {
+	static func install(publicKey:String, presharedKey:String, address:AddressV6, addressv4:AddressV4?, interfaceName:String) async throws {
         let tempPath = malloc(64);
         defer {
             free(tempPath)
@@ -47,7 +48,11 @@ struct WireguardExecutor {
         _ = try newFD.closeAfter {
             try newFD.writeAll(presharedKey.utf8)
         }
-        let installKey = try await Command(bash:"sudo wg set \(interfaceName) peer \(publicKey) allowed-ips \(address.string)/128 preshared-key \(pathAsString)").runSync()
+		var allowedIPs = "allowed-ips \(address.string)/128"
+		if addressv4 != nil {
+			allowedIPs += ",\(addressv4!.string)/32"
+		}
+        let installKey = try await Command(bash:"sudo wg set \(interfaceName) peer \(publicKey) \(allowedIPs) preshared-key \(pathAsString)").runSync()
         guard installKey.succeeded == true else {
             throw Error.wireguardCmdError
         }
@@ -59,4 +64,10 @@ struct WireguardExecutor {
             throw Error.wireguardCmdError
         }
     }
+	
+	static func saveConfiguration(interfaceName:String) async throws {
+		guard try await Command(bash:"sudo wg-quick save \(interfaceName)").runSync().succeeded == true else {
+			throw Error.wireguardQuickCmdError
+		}
+	}
 }

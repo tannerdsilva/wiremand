@@ -186,7 +186,7 @@ fileprivate struct Wireguard_GetKeyResponder:HBResponder {
             var writeBuffer = ByteBuffer()
             writeBuffer.writeString(config.configuration)
             
-            var newResponse = HBResponse(status:.ok, headers:HTTPHeaders([("Content-Disposition", "attachment; filename=\(config).conf;"), ("Content-Type", "text/plain")]), body:.byteBuffer(writeBuffer))
+            var newResponse = HBResponse(status:.ok, headers:HTTPHeaders([("Content-Disposition", "attachment; filename=\(config).conf"), ("Content-Type", "text/plain")]), body:.byteBuffer(writeBuffer))
             
             return request.eventLoop.makeSucceededFuture(newResponse)
         } catch let error {
@@ -243,10 +243,11 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
             keyPromise.completeWithTask({ [wgdb = wgDatabase] in
                 // we will make the keys on behalf of the client
                 let newKeys = try await WireguardExecutor.generate()
-                
+				
+				let (wg_dns_name, wg_port, wg_internal_network, serverV4, pubKey, interfaceName) = try wgdb.getWireguardConfigMetas()
+				
                 let (newClientAddress, optionalV4) = try wgdb.clientMake(name:keyName, publicKey:newKeys.publicKey, subnet:domainString, ipv4:false)
-                
-                let (wg_dns_name, wg_port, wg_internal_network, serverV4, pubKey, interfaceName) = try wgdb.getWireguardConfigMetas()
+
                 
                 var buildKey = "[Interface]\n"
                 buildKey += "PrivateKey = " + newKeys.privateKey + "\n"
@@ -270,7 +271,8 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
                 var buildBytes = ByteBuffer()
                 buildBytes.writeString(buildKey)
                 
-                try await WireguardExecutor.install(publicKey:newKeys.publicKey, presharedKey:newKeys.presharedKey, address:newClientAddress, interfaceName:interfaceName)
+				try await WireguardExecutor.install(publicKey:newKeys.publicKey, presharedKey:newKeys.presharedKey, address:newClientAddress, addressv4:optionalV4, interfaceName:interfaceName)
+				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName)
                 return HBResponse(status: .ok, body:.byteBuffer(buildBytes))
             })
             return keyPromise.futureResult
