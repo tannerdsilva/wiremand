@@ -357,6 +357,7 @@ struct PrintDB {
 				do {
 					lastAuthorized = try mac_lastAuthenticated.getEntry(type:Date.self, forKey:mac, tx:authCheckTrans)!
 					guard lastAuthorized.timeIntervalSinceNow < -86400 else {
+						print(Colors.Red("this printer was never authorized"))
 						throw AuthorizationError.reauthorizationRequired(subnetName)
 					}
 				} catch LMDBError.notFound {
@@ -398,6 +399,7 @@ struct PrintDB {
 				try self.mac_serial.setEntry(value:serial, forKey:mac, tx:authCheckTrans)
 				try self.mac_remoteAddress.setEntry(value:remoteAddress, forKey:mac, tx:authCheckTrans)
 			}
+			print(Colors.blue("closing authroization function"))
 		}
 	}
 	
