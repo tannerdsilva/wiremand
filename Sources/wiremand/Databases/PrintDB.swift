@@ -2,7 +2,7 @@ import QuickLMDB
 import Foundation
 import CLMDB
 
-struct PrintDB {
+actor PrintDB {
     actor Logger {
         struct Event {
             let date:Date
@@ -158,7 +158,7 @@ struct PrintDB {
 	let mac_un:Database
 	let mac_pw:Database
     let mac_subnetName:Database
-	func _addAuthorizedPrinter(mac:String, subnet:String, tx:Transaction) throws -> (port:UInt16, username:String, password:String) {
+	nonisolated func _addAuthorizedPrinter(mac:String, subnet:String, tx:Transaction) throws -> (port:UInt16, username:String, password:String) {
 		let pw = String.random(length:12, separator:"-")
 		let un = String.random(length:12, separator:"-")
 		let newPort = try tx.transact(readOnly:false) { [pw, un] someTrans -> UInt16 in
@@ -176,10 +176,13 @@ struct PrintDB {
 			try mac_subnetName.setEntry(value:subnet, forKey:mac, flags:[.noOverwrite], tx:someTrans)
 			return newPort
 		}
+		Task.detached {
+			try await self.firePortOpener(port:newPort)
+		}
 		return (newPort, un, pw)
 	}
 	
-	func authorizeMacAddress(mac:String, subnet:String) throws -> (port:UInt16, username:String, password:String) {
+	nonisolated func authorizeMacAddress(mac:String, subnet:String) throws -> (port:UInt16, username:String, password:String) {
 		defer {
 			try? env.sync()
 		}
@@ -188,7 +191,7 @@ struct PrintDB {
 		}
 	}
 	
-	func getAuthorizedPrinterInfo() throws -> [AuthorizedPrinter] {
+	nonisolated func getAuthorizedPrinterInfo() throws -> [AuthorizedPrinter] {
 		return try env.transact(readOnly:true) { someTrans in
 			let port_macCursor = try port_mac.cursor(tx:someTrans)
 			var buildList = [AuthorizedPrinter]()
@@ -220,13 +223,68 @@ struct PrintDB {
 	let mac_lastPW:Database
 	let mac_lastAuthAttempt:Database
 	
+	typealias PortHandler = (UInt16) throws -> Void
+	fileprivate var opener:PortHandler? = nil
+	fileprivate var closer:PortHandler? = nil
+	fileprivate var openedPort = Set<UInt16>()
+	func assignPortHandlers(opener:@escaping(PortHandler), closer:@escaping(PortHandler)) throws {
+		guard self.opener == nil && self.closer == nil else {
+			return
+		}
+		self.opener = opener
+		self.closer = closer
+		try env.transact(readOnly:true) { someTrans in
+			let port_macCursor = try port_mac.cursor(tx:someTrans)
+			for curPort in port_macCursor {
+				let asUInt = UInt16(curPort.key)!
+				try opener(asUInt)
+				openedPort.update(with:asUInt)
+			}
+		}
+	}
+	func portSync() throws {
+		guard opener != nil && closer != nil else {
+			return
+		}
+		try env.transact(readOnly:true) { someTrans in
+			let port_macCursor = try port_mac.cursor(tx:someTrans)
+			
+			// open any unopened ports
+			for curPort in port_macCursor {
+				let asUInt = UInt16(curPort.key)!
+				if openedPort.contains(asUInt) {
+					try opener!(asUInt)
+					openedPort.update(with:asUInt)
+				}
+			}
+			// close any opened ports which should not be running
+			for curPort in openedPort {
+				if try port_macCursor.containsEntry(key:curPort) == false {
+					try closer!(curPort)
+					openedPort.remove(curPort)
+				}
+			}
+		}
+	}
+	fileprivate func firePortOpener(port:UInt16) throws {
+		if let hasOpener = opener, openedPort.contains(port) == false {
+			try hasOpener(port)
+			openedPort.update(with:port)
+		}
+	}
+	fileprivate func firePortCloser(port:UInt16) throws {
+		if let hasCloser = closer, openedPort.contains(port) == true {
+			try hasCloser(port)
+			openedPort.remove(port)
+		}
+	}
+
     let logger:Logger
 	
 	struct AuthData {
 		let un:String
 		let pw:String
 	}
-
 	init(environment:Environment, directory:URL) throws {
         let makeEnv = environment
         let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
@@ -293,7 +351,7 @@ struct PrintDB {
     }
 	
 	// returns the oldest job token for a given mac address
-	fileprivate func _oldestJobHash(mac:String, tx:Transaction) throws -> Data? {
+	nonisolated fileprivate func _oldestJobHash(mac:String, tx:Transaction) throws -> Data? {
 		let macPrintCursor = try mac_printJobDate.cursor(tx:tx)
 		do {
 			_ = try macPrintCursor.getEntry(.set, key:mac)
@@ -307,7 +365,7 @@ struct PrintDB {
 	}
 	
 	// installs a new print job for a specified mac address
-	fileprivate func _newJob(mac:String, date:Date, data:Data, tx:Transaction) throws {
+	nonisolated fileprivate func _newJob(mac:String, date:Date, data:Data, tx:Transaction) throws {
 		// open cursors
 		let macPrintCursor = try mac_printJobDate.cursor(tx:tx)
 		let macPrintJobDataCursor = try macPrintHash_printJobData.cursor(tx:tx)
@@ -319,7 +377,7 @@ struct PrintDB {
 			try macPrintJobDataCursor.setEntry(value:data, forKey:jobHash)
 		})
 	}
-	func _documentSighting(mac:String, ua:String, serial:String, status:String, remoteAddress:String, date:Date, domain:String, auth:AuthData?, tx:Transaction) throws {
+	nonisolated func _documentSighting(mac:String, ua:String, serial:String, status:String, remoteAddress:String, date:Date, domain:String, auth:AuthData?, tx:Transaction) throws {
 		try mac_lastSeen.setEntry(value:date, forKey:mac, tx:tx)
 		try mac_status.setEntry(value:status, forKey:mac, tx:tx)
 		try mac_userAgent.setEntry(value:ua, forKey:mac, tx:tx)
@@ -335,7 +393,7 @@ struct PrintDB {
 		case invalidScope(String)
 		case reauthorizationRequired(String)
 	}
-	func _authenticationCheck(mac:String, serial:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil, tx:Transaction) throws {
+	nonisolated func _authenticationCheck(mac:String, serial:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil, tx:Transaction) throws {
 		try tx.transact(readOnly:false) { authCheckTrans in
 			// validate that this printer is registered (by retrieving its subnet)
 			let subnetName:String
@@ -396,7 +454,7 @@ struct PrintDB {
 	}
 	
 	// readonly function to check the authentication status of a given printer
-	func checkForPrintJobs(mac:String, ua:String, serial:String, status:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws -> Data? {
+	nonisolated func checkForPrintJobs(mac:String, ua:String, serial:String, status:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws -> Data? {
 		try env.transact(readOnly:false) { someTrans -> Data? in
 			try _documentSighting(mac:mac, ua:ua, serial:serial, status:status, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
 			do {

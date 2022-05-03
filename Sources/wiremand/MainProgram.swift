@@ -314,9 +314,10 @@ struct WiremanD {
 				}
 				let printerMetadata = try daemonDB.printerDatabase.authorizeMacAddress(mac:useMac!.lowercased(), subnet:useSubnet!)
 				print(Colors.Green("[OK] - Printer assigned to local TCP port \(printerMetadata.port)"))
-				print(Colors.Yellow("\t-\(printerMetadata.username)"))
-				print(Colors.Yellow("\t-\(printerMetadata.password)"))
+				print(Colors.Yellow("\tusername: - \(printerMetadata.username)"))
+				print(Colors.Yellow("\tpassword: - \(printerMetadata.password)"))
 			}
+			
 			$0.command("client_revoke",
 			   Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
 			   Option<String?>("name", default:nil, description:"the name of the client that the key will be created for")
@@ -330,6 +331,8 @@ struct WiremanD {
 					let allSubnets = try daemonDB.wireguardDatabase.allSubnets()
 					switch allSubnets.count {
 						case 0:
+							fatalError("there are no subnets configured (this should not be the case)")
+						case 1:
 							print("There is only one subnet configured - it has been automatically selected.")
 							useSubnet = allSubnets.first!.name
 						default:
@@ -351,8 +354,6 @@ struct WiremanD {
 				if (useClient == nil || useClient!.count == 0) {
 					let allClients = try daemonDB.wireguardDatabase.allClients(subnet:useSubnet)
 					switch allClients.count {
-						case 0:
-							fatalError("there are no subnets configured (this should not be the case)")
 						case 1:
 							print(Colors.Yellow("There are no clients on this subnet yet."))
 							exit(1)
@@ -370,6 +371,7 @@ struct WiremanD {
 				try daemonDB.wireguardDatabase.clientRemove(subnet:useSubnet!, name:useClient!)
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
 			}
+			
             $0.command("client_make",
                 Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
                 Option<String?>("name", default:nil, description:"the name of the client that the key will be created for"),
@@ -384,21 +386,30 @@ struct WiremanD {
                 let daemonDB = try DaemonDB(directory:dbPath, running:false)
                 
                 var useSubnet:String? = subnetName
-                if (useSubnet == nil || useSubnet!.count == 0) {
-                    print("Please chose a subnet for this client:")
-                    let allSubnets = try daemonDB.wireguardDatabase.allSubnets()
-                    for curSub in allSubnets {
-                        print(Colors.dim("\t-\t\(curSub.name)"))
-                    }
-                    repeat {
-                        print("subnet name: ", terminator:"")
-                        useSubnet = readLine()
-                    } while useSubnet == nil || useSubnet!.count == 0
-                }
-                guard try daemonDB.wireguardDatabase.validateSubnet(name:useSubnet!) == true else {
-                    fatalError("the subnet name '\(useSubnet!)' does not exist")
-                }
-                
+				if (useSubnet == nil || useSubnet!.count == 0) {
+
+					let allSubnets = try daemonDB.wireguardDatabase.allSubnets()
+					switch allSubnets.count {
+						case 0:
+							fatalError("there are no subnets configured (this should not be the case)")
+						case 1:
+							print("There is only one subnet configured - it has been automatically selected.")
+							useSubnet = allSubnets.first!.name
+						default:
+							print("Please select the subnet of the client you would like to remove:")
+							for curSub in allSubnets {
+								print(Colors.dim("\t-\t\(curSub.name)"))
+							}
+							repeat {
+								print("subnet name: ", terminator:"")
+								useSubnet = readLine()
+							} while useSubnet == nil || useSubnet!.count == 0
+					}
+				}
+				guard try daemonDB.wireguardDatabase.validateSubnet(name:useSubnet!) == true else {
+					fatalError("the subnet name '\(useSubnet!)' does not exist")
+				}
+
                 var useClient:String? = clientName
                 if (useClient == nil || useClient!.count == 0) {
                     let allClients = try daemonDB.wireguardDatabase.allClients(subnet:useSubnet)
@@ -514,16 +525,12 @@ struct WiremanD {
                         print("task error: \(error)")
                     }
                 })
-				Task.detached(operation: {
-					let printers = try daemonDB.printerDatabase.getAuthorizedPrinterInfo()
-					for curPrinter in printers {
-						Task.detached(operation: {
-							let newServer = try EchoServer(host:try daemonDB.wireguardDatabase.getServerIPv4Network().address.string, port:Int(curPrinter.port))
-							print("[PRINT] Port \(curPrinter.port) assigned to MAC address: \(curPrinter.mac)")
-							try newServer.start()
-							print("[PRINT] Port \(curPrinter.port) is being closed.")
-						})
-					}
+				var allPorts = [UInt16:EchoServer]()
+				try await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort in
+					allPorts[newPort] = EchoServer(host:try daemonDB.wireguardDatabase.getServerIPv4Network().address.string, port:Int(newPort))
+					print(Colors.Magenta("{PRINT} - a new port has been opened \(newPort)"))
+				}, closer: { oldPort in
+					allPorts[oldPort] = nil
 				})
 				let webserver = try PublicHTTPWebServer(wgDatabase:daemonDB.wireguardDatabase, pp:daemonDB.printerDatabase, port:daemonDB.getPublicHTTPPort())
                 try webserver.run()
