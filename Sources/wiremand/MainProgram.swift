@@ -483,8 +483,9 @@ struct WiremanD {
                     fatalError("this function must be run as the wiremand user")
                 }
                 let dbPath = getCurrentDatabasePath()
-                let daemonDB = try! DaemonDB(directory:dbPath, running:true)
-                let interfaceName = try! daemonDB.wireguardDatabase.primaryInterfaceName()
+                let daemonDB = try DaemonDB(directory:dbPath, running:true)
+                let interfaceName = try daemonDB.wireguardDatabase.primaryInterfaceName()
+				let tcpPortBind = try daemonDB.wireguardDatabase.getServerIPv4Network().address.string
                 try daemonDB.launchSchedule(.latestWireguardHandshakesCheck, interval:10, { [wgdb = daemonDB.wireguardDatabase] in
                     do {
                         // run the shell command to check for the handshakes associated with the various public keys
@@ -527,7 +528,7 @@ struct WiremanD {
                 })
 				var allPorts = [UInt16:EchoServer]()
 				try! await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort in
-					allPorts[newPort] = EchoServer(host:try! daemonDB.wireguardDatabase.getServerIPv4Network().address.string, port:Int(newPort))
+					allPorts[newPort] = EchoServer(host:tcpPortBind, port:Int(newPort))
 					print(Colors.Magenta("{PRINT} - a new port has been opened \(newPort)"))
 				}, closer: { oldPort in
 					allPorts[oldPort] = nil
