@@ -528,7 +528,10 @@ struct WiremanD {
                 })
 				var allPorts = [UInt16:EchoServer]()
 				try! await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort in
-					allPorts[newPort] = EchoServer(host:tcpPortBind, port:Int(newPort))
+					let newServer = EchoServer(host:tcpPortBind, port:Int(newPort))
+					Task.detached(operation: {
+						try newServer.start()
+					})
 					print(Colors.Magenta("{PRINT} - a new port has been opened \(newPort)"))
 				}, closer: { oldPort in
 					allPorts[oldPort] = nil

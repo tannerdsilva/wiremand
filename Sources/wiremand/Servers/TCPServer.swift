@@ -72,7 +72,7 @@ class EchoHandler:ChannelInboundHandler {
 		var buffer = unwrapInboundIn(data)
 		let readableBytes = buffer.readableBytes
 		if let received = buffer.readString(length:readableBytes) {
-			print(received)
+			print(Colors.Magenta("\(received.count)"))
 		}
 		
 		ctx.write(data, promise: nil)
