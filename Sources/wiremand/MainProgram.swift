@@ -345,6 +345,8 @@ struct WiremanD {
 					let allClients = try daemonDB.wireguardDatabase.allClients(subnet:useSubnet)
 					switch allClients.count {
 						case 0:
+							fatalError("there are no subnets configured (this should not be the case)")
+						case 1:
 							print(Colors.Yellow("There are no clients on this subnet yet."))
 							exit(1)
 						default:
@@ -359,7 +361,7 @@ struct WiremanD {
 					} while useClient == nil && useClient!.count == 0
 				}
 				try daemonDB.wireguardDatabase.clientRemove(subnet:useSubnet!, name:useClient!)
-
+				try DynDNS.exportAutomaticDNSEntries(db:daemonDB)
 			}
             $0.command("client_make",
                 Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
@@ -453,7 +455,6 @@ struct WiremanD {
                 let subnetHash = try WiremanD.hash(domain:useSubnet!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)!
                 let buildURL = "\nhttps://\(useSubnet!)/wg_getkey?dk=\(subnetHash)&sk=\(securityKey)&pk=\(usePublicKey!.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
                 print("\(buildURL)")
-                exit(0)
             }
             
             $0.command("run") {
@@ -520,7 +521,6 @@ struct WiremanD {
 				let webserver = try PublicHTTPWebServer(wgDatabase:daemonDB.wireguardDatabase, pp:daemonDB.printerDatabase, port:daemonDB.getPublicHTTPPort())
                 try webserver.run()
                 webserver.wait()
-                exit(5)
             }
         }.run()
     }

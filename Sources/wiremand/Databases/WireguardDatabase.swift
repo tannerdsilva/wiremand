@@ -336,6 +336,7 @@ struct WireguardDatabase {
     struct ClientInfo:Hashable {
         let publicKey:String
         let address:AddressV6
+		let addressV4:AddressV4?
         let name:String
         let subnetName:String
     }
@@ -423,9 +424,13 @@ struct WireguardDatabase {
 		try env.transact(readOnly:false) { someTrans in
 			let getName = try self.clientPub_clientName.cursor(tx:someTrans)
 			let subnetNameHashCursor = try self.subnetName_clientNameHash.cursor(tx:someTrans)
+			
+			// loop through every client - find a client with a matching name
 			for kv in getName {
 				let nameString = String(kv.value)!
 				if name == nameString {
+					
+					// name matched - now confirm this client belongs to the subnet that we are trying to target
 					let nameHash = try Self.hash(clientName:nameString)
 					if try subnetNameHashCursor.containsEntry(key:subnet, value:nameHash) == true {
 						try _clientRemove(publicKey:String(kv.key)!, tx:someTrans)
@@ -449,7 +454,13 @@ struct WireguardDatabase {
                 let getSubnet = String(try clientSubnetCursor.getEntry(.set, key:curClient.key).value)!
                 let publicKey = String(curClient.key)!
                 let address = AddressV6(curClient.value)!
-                buildClients.update(with:ClientInfo(publicKey:publicKey, address:address, name:getName, subnetName:getSubnet))
+				let addrv4:AddressV4?
+				do {
+					addrv4 = try clientPub_ipv4.getEntry(type:AddressV4.self, forKey:publicKey, tx:tx)!
+				} catch LMDBError.notFound {
+					addrv4 = nil
+				}
+				buildClients.update(with:ClientInfo(publicKey:publicKey, address:address, addressV4:addrv4, name:getName, subnetName:getSubnet))
             }
             return buildClients
         } else {
@@ -462,8 +473,14 @@ struct WireguardDatabase {
                     let getCurrentPub = try subnetNameCursor.getEntry(operation).value
                     let clientAddress = AddressV6(try clientAddressCursor.getEntry(.set, key:getCurrentPub).value)!
                     let clientName = String(try clientNameCursor.getEntry(.set, key:getCurrentPub).value)!
-                    
-                    buildClients.update(with:ClientInfo(publicKey:String(getCurrentPub)!, address:clientAddress, name:clientName, subnetName:subnet!))
+					let addrv4:AddressV4?
+					do {
+						addrv4 = try clientPub_ipv4.getEntry(type:AddressV4.self, forKey:String(getCurrentPub)!, tx:tx)!
+					} catch LMDBError.notFound {
+						addrv4 = nil
+					}
+
+                    buildClients.update(with:ClientInfo(publicKey:String(getCurrentPub)!, address:clientAddress, addressV4:addrv4, name:clientName, subnetName:subnet!))
                     
                     switch operation {
                     case .firstDup:
