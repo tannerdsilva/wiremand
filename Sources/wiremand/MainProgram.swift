@@ -230,6 +230,13 @@ struct WiremanD {
                 print(Colors.Green("[OK] - Installation complete. Please restart this machine."))
             }
             
+			$0.command("domain_render_dns") {
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this program must be run as `wiremand` user")
+				}
+				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				try DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
+			}
             $0.command("domain_make",
                 Argument<String>("domain", description:"the domain to add to the system")
             ) { domainName in
@@ -361,7 +368,7 @@ struct WiremanD {
 					} while useClient == nil && useClient!.count == 0
 				}
 				try daemonDB.wireguardDatabase.clientRemove(subnet:useSubnet!, name:useClient!)
-				try DynDNS.exportAutomaticDNSEntries(db:daemonDB)
+				try DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
 			}
             $0.command("client_make",
                 Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
