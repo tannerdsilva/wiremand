@@ -47,12 +47,12 @@ class PublicHTTPWebServer {
         ipv4Application.router.add("wg_makekey", method:.GET, responder:wgAPI)
         ipv6Application.router.add("wg_getkey", method:.GET, responder:wgGetKey)
         ipv4Application.router.add("wg_getkey", method:.GET, responder:wgGetKey)
-        ipv6Application.router.add("/print", method:.POST, responder:pp)
-        ipv4Application.router.add("/print", method:.POST, responder:pp)
-		ipv6Application.router.add("/print", method:.GET, responder:pp)
-		ipv4Application.router.add("/print", method:.GET, responder:pp)
-		ipv6Application.router.add("/print", method:.DELETE, responder:pp)
-		ipv4Application.router.add("/print", method:.DELETE, responder:pp)
+        ipv6Application.router.add("print", method:.POST, responder:pp)
+        ipv4Application.router.add("print", method:.POST, responder:pp)
+		ipv6Application.router.add("print", method:.GET, responder:pp)
+		ipv4Application.router.add("print", method:.GET, responder:pp)
+		ipv6Application.router.add("print", method:.DELETE, responder:pp)
+		ipv4Application.router.add("print", method:.DELETE, responder:pp)
         try ipv4Application.start()
         try ipv6Application.start()
     }
@@ -135,6 +135,7 @@ fileprivate struct PrinterPoll:HBResponder {
 						buildObject["jobReady"] = false
 					}
 					let jsonData = try JSONSerialization.data(withJSONObject:buildObject)
+					
 					responseData.writeData(jsonData)
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "application/json")), body:.byteBuffer(responseData)))
 				case .GET:
