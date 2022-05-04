@@ -74,6 +74,7 @@ fileprivate struct PrinterPoll:HBResponder {
 	
 	public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
 		// check for the remote address
+		request.logger.info("traffic is coming", metadata:["method": "\(request.method)"])
 		guard let remoteAddress = request.headers["X-Real-IP"].first?.lowercased() else {
 			request.logger.error("no remote address was found in this request")
 			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
