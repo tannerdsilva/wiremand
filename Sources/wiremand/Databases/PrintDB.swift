@@ -383,7 +383,7 @@ actor PrintDB {
 	
 	nonisolated func newPrintJob(port:UInt16, date:Date, data:Data) throws {
 		try env.transact(readOnly:false) { someTrans in
-			let macAddress = try mac_port.getEntry(type:String.self, forKey:port, tx:someTrans)!
+			let macAddress = try port_mac.getEntry(type:String.self, forKey:port, tx:someTrans)!
 			try _newJob(mac:macAddress, date:date, data:data, tx:someTrans)
 		}
 	}
