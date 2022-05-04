@@ -138,7 +138,7 @@ fileprivate struct PrinterPoll:HBResponder {
 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 					}
 					let jobData = try printDB.retrievePrintJob(token:Data(base64Encoded:jobToken)! ,mac:mac, ua:userAgent, serial:serial, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
-					request.logger.info("printer is getting job data", metadata:["length": "\(jobData!.count)"])
+					request.logger.info("printer is getting job data", metadata:["length": "\(jobData.count)"])
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.notFound))
 				default:
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.notFound))

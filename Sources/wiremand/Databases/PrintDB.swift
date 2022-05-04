@@ -382,9 +382,11 @@ actor PrintDB {
 			try _newJob(mac:macAddress, date:date, data:data, tx:someTrans)
 		}
 	}
-	nonisolated func _documentSighting(mac:String, ua:String, serial:String, status:String, remoteAddress:String, date:Date, domain:String, auth:AuthData?, tx:Transaction) throws {
+	nonisolated func _documentSighting(mac:String, ua:String, serial:String, status:String?, remoteAddress:String, date:Date, domain:String, auth:AuthData?, tx:Transaction) throws {
 		try mac_lastSeen.setEntry(value:date, forKey:mac, tx:tx)
-		try mac_status.setEntry(value:status, forKey:mac, tx:tx)
+		if status != nil {
+			try mac_status.setEntry(value:status!, forKey:mac, tx:tx)
+		}
 		try mac_userAgent.setEntry(value:ua, forKey:mac, tx:tx)
 		try mac_callingDomain.setEntry(value:domain, forKey:mac, tx:tx)
 		if (auth != nil) {
@@ -477,7 +479,7 @@ actor PrintDB {
 	}
 	
 	nonisolated func retrievePrintJob(token:Data, mac:String, ua:String, serial:String, status:String? = nil, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws -> Data {
-		try env.transact(readOnly:false) { someTrans -> Data? in
+		try env.transact(readOnly:false) { someTrans -> Data in
 			try _documentSighting(mac:mac, ua:ua, serial:serial, status:status, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
 			do {
 				try _authenticationCheck(mac:mac, serial:serial, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
@@ -485,11 +487,7 @@ actor PrintDB {
 				try someTrans.commit()
 				throw error
 			}
-			do {
-				return try self.macPrintHash_printJobData.getEntry(type:Data.self, forKey:token, tx:someTrans)
-			} catch LMDBError.notFound {
-				return nil
-			}
+			return try self.macPrintHash_printJobData.getEntry(type:Data.self, forKey:token, tx:someTrans)!
 		}
 	}
 }
