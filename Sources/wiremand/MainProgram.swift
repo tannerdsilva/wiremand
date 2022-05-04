@@ -530,6 +530,7 @@ struct WiremanD {
 				try! await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort in
 					let newServer = try TCPServer(host:tcpPortBind, port:newPort)
 					print(Colors.Magenta("{PRINT} - a new port has been opened \(newPort)"))
+					allPorts[newPort] = newServer
 				}, closer: { oldPort in
 					allPorts[oldPort] = nil
 				})
@@ -537,6 +538,12 @@ struct WiremanD {
                 try webserver.run()
                 webserver.wait()
             }
+			$0.command("run_tcp") {
+				let myServer = try TCPServer(host:"127.0.0.1", port:9100)
+				while Task.isCancelled == false {
+					try await Task.sleep(nanoseconds: 500000000)
+				}
+			}
         }.run()
     }
 }
