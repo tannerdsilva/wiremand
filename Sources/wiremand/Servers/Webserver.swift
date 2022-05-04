@@ -115,6 +115,9 @@ fileprivate struct PrinterPoll:HBResponder {
 			}
 			do {
 				let jobCode = try printDB.checkForPrintJobs(mac:mac, ua:userAgent, serial:serial, status:statusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
+				if jobCode != nil {
+					request.logger.info("printer has a pending job", metadata:["jobToken": "\(jobCode!.base64EncodedString())"])
+				}
 			} catch PrintDB.AuthorizationError.unauthorized {
 				request.logger.info("unauthorized printer poll", metadata:["mac": "\(mac)"])
 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized))

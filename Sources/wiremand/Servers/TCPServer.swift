@@ -17,7 +17,7 @@ class TCPServer {
 	private let group = MultiThreadedEventLoopGroup(numberOfThreads:System.coreCount)
 	private let channel:Channel
 	
-	init(host:String, port:UInt16) throws {
+	init(host:String, port:UInt16, associatedMAC:String) throws {
 		let bootstrap = ServerBootstrap(group: group)
 			// Specify backlog and enable SO_REUSEADDR for the server itself
 			.serverChannelOption(ChannelOptions.backlog, value: 256)
@@ -25,7 +25,6 @@ class TCPServer {
 			
 			// Set the handlers that are appled to the accepted Channels
 			.childChannelInitializer { channel in
-				print(Colors.magenta("__ server init"))
 				// Ensure we don't read faster then we can write by adding the BackPressureHandler into the pipeline.
 				return channel.pipeline.addHandler(BackPressureHandler()).flatMap { v in
 					channel.pipeline.addHandler(PrintJobIntakeHandler())
@@ -38,15 +37,10 @@ class TCPServer {
 			.childChannelOption(ChannelOptions.maxMessagesPerRead, value: 16)
 			.childChannelOption(ChannelOptions.recvAllocator, value: AdaptiveRecvByteBufferAllocator())
 		channel = try bootstrap.bind(host:host, port:Int(port)).wait()
-		print("SERVER IS BOUND")
 	}
 	
 	func stop() {
 		channel.close()
-	}
-	
-	deinit {
-		print("DEINIT THING")
 	}
 }
 
@@ -59,7 +53,6 @@ class PrintJobIntakeHandler:ChannelInboundHandler {
 	}
 	
 	func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-		print(Colors.Magenta("data is being read from the socket"))
 		var buffer = unwrapInboundIn(data)
 		let readableBytes = buffer.readableBytes
 		if let received = buffer.readString(length:readableBytes) {

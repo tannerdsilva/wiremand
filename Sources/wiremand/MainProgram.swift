@@ -485,7 +485,7 @@ struct WiremanD {
                 let dbPath = getCurrentDatabasePath()
                 let daemonDB = try DaemonDB(directory:dbPath, running:true)
                 let interfaceName = try daemonDB.wireguardDatabase.primaryInterfaceName()
-				let tcpPortBind = try daemonDB.wireguardDatabase.getServerIPv4Network().address.string
+				let tcpPortBind = try daemonDB.wireguardDatabase.getServerInternalNetwork().address.string
                 try daemonDB.launchSchedule(.latestWireguardHandshakesCheck, interval:10, { [wgdb = daemonDB.wireguardDatabase] in
                     do {
                         // run the shell command to check for the handshakes associated with the various public keys
@@ -527,9 +527,9 @@ struct WiremanD {
                     }
                 })
 				var allPorts = [UInt16:TCPServer]()
-				try! await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort in
-					let newServer = try TCPServer(host:tcpPortBind, port:newPort)
-					print(Colors.Magenta("{PRINT} - a new port has been opened \(newPort)"))
+				try! await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort, macString in
+					let newServer = try TCPServer(host:tcpPortBind, port:newPort, associatedMAC:macString)
+					print(Colors.Magenta("{PRINT} - a new port has been opened \(newPort) at address \(tcpPortBind)"))
 					allPorts[newPort] = newServer
 				}, closer: { oldPort in
 					allPorts[oldPort] = nil
@@ -538,12 +538,6 @@ struct WiremanD {
                 try webserver.run()
                 webserver.wait()
             }
-			$0.command("run_tcp") {
-				let myServer = try TCPServer(host:"127.0.0.1", port:9100)
-				while Task.isCancelled == false {
-					try await Task.sleep(nanoseconds: 500000000)
-				}
-			}
         }.run()
     }
 }

@@ -223,11 +223,12 @@ actor PrintDB {
 	let mac_lastPW:Database
 	let mac_lastAuthAttempt:Database
 	
-	typealias PortHandler = (UInt16) throws -> Void
-	fileprivate var opener:PortHandler? = nil
-	fileprivate var closer:PortHandler? = nil
+	typealias OpenHandler = (UInt16, String) throws -> Void
+	typealias CloseHandler = (UInt16) throws -> Void
+	fileprivate var opener:OpenHandler? = nil
+	fileprivate var closer:CloseHandler? = nil
 	fileprivate var openedPort = Set<UInt16>()
-	func assignPortHandlers(opener:@escaping(PortHandler), closer:@escaping(PortHandler)) throws {
+	func assignPortHandlers(opener:@escaping(OpenHandler), closer:@escaping(CloseHandler)) throws {
 		guard self.opener == nil && self.closer == nil else {
 			return
 		}
@@ -237,7 +238,8 @@ actor PrintDB {
 			let port_macCursor = try port_mac.cursor(tx:someTrans)
 			for curPort in port_macCursor {
 				let asUInt = UInt16(curPort.key)!
-				try opener(asUInt)
+				let macStr = String(curPort.value)!
+				try opener(asUInt, macStr)
 				openedPort.update(with:asUInt)
 			}
 		}
@@ -252,8 +254,9 @@ actor PrintDB {
 			// open any unopened ports
 			for curPort in port_macCursor {
 				let asUInt = UInt16(curPort.key)!
+				let macStr = String(curPort.value)!
 				if openedPort.contains(asUInt) {
-					try opener!(asUInt)
+					try opener!(asUInt, macStr)
 					openedPort.update(with:asUInt)
 				}
 			}
@@ -266,9 +269,9 @@ actor PrintDB {
 			}
 		}
 	}
-	fileprivate func firePortOpener(port:UInt16) throws {
+	fileprivate func firePortOpener(port:UInt16, mac:String) throws {
 		if let hasOpener = opener, openedPort.contains(port) == false {
-			try hasOpener(port)
+			try hasOpener(port, mac)
 			openedPort.update(with:port)
 		}
 	}
