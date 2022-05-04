@@ -54,7 +54,8 @@ class EchoServer {
 			.serverChannelOption(ChannelOptions.backlog, value: 256)
 			.serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
 			.childChannelInitializer { channel in
-				channel.pipeline.addHandler(BackPressureHandler()).flatMap { v in
+				print(Colors.Magenta("BOOTSTRAP IS HAPPENING"))
+				return channel.pipeline.addHandler(BackPressureHandler()).flatMap { v in
 					channel.pipeline.addHandler(EchoHandler())
 				}
 			}
