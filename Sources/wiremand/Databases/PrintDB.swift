@@ -376,6 +376,18 @@ actor PrintDB {
 		})
 	}
 	
+	nonisolated fileprivate func _deleteJob(hash:Data, tx:Transaction) throws {
+		let macPrintCursor = try mac_printJobDate.cursor(tx:tx)
+		try macPrintHash_printJobData.deleteEntry(key:hash, tx:tx)
+		for curKV in macPrintCursor {
+			let combinedData = Data(curKV.key)! + Data(curKV.value)!
+			if (combinedData == hash) {
+				try macPrintCursor.deleteEntry()
+				return
+			}
+		}
+		throw LMDBError.notFound
+	}
 	nonisolated func newPrintJob(port:UInt16, date:Date, data:Data) throws {
 		try env.transact(readOnly:false) { someTrans in
 			let macAddress = try port_mac.getEntry(type:String.self, forKey:port, tx:someTrans)!
@@ -478,9 +490,9 @@ actor PrintDB {
 		}
 	}
 	
-	nonisolated func retrievePrintJob(token:Data, mac:String, ua:String, serial:String, status:String? = nil, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws -> Data {
+	nonisolated func retrievePrintJob(token:Data, mac:String, ua:String, serial:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws -> Data {
 		try env.transact(readOnly:false) { someTrans -> Data in
-			try _documentSighting(mac:mac, ua:ua, serial:serial, status:status, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
+			try _documentSighting(mac:mac, ua:ua, serial:serial, status:nil, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
 			do {
 				try _authenticationCheck(mac:mac, serial:serial, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
 			} catch let error where error is AuthorizationError {
@@ -488,6 +500,19 @@ actor PrintDB {
 				throw error
 			}
 			return try self.macPrintHash_printJobData.getEntry(type:Data.self, forKey:token, tx:someTrans)!
+		}
+	}
+	
+	nonisolated func completePrintJob(token:Data, mac:String, ua:String, serial:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws {
+		try env.transact(readOnly:false) { someTrans in
+			try _documentSighting(mac:mac, ua:ua, serial:serial, status:nil, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
+			do {
+				try _authenticationCheck(mac:mac, serial:serial, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
+			} catch let error where error is AuthorizationError {
+				try someTrans.commit()
+				throw error
+			}
+			try _deleteJob(hash:token, tx:someTrans)
 		}
 	}
 }

@@ -148,7 +148,11 @@ fileprivate struct PrinterPoll:HBResponder {
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.notFound))
 					
 				case .DELETE:
-					request.logger.info("delete job is being called")
+					guard let jobToken = request.uri.queryParameters["token"] else {
+						request.logger.info("printer didn't ask for a job token")
+						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+					}
+					try printDB.completePrintJob(token:Data(base64Encoded:jobToken)!, mac:mac, ua:userAgent, serial:serial, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
 				default:
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.notFound))
 				}
