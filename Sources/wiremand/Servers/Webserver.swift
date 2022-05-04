@@ -96,14 +96,6 @@ fileprivate struct PrinterPoll:HBResponder {
 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 			}
 
-			guard let requestData = request.body.buffer else {
-				request.logger.error("no request body was found", metadata:["remote":"\(remoteAddress)"])
-				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-			}
-			guard let parsed = try JSONSerialization.jsonObject(with:requestData) as? [String:Any], let statusCode = parsed["statusCode"] as? String, let decodeStatusCode = statusCode.removingPercentEncoding else {
-				request.logger.error("unable to parse json body for this request", metadata:["remote":"\(remoteAddress)"])
-				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-			}
 			
 			// mark the date
 			let date = Date()
@@ -117,12 +109,22 @@ fileprivate struct PrinterPoll:HBResponder {
 			do {
 				switch request.method {
 				case .POST:
+					guard let requestData = request.body.buffer else {
+						request.logger.error("no request body was found", metadata:["remote":"\(remoteAddress)"])
+						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+					}
+					guard let parsed = try JSONSerialization.jsonObject(with:requestData) as? [String:Any], let statusCode = parsed["statusCode"] as? String, let decodeStatusCode = statusCode.removingPercentEncoding else {
+						request.logger.error("unable to parse json body for this request", metadata:["remote":"\(remoteAddress)"])
+						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+					}
+					
+					
 					let jobCode = try printDB.checkForPrintJobs(mac:mac, ua:userAgent, serial:serial, status:statusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
 					var responseData = ByteBuffer()
 					var buildObject:[String:Any] = ["mediaTypes": "text/plain"]
 					if jobCode != nil {
 						request.logger.info("printer has a pending job", metadata:["jobToken": "\(jobCode!.base64EncodedString())"])
-//						buildObject["jobToken"] = jobCode!.base64EncodedString()
+						buildObject["jobToken"] = jobCode!.base64EncodedString()
 						buildObject["jobReady"] = true
 					} else {
 						buildObject["jobReady"] = false
@@ -131,10 +133,14 @@ fileprivate struct PrinterPoll:HBResponder {
 					responseData.writeData(jsonData)
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "application/json")), body:.byteBuffer(responseData)))
 				case .GET:
-					let jobData = try printDB.retrievePrintJob(mac:mac, ua:userAgent, serial:serial, status:statusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
-					if (jobData != nil) {
-						request.logger.info("printer is getting job data", metadata:["length": "\(jobData!.count)"])
+					guard let jobToken = request.uri.queryParameters["token"] else {
+						request.logger.info("printer didn't ask for a job token")
+						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 					}
+					let jobData = try printDB.retrievePrintJob(token:Data(base64Encoded:jobToken)! ,mac:mac, ua:userAgent, serial:serial, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
+					request.logger.info("printer is getting job data", metadata:["length": "\(jobData!.count)"])
+					return request.eventLoop.makeSucceededFuture(HBResponse(status:.notFound))
+				default:
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.notFound))
 				}
 			} catch PrintDB.AuthorizationError.unauthorized {

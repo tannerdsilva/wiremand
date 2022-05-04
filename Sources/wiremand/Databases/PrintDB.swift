@@ -362,12 +362,6 @@ actor PrintDB {
 		return try Blake2bHasher.hash(data:combinedData, length:16)
 	}
 	
-	nonisolated fileprivate func _oldestJobData(mac:String, tx:Transaction) throws -> Data {
-		let oldestHash = try self._oldestJobHash(mac:mac, tx:tx)
-		let jobData = try self.macPrintHash_printJobData.getEntry(type:Data.self, forKey:oldestHash, tx:tx)!
-		return jobData
-	}
-	
 	// installs a new print job for a specified mac address
 	nonisolated fileprivate func _newJob(mac:String, date:Date, data:Data, tx:Transaction) throws {
 		// open cursors
@@ -482,7 +476,7 @@ actor PrintDB {
 		}
 	}
 	
-	nonisolated func retrievePrintJob(mac:String, ua:String, serial:String, status:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws -> Data? {
+	nonisolated func retrievePrintJob(token:Data, mac:String, ua:String, serial:String, status:String? = nil, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws -> Data {
 		try env.transact(readOnly:false) { someTrans -> Data? in
 			try _documentSighting(mac:mac, ua:ua, serial:serial, status:status, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
 			do {
@@ -492,7 +486,7 @@ actor PrintDB {
 				throw error
 			}
 			do {
-				return try _oldestJobData(mac:mac, tx:someTrans)
+				return try self.macPrintHash_printJobData.getEntry(type:Data.self, forKey:token, tx:someTrans)
 			} catch LMDBError.notFound {
 				return nil
 			}
