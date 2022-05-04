@@ -526,12 +526,9 @@ struct WiremanD {
                         print("task error: \(error)")
                     }
                 })
-				var allPorts = [UInt16:EchoServer]()
+				var allPorts = [UInt16:PrintJobIntakeHandler]()
 				try! await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort in
-					let newServer = EchoServer(host:tcpPortBind, port:Int(newPort))
-					Task.detached(operation: {
-						try newServer.start()
-					})
+					let newServer = try TCPServer(host:tcpPortBind, port:newPort)
 					print(Colors.Magenta("{PRINT} - a new port has been opened \(newPort)"))
 				}, closer: { oldPort in
 					allPorts[oldPort] = nil
