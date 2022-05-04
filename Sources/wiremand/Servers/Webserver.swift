@@ -126,7 +126,7 @@ fileprivate struct PrinterPoll:HBResponder {
 					
 					let jobCode = try printDB.checkForPrintJobs(mac:mac, ua:userAgent, serial:serial, status:statusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
 					var responseData = ByteBuffer()
-					var buildObject:[String:Any] = ["mediaTypes": "text/plain"]
+					var buildObject:[String:Any] = ["mediaTypes": ["text/plain"]]
 					if jobCode != nil {
 						request.logger.info("printer has a pending job", metadata:["jobToken": "\(jobCode!.base64EncodedString())"])
 						buildObject["jobToken"] = jobCode!.base64EncodedString()
