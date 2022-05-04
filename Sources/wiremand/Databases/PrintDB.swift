@@ -177,7 +177,7 @@ actor PrintDB {
 			return newPort
 		}
 		Task.detached {
-			try await self.firePortOpener(port:newPort)
+			try await self.firePortOpener(port:newPort, mac:mac)
 		}
 		return (newPort, un, pw)
 	}
