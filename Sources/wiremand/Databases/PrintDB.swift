@@ -380,6 +380,13 @@ actor PrintDB {
 			try macPrintJobDataCursor.setEntry(value:data, forKey:jobHash)
 		})
 	}
+	
+	nonisolated func newPrintJob(port:UInt16, date:Date, data:Data) throws {
+		try env.transact(readOnly:false) { someTrans in
+			let macAddress = try mac_port.getEntry(type:String.self, forKey:port, tx:someTrans)!
+			try _newJob(mac:macAddress, date:date, data:data, tx:someTrans)
+		}
+	}
 	nonisolated func _documentSighting(mac:String, ua:String, serial:String, status:String, remoteAddress:String, date:Date, domain:String, auth:AuthData?, tx:Transaction) throws {
 		try mac_lastSeen.setEntry(value:date, forKey:mac, tx:tx)
 		try mac_status.setEntry(value:status, forKey:mac, tx:tx)

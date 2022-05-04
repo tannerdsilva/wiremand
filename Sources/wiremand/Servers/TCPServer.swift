@@ -17,7 +17,7 @@ class TCPServer {
 	private let group = MultiThreadedEventLoopGroup(numberOfThreads:System.coreCount)
 	private let channel:Channel
 	
-	init(host:String, port:UInt16, associatedMAC:String) throws {
+	init(host:String, port:UInt16, db:PrintDB) throws {
 		let bootstrap = ServerBootstrap(group: group)
 			// Specify backlog and enable SO_REUSEADDR for the server itself
 			.serverChannelOption(ChannelOptions.backlog, value: 256)
@@ -27,7 +27,7 @@ class TCPServer {
 			.childChannelInitializer { channel in
 				// Ensure we don't read faster then we can write by adding the BackPressureHandler into the pipeline.
 				return channel.pipeline.addHandler(BackPressureHandler()).flatMap { v in
-					channel.pipeline.addHandler(PrintJobIntakeHandler())
+					channel.pipeline.addHandler(PrintJobIntakeHandler(port:port, db:db))
 				}
 			}
 			
@@ -48,6 +48,13 @@ class PrintJobIntakeHandler:ChannelInboundHandler {
 	typealias InboundIn = ByteBuffer
 	typealias OutboundOut = ByteBuffer
 	
+	let portNumber:UInt16
+	let database:PrintDB
+	var buildData = Data()
+	init(port:UInt16, db:PrintDB) {
+		self.portNumber = port
+		self.database = db
+	}
 	func channelRegistered(context: ChannelHandlerContext) {
 		context.fireChannelRegistered()
 	}
@@ -55,7 +62,8 @@ class PrintJobIntakeHandler:ChannelInboundHandler {
 	func channelRead(context: ChannelHandlerContext, data: NIOAny) {
 		var buffer = unwrapInboundIn(data)
 		let readableBytes = buffer.readableBytes
-		if let received = buffer.readString(length:readableBytes) {
+		if let received = buffer.readData(length:readableBytes) {
+			buildData += received
 			print(Colors.Magenta("\(received.count)"))
 		}
 		
@@ -63,7 +71,10 @@ class PrintJobIntakeHandler:ChannelInboundHandler {
 	}
 	
 	func channelReadComplete(context: ChannelHandlerContext) {
-		print(Colors.Magenta("TCP read complete"))
+		if buildData.count > 0 {
+			try! database.newPrintJob(port:portNumber, date:Date(), data:buildData)
+			buildData = Data()
+		}
 		context.flush()
 	}
 	
