@@ -113,10 +113,29 @@ fileprivate struct PrinterPoll:HBResponder {
 			if (authorization != nil) {
 				request.logger.info("decoded username and password", metadata:["username":"\(authorization?.un)", "password":"\(authorization?.pw)"])
 			}
+			
 			do {
-				let jobCode = try printDB.checkForPrintJobs(mac:mac, ua:userAgent, serial:serial, status:statusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
-				if jobCode != nil {
-					request.logger.info("printer has a pending job", metadata:["jobToken": "\(jobCode!.base64EncodedString())"])
+				switch request.method {
+				case .POST:
+					let jobCode = try printDB.checkForPrintJobs(mac:mac, ua:userAgent, serial:serial, status:statusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
+					var responseData = ByteBuffer()
+					var buildObject:[String:Any] = ["mediaTypes": "text/plain"]
+					if jobCode != nil {
+						request.logger.info("printer has a pending job", metadata:["jobToken": "\(jobCode!.base64EncodedString())"])
+//						buildObject["jobToken"] = jobCode!.base64EncodedString()
+						buildObject["jobReady"] = true
+					} else {
+						buildObject["jobReady"] = false
+					}
+					let jsonData = try JSONSerialization.data(withJSONObject:buildObject)
+					responseData.writeData(jsonData)
+					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "application/json")), body:.byteBuffer(responseData)))
+				case .GET:
+					let jobData = try printDB.retrievePrintJob(mac:mac, ua:userAgent, serial:serial, status:statusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
+					if (jobData != nil) {
+						request.logger.info("printer is getting job data", metadata:["length": "\(jobData!.count)"])
+					}
+					return request.eventLoop.makeSucceededFuture(HBResponse(status:.notFound))
 				}
 			} catch PrintDB.AuthorizationError.unauthorized {
 				request.logger.info("unauthorized printer poll", metadata:["mac": "\(mac)"])
@@ -128,10 +147,7 @@ fileprivate struct PrinterPoll:HBResponder {
 				request.logger.info("printer is polling incorrect subnet", metadata:["mac": "\(mac)", "currentPollSubnet": "\(domainString)", "correctPollSubnet": "\(correctRealm)"])
 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.forbidden))
 			}
-			
-            guard let requestData = request.body.buffer else {
-                return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-            }
+	
             return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
         } catch let error {
             request.logger.error("error thrown - \(error)")

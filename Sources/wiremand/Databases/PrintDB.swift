@@ -354,17 +354,18 @@ actor PrintDB {
     }
 	
 	// returns the oldest job token for a given mac address
-	nonisolated fileprivate func _oldestJobHash(mac:String, tx:Transaction) throws -> Data? {
+	nonisolated fileprivate func _oldestJobHash(mac:String, tx:Transaction) throws -> Data {
 		let macPrintCursor = try mac_printJobDate.cursor(tx:tx)
-		do {
-			_ = try macPrintCursor.getEntry(.set, key:mac)
-		} catch LMDBError.notFound {
-			// no print jobs
-			return nil
-		}
+		_ = try macPrintCursor.getEntry(.set, key:mac)
 		// there are print jobs, now get the oldest job and return it as a job hash
 		let combinedData = Data(mac.utf8) + Data(try macPrintCursor.getEntry(.firstDup).value)!
 		return try Blake2bHasher.hash(data:combinedData, length:16)
+	}
+	
+	nonisolated fileprivate func _oldestJobData(mac:String, tx:Transaction) throws -> Data {
+		let oldestHash = try self._oldestJobHash(mac:mac, tx:tx)
+		let jobData = try self.macPrintHash_printJobData.getEntry(type:Data.self, forKey:oldestHash, tx:tx)!
+		return jobData
 	}
 	
 	// installs a new print job for a specified mac address
@@ -473,7 +474,28 @@ actor PrintDB {
 				try someTrans.commit()
 				throw error
 			}
-			return try _oldestJobHash(mac:mac, tx:someTrans)
+			do {
+				return try _oldestJobHash(mac:mac, tx:someTrans)
+			} catch LMDBError.notFound {
+				return nil
+			}
+		}
+	}
+	
+	nonisolated func retrievePrintJob(mac:String, ua:String, serial:String, status:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws -> Data? {
+		try env.transact(readOnly:false) { someTrans -> Data? in
+			try _documentSighting(mac:mac, ua:ua, serial:serial, status:status, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
+			do {
+				try _authenticationCheck(mac:mac, serial:serial, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
+			} catch let error where error is AuthorizationError {
+				try someTrans.commit()
+				throw error
+			}
+			do {
+				return try _oldestJobData(mac:mac, tx:someTrans)
+			} catch LMDBError.notFound {
+				return nil
+			}
 		}
 	}
 }
