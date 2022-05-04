@@ -135,7 +135,7 @@ fileprivate struct PrinterPoll:HBResponder {
 						buildObject["jobReady"] = false
 					}
 					let jsonData = try JSONSerialization.data(withJSONObject:buildObject)
-					
+					print(Colors.Cyan("\(String(data:jsonData, encoding:.utf8))"))
 					responseData.writeData(jsonData)
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "application/json")), body:.byteBuffer(responseData)))
 				case .GET:
