@@ -527,8 +527,8 @@ struct WiremanD {
                     }
                 })
 				var allPorts = [UInt16:TCPServer]()
-				try! await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort, macString in
-					let newServer = try TCPServer(host:tcpPortBind, port:newPort, associatedMAC:macString)
+				try! await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort, _ in
+					let newServer = try TCPServer(host:tcpPortBind, port:newPort, db:daemonDB.printerDatabase)
 					print(Colors.Magenta("{PRINT} - a new port has been opened \(newPort) at address \(tcpPortBind)"))
 					allPorts[newPort] = newServer
 				}, closer: { oldPort in
