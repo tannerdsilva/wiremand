@@ -59,9 +59,6 @@ class EchoServer {
 				}
 			}
 			.childChannelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
-			.childChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
-			.childChannelOption(ChannelOptions.maxMessagesPerRead, value: 16)
-			.childChannelOption(ChannelOptions.recvAllocator, value: AdaptiveRecvByteBufferAllocator())
 	}
 }
 
@@ -69,6 +66,7 @@ class EchoHandler:ChannelInboundHandler {
 	typealias InboundIn = ByteBuffer
 	typealias OutboundOut = ByteBuffer
 	func channelRead(ctx: ChannelHandlerContext, data: NIOAny) {
+		print(Colors.Magenta("data is being read from the socket"))
 		var buffer = unwrapInboundIn(data)
 		let readableBytes = buffer.readableBytes
 		if let received = buffer.readString(length:readableBytes) {

@@ -110,7 +110,9 @@ fileprivate struct PrinterPoll:HBResponder {
 			
 			// this is the function that will actually return a useful and accurate response to the printer
 			let authorization = request.headers["Authorization"].first?.makeAuthData()
-			request.logger.info("decoded username and password", metadata:["username":"\(authorization?.un)", "password":"\(authorization?.pw)"])
+			if (authorization != nil) {
+				request.logger.info("decoded username and password", metadata:["username":"\(authorization?.un)", "password":"\(authorization?.pw)"])
+			}
 			do {
 				let jobCode = try printDB.checkForPrintJobs(mac:mac, ua:userAgent, serial:serial, status:statusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
 			} catch PrintDB.AuthorizationError.unauthorized {
@@ -127,8 +129,6 @@ fileprivate struct PrinterPoll:HBResponder {
             guard let requestData = request.body.buffer else {
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
-			print(Colors.Yellow("\(request.headers)"))
-            print(Colors.Cyan("\(parsed)"))
             return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
         } catch let error {
             request.logger.error("error thrown - \(error)")
