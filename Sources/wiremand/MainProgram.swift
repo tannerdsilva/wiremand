@@ -65,14 +65,6 @@ struct WiremanD {
 					}
 				} while ipv4Scope == nil
 				
-				print("disabling systemd-resolved")
-				
-				let disableResolved = try await Command(bash:"systemctl disable systemd-resolved && systemctl stop systemd-resolved").runSync()
-				guard disableResolved.succeeded == true else {
-					print("unable to disable systemd-resolved service")
-					exit(7)
-				}
-				
                 print("installing software...")
                 
                 // install software
@@ -82,6 +74,14 @@ struct WiremanD {
                     exit(6)
                 }
                 
+				print("disabling systemd-resolved")
+				
+				let disableResolved = try await Command(bash:"systemctl disable systemd-resolved && systemctl stop systemd-resolved").runSync()
+				guard disableResolved.succeeded == true else {
+					print("unable to disable systemd-resolved service")
+					exit(7)
+				}
+				
                 print("generating wireguard keys...")
                 
                 // set up the wireguard interface
