@@ -34,7 +34,9 @@ class PublicHTTPWebServer {
         let wgget = Wireguard_GetKeyResponder(wg_db: wgDatabase)
 		let makePP = PrinterPoll(printDB:pp)
         let v4 = HBApplication(configuration:.init(address:.hostname("127.0.0.1", port:Int(port))))
+		v4.logger.logLevel = .error
         let v6 = HBApplication(configuration:.init(address:.hostname("::1", port:Int(port))))
+		v6.logger.logLevel = .error
         self.ipv6Application = v6
         self.ipv4Application = v4
         self.wgAPI = wgapi
@@ -114,6 +116,7 @@ fileprivate struct PrinterPoll:HBResponder {
 			do {
 				switch request.method {
 				case .POST:
+					// this is a poll that contains useful metadata. parse the request
 					guard let requestData = request.body.buffer else {
 						request.logger.error("no request body was found", metadata:["remote":"\(remoteAddress)"])
 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
@@ -123,8 +126,8 @@ fileprivate struct PrinterPoll:HBResponder {
 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 					}
 					
+					let jobCode = try printDB.checkForPrintJobs(mac:mac, ua:userAgent, serial:serial, status:decodeStatusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
 					
-					let jobCode = try printDB.checkForPrintJobs(mac:mac, ua:userAgent, serial:serial, status:statusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
 					var responseData = ByteBuffer()
 					var buildObject:[String:Any] = ["mediaTypes": ["text/plain"]]
 					if jobCode != nil {
@@ -134,8 +137,8 @@ fileprivate struct PrinterPoll:HBResponder {
 					} else {
 						buildObject["jobReady"] = false
 					}
+					
 					let jsonData = try JSONSerialization.data(withJSONObject:buildObject)
-					print(Colors.Cyan("\(String(data:jsonData, encoding:.utf8))"))
 					responseData.writeData(jsonData)
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "application/json")), body:.byteBuffer(responseData)))
 				case .GET:
