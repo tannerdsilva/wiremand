@@ -1,6 +1,7 @@
 import Foundation
 import Hummingbird
 import NIOFoundationCompat
+import Logging
 
 extension String {
 	fileprivate func makeAuthData() -> PrintDB.AuthData? {
@@ -33,8 +34,14 @@ class PublicHTTPWebServer {
         let wgapi = try Wireguard_MakeKeyResponder(wg_db:wgDatabase)
         let wgget = Wireguard_GetKeyResponder(wg_db: wgDatabase)
 		let makePP = PrinterPoll(printDB:pp)
-		let v4 = HBApplication(configuration:.init(address:.hostname("127.0.0.1", port:Int(port)), logLevel:.error))
-        let v6 = HBApplication(configuration:.init(address:.hostname("::1", port:Int(port)), logLevel:.error))
+		let logLevel:Logger.Level
+		#if DEBUG
+		loglevel = .trace
+		#else
+		logLevel = .error
+		#endif
+		let v4 = HBApplication(configuration:.init(address:.hostname("127.0.0.1", port:Int(port)), logLevel:logLevel))
+        let v6 = HBApplication(configuration:.init(address:.hostname("::1", port:Int(port)), logLevel:logLevel))
         self.ipv6Application = v6
         self.ipv4Application = v4
         self.wgAPI = wgapi
@@ -74,7 +81,7 @@ fileprivate struct PrinterPoll:HBResponder {
 	
 	public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
 		// check for the remote address
-		request.logger.info("traffic is coming", metadata:["method": "\(request.method)"])
+		request.logger.debug("CloudPRNT traffic", metadata:["method": "\(request.method)"])
 		guard let remoteAddress = request.headers["X-Real-IP"].first?.lowercased() else {
 			request.logger.error("no remote address was found in this request")
 			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
@@ -108,7 +115,7 @@ fileprivate struct PrinterPoll:HBResponder {
 			// this is the function that will actually return a useful and accurate response to the printer
 			let authorization = request.headers["Authorization"].first?.makeAuthData()
 			if (authorization != nil) {
-				request.logger.info("decoded username and password", metadata:["username":"\(authorization?.un)", "password":"\(authorization?.pw)"])
+				request.logger.debug("decoded username and password", metadata:["username":"\(authorization?.un)", "password":"\(authorization?.pw)"])
 			}
 			
 			do {
@@ -155,6 +162,7 @@ fileprivate struct PrinterPoll:HBResponder {
 						request.logger.info("printer didn't ask for a job token")
 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 					}
+					request.logger.debug("CloudPRNT delete job", metadata:["token": "\(jobToken)"])
 					try printDB.completePrintJob(token:Data(base64Encoded:jobToken)!, mac:mac, ua:userAgent, serial:serial, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
 				default:
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.notFound))
