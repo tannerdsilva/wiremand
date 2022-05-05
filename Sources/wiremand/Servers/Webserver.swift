@@ -33,10 +33,8 @@ class PublicHTTPWebServer {
         let wgapi = try Wireguard_MakeKeyResponder(wg_db:wgDatabase)
         let wgget = Wireguard_GetKeyResponder(wg_db: wgDatabase)
 		let makePP = PrinterPoll(printDB:pp)
-        let v4 = HBApplication(configuration:.init(address:.hostname("127.0.0.1", port:Int(port))))
-		v4.logger.logLevel = .error
-        let v6 = HBApplication(configuration:.init(address:.hostname("::1", port:Int(port))))
-		v6.logger.logLevel = .error
+		let v4 = HBApplication(configuration:.init(address:.hostname("127.0.0.1", port:Int(port)), logLevel:.error))
+        let v6 = HBApplication(configuration:.init(address:.hostname("::1", port:Int(port)), logLevel:.error))
         self.ipv6Application = v6
         self.ipv4Application = v4
         self.wgAPI = wgapi
