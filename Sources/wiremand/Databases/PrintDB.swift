@@ -381,7 +381,8 @@ actor PrintDB {
 		try macPrintHash_printJobData.deleteEntry(key:hash, tx:tx)
 		for curKV in macPrintCursor {
 			let combinedData = Data(curKV.key)! + Data(curKV.value)!
-			if (combinedData == hash) {
+			let thisHashData = try Blake2bHasher.hash(data:combinedData, length:16)
+			if (thisHashData == hash) {
 				try macPrintCursor.deleteEntry()
 				return
 			}
