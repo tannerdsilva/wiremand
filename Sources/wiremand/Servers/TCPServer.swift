@@ -51,6 +51,7 @@ class PrintJobIntakeHandler:ChannelInboundHandler {
 	let portNumber:UInt16
 	let database:PrintDB
 	var buildData = Data()
+	
 	init(port:UInt16, db:PrintDB) {
 		self.portNumber = port
 		self.database = db
@@ -64,26 +65,21 @@ class PrintJobIntakeHandler:ChannelInboundHandler {
 		let readableBytes = buffer.readableBytes
 		if let received = buffer.readData(length:readableBytes) {
 			buildData += received
-			print(Colors.Magenta("\(received.count)"))
 		}
-		
-		context.write(data, promise: nil)
 	}
 	
 	func channelReadComplete(context: ChannelHandlerContext) {
-		if buildData.count > 0 {
-			try! database.newPrintJob(port:portNumber, date:Date(), data:buildData)
-			buildData = Data()
-		}
 		context.flush()
 	}
 	
 	func channelUnregistered(context:ChannelHandlerContext) {
-		print(Colors.Red("TCP deregistered"))
+		if buildData.count > 0 {
+			try! database.newPrintJob(port:portNumber, date:Date(), data:buildData)
+			buildData = Data()
+		}
 	}
 	
 	func errorCaught(context: ChannelHandlerContext, error: Error) {
-		print("error: \(error.localizedDescription)")
 		context.close(promise: nil)
 	}
 }
