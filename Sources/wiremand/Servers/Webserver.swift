@@ -36,7 +36,7 @@ class PublicHTTPWebServer {
 		let makePP = PrinterPoll(printDB:pp)
 		let logLevel:Logger.Level
 		#if DEBUG
-		loglevel = .trace
+		logLevel = .trace
 		#else
 		logLevel = .error
 		#endif
