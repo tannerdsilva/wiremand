@@ -125,9 +125,7 @@ struct WiremanD {
                 // set up the dnsmasq daemon
                 let dnsMasqConfFile = try FileDescriptor.open("/etc/dnsmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
                 try dnsMasqConfFile.closeAfter({
-                    var buildConfig = "listen-address=\(ipv6Scope!.address)\n"
-                    buildConfig += "interface=\(interfaceName)\n"
-                    buildConfig += "except-interface=lo\n"
+                    var buildConfig = "except-interface=eth0\n"
                     buildConfig += "bind-interfaces\n"
                     buildConfig += "server=::1#5353\n"
                     buildConfig += "server=127.0.0.1#5353\n"
