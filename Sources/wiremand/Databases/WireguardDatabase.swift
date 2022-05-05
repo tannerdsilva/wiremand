@@ -60,7 +60,7 @@ struct WireguardDatabase {
             let mySubnetName = wg_serverPublicDomainName
             let mySubnetHash = try WiremanD.hash(domain:mySubnetName)
 			
-			let myIPv4 = serverIPv4Block.range.randomAddress()
+			let myIPv4 = serverIPv4Block.address
             
 			try clientPub_ipv4.setEntry(value:myIPv4, forKey:publicKey, tx:someTransaction)
 			try ipv4_clientPub.setEntry(value:publicKey, forKey:myIPv4, tx:someTransaction)
@@ -203,16 +203,13 @@ struct WireguardDatabase {
     
     // webserve for configs
     let webserve__clientPub_configData:Database
-    func serveConfiguration(_ configString:String, forPublicKey publicKey:String) throws -> String {
+    func serveConfiguration(_ configString:String, forPublicKey publicKey:String) throws {
         try env.transact(readOnly:false) { someTrans in
             // validate that the current public key exists
             let subnetName = try clientPub_subnetName.getEntry(type:String.self, forKey:publicKey, tx:someTrans)!
 
             // write the data into the webserve databases
             try webserve__clientPub_configData.setEntry(value:configString, forKey:publicKey, flags:[.noOverwrite], tx:someTrans)
-            
-            // get the subnet security key
-            return try subnetHash_securityKey.getEntry(type:String.self, forKey:try WiremanD.hash(domain:subnetName), tx:someTrans)!
         }
     }
     func getConfiguration(publicKey:String, subnetName:String) throws -> (configuration:String, name:String) {

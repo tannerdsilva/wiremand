@@ -30,9 +30,9 @@ class PublicHTTPWebServer {
     fileprivate let wgGetKey:Wireguard_GetKeyResponder
 	fileprivate let pp:PrinterPoll
 	
-	init(wgDatabase:WireguardDatabase, pp:PrintDB, port:UInt16) throws {
-        let wgapi = try Wireguard_MakeKeyResponder(wg_db:wgDatabase)
-        let wgget = Wireguard_GetKeyResponder(wg_db: wgDatabase)
+	init(daemonDB:DaemonDB, pp:PrintDB, port:UInt16) throws {
+		let wgapi = try Wireguard_MakeKeyResponder(ddb:daemonDB)
+        let wgget = Wireguard_GetKeyResponder(wg_db: daemonDB.wireguardDatabase)
 		let makePP = PrinterPoll(printDB:pp)
 		let logLevel:Logger.Level
 		#if DEBUG
@@ -244,12 +244,14 @@ fileprivate struct Wireguard_GetKeyResponder:HBResponder {
     }
 }
 fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
+	let daemonDB:DaemonDB
     let wgDatabase:WireguardDatabase
     let wgServerPort:UInt16
     
-    init(wg_db:WireguardDatabase) throws {
-        self.wgDatabase = wg_db
-        self.wgServerPort = try wg_db.getPublicListenPort()
+	init(ddb:DaemonDB) throws {
+		self.daemonDB = ddb
+		self.wgDatabase = ddb.wireguardDatabase
+        self.wgServerPort = try ddb.wireguardDatabase.getPublicListenPort()
     }
     
     public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
@@ -320,7 +322,11 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
                 buildBytes.writeString(buildKey)
                 
 				try await WireguardExecutor.install(publicKey:newKeys.publicKey, presharedKey:newKeys.presharedKey, address:newClientAddress, addressv4:optionalV4, interfaceName:interfaceName)
-				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName)
+				try DNSmasqExecutor.exportAutomaticDNSEntries(db:self.daemonDB)
+				Task.detached {
+					try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName)
+					try await DNSmasqExecutor.reload()
+				}
                 return HBResponse(status: .ok, body:.byteBuffer(buildBytes))
             })
             return keyPromise.futureResult

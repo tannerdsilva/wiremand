@@ -4,6 +4,7 @@ import AddressKit
 import SystemPackage
 import SwiftSlash
 import QuickLMDB
+import Logging
 
 extension NetworkV6 {
     func maskingAddress() -> NetworkV6 {
@@ -63,7 +64,15 @@ struct WiremanD {
 						ipv4Scope = asNetwork
 					}
 				} while ipv4Scope == nil
-
+				
+				print("disabling systemd-resolved")
+				
+				let disableResolved = try await Command(bash:"systemctl disable systemd-resolved && systemctl stop systemd-resolved").runSync()
+				guard disableResolved.succeeded == true else {
+					print("unable to disable systemd-resolved service")
+					exit(7)
+				}
+				
                 print("installing software...")
                 
                 // install software
@@ -97,6 +106,19 @@ struct WiremanD {
                     print("unable to enable wireguard service")
                     exit(7)
                 }
+				
+				print("reconfiguring dns services...")
+				
+				guard remove("/etc/resolv.conf") == 0 else {
+					print("unable to remove /etc/resolv.conf")
+					exit(9)
+				}
+				
+				let resolvConf = try FileDescriptor.open("/etc/resolv.conf", .writeOnly, options:[.create, .truncate], permissions: [.ownerRead, .ownerWrite, .groupRead, .otherRead])
+				try resolvConf.closeAfter({
+					var buildConfig = "nameserver 127.0.0.1"
+					try resolvConf.writeAll(buildConfig.utf8)
+				})
                 
                 print("configuring dnsmasq...")
                 
@@ -107,8 +129,8 @@ struct WiremanD {
                     buildConfig += "interface=\(interfaceName)\n"
                     buildConfig += "except-interface=lo\n"
                     buildConfig += "bind-interfaces\n"
-                    buildConfig += "server=::1\n"
-                    buildConfig += "server=127.0.0.1\n"
+                    buildConfig += "server=::1#5353\n"
+                    buildConfig += "server=127.0.0.1#5353\n"
                     buildConfig += "user=\(installUserName)\n"
                     buildConfig += "group=\(installUserName)\n"
                     buildConfig += "no-hosts\n"
@@ -469,9 +491,9 @@ struct WiremanD {
                 
 				try await WireguardExecutor.install(publicKey: usePublicKey!, presharedKey: usePSK, address: newClientAddress, addressv4:optionalV4, interfaceName: interfaceName)
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName)
-                let securityKey = try daemonDB.wireguardDatabase.serveConfiguration(buildKey, forPublicKey:usePublicKey!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)!
+                try daemonDB.wireguardDatabase.serveConfiguration(buildKey, forPublicKey:usePublicKey!)
                 let subnetHash = try WiremanD.hash(domain:useSubnet!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)!
-                let buildURL = "\nhttps://\(useSubnet!)/wg_getkey?dk=\(subnetHash)&sk=\(securityKey)&pk=\(usePublicKey!.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
+                let buildURL = "\nhttps://\(useSubnet!)/wg_getkey?dk=\(subnetHash)&pk=\(usePublicKey!.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
                 print("\(buildURL)")
             }
             
@@ -482,6 +504,8 @@ struct WiremanD {
                 guard getCurrentUser() == "wiremand" else {
                     fatalError("this function must be run as the wiremand user")
                 }
+				var appLogger = Logger(label:"wiremand")
+				appLogger.logLevel = .info
                 let dbPath = getCurrentDatabasePath()
                 let daemonDB = try DaemonDB(directory:dbPath, running:true)
                 let interfaceName = try daemonDB.wireguardDatabase.primaryInterfaceName()
@@ -526,6 +550,14 @@ struct WiremanD {
                         print("task error: \(error)")
                     }
                 })
+				try daemonDB.launchSchedule(.certbotRenewalCheck, interval:172800) { [logger = appLogger] in
+					do {
+						try await Command(bash:"sudo certbot renew -nq")
+						logger.info("ssl certificates have been checked for renewal")
+					} catch let error {
+						logger.error("ssl certificates could not be renewed")
+					}
+				}
 				var allPorts = [UInt16:TCPServer]()
 				try! await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort, _ in
 					let newServer = try TCPServer(host:tcpPortBind, port:newPort, db:daemonDB.printerDatabase)
@@ -534,7 +566,7 @@ struct WiremanD {
 				}, closer: { oldPort in
 					allPorts[oldPort] = nil
 				})
-				let webserver = try PublicHTTPWebServer(wgDatabase:daemonDB.wireguardDatabase, pp:daemonDB.printerDatabase, port:daemonDB.getPublicHTTPPort())
+				let webserver = try PublicHTTPWebServer(daemonDB:daemonDB, pp:daemonDB.printerDatabase, port:daemonDB.getPublicHTTPPort())
                 try webserver.run()
                 webserver.wait()
             }
