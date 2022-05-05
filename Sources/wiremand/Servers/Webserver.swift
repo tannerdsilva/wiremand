@@ -204,11 +204,6 @@ fileprivate struct Wireguard_GetKeyResponder:HBResponder {
             // hash the domain
             let httpDomainHash = try WiremanD.hash(domain:domainString)
 
-            // validate that a security key was provided
-            guard let securityKey = request.uri.queryParameters["sk"] else {
-                request.logger.error("no security key provided")
-                return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-            }
             // validate tha ta domain key was provided
             guard let inputDomainHash = request.uri.queryParameters["dk"] else {
                 request.logger.error("no domain key provided")
@@ -219,12 +214,8 @@ fileprivate struct Wireguard_GetKeyResponder:HBResponder {
                 request.logger.error("input domain hash does not match the domain hash that was derrived from the host header.")
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
-            // validate the security key for the given domain hash in the database
-            guard try wgDatabase.validateSecurity(dk:inputDomainHash, sk:securityKey) == true else {
-                request.logger.error("domain + security validation failed")
-                return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-            }
-            // validate that the host name is provided
+
+			// validate that the host name is provided
             guard let publicKey = request.uri.queryParameters["pk"] else {
                 request.logger.error("private key not provided")
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
