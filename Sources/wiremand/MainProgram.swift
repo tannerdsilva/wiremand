@@ -125,7 +125,8 @@ struct WiremanD {
                 // set up the dnsmasq daemon
                 let dnsMasqConfFile = try FileDescriptor.open("/etc/dnsmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
                 try dnsMasqConfFile.closeAfter({
-                    var buildConfig = "except-interface=eth0\n"
+                    var buildConfig = "interface=wg2930\n"
+					buildConfig += "except-interface=eth0\n"
                     buildConfig += "bind-interfaces\n"
                     buildConfig += "server=::1#5353\n"
                     buildConfig += "server=127.0.0.1#5353\n"
@@ -493,6 +494,8 @@ struct WiremanD {
                 let subnetHash = try WiremanD.hash(domain:useSubnet!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)!
                 let buildURL = "\nhttps://\(useSubnet!)/wg_getkey?dk=\(subnetHash)&pk=\(usePublicKey!.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
                 print("\(buildURL)")
+				try DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
+				try await DNSmasqExecutor.reload()
             }
             
             $0.command("run") {
