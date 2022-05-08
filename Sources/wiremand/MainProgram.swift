@@ -531,7 +531,7 @@ struct WiremanD {
 					exit(11)
 				}
 				let dbPath = getCurrentDatabasePath()
-				let daemonDB = try DaemonDB(directory:dbPath)
+				let daemonDB = try DaemonDB(directory:dbPath, running:false)
 				let allClients = try daemonDB.wireguardDatabase.allClientsWithImmutableSubnet()
 				let subnetSort = Dictionary(grouping:allClients.0, by: { $0.subnetName })
 				for subnetToList in subnetSort {
