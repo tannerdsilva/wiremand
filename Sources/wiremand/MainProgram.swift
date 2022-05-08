@@ -24,6 +24,7 @@ struct WiremanD {
         let domainData = domain.lowercased().data(using:.utf8)!
         return try Blake2bHasher.hash(data:domainData, length:64).base64EncodedString()
     }
+	static var appLogger = Logger(label:"wiremand")
 
     static func main() async throws {
         await AsyncGroup {
@@ -116,7 +117,8 @@ struct WiremanD {
 				
 				let resolvConf = try FileDescriptor.open("/etc/resolv.conf", .writeOnly, options:[.create, .truncate], permissions: [.ownerRead, .ownerWrite, .groupRead, .otherRead])
 				try resolvConf.closeAfter({
-					var buildConfig = "nameserver 127.0.0.1"
+					var buildConfig = "nameserver 127.0.0.1\n"
+					buildConfig += "nameserver 8.8.8.8\n"
 					try resolvConf.writeAll(buildConfig.utf8)
 				})
                 
@@ -137,6 +139,31 @@ struct WiremanD {
                     buildConfig += "addn-hosts=/var/lib/\(installUserName)/hosts-manual\n"
                     try dnsMasqConfFile.writeAll(buildConfig.utf8)
                 })
+				
+				let fp:FilePermissions = [.ownerReadWrite, .groupRead, .otherRead]
+				guard mkdir("/etc/systemd/system/dnsmasq.service.d", fp.rawValue) == 0 else {
+					print("unable to configure dnsmasq service override")
+					exit(5)
+				}
+				let dnsMasqServiceOverride = try FileDescriptor.open("/etc/systemd/system/dnsmasq.service.d/10-afterWG.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
+				try dnsMasqServiceOverride.closeAfter({
+					var buildConfig = "[Unit]\n"
+					buildConfig += "After=wg-quick@\(interfaceName).service"
+					try dnsMasqServiceOverride.writeAll(buildConfig.utf8)
+				})
+
+				print("configuring wg-quick...")
+				guard mkdir("/etc/systemd/system/wg-quick@\(interfaceName).service.d", fp.rawValue) == 0 else {
+					print("unable to configure dnsmasq service override")
+					exit(5)
+				}
+				let wgQuickServiceOverride = try FileDescriptor.open("/etc/systemd/system/wg-quick@\(interfaceName)/10-beforeDNSmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
+				try wgQuickServiceOverride.closeAfter({
+					var buildConfig = "[Unit]\n"
+					buildConfig += "Before=dnsmasq.service\n"
+					buildConfig += "Wants=dnsmasq.service\n"
+					try wgQuickServiceOverride.writeAll(buildConfig.utf8)
+				})
                 
                 print("making user `wiremand`...")
                 
@@ -248,16 +275,13 @@ struct WiremanD {
                 try NginxExecutor.install(domain:endpoint!.lowercased())
                 try await NginxExecutor.reload()
                 
+				guard try await Command(bash:"systemctl daemon-reload").runSync().succeeded == true else {
+					print("unable to reload the systemctl daemon")
+					exit(10)
+				}
                 print(Colors.Green("[OK] - Installation complete. Please restart this machine."))
             }
-            
-			$0.command("domain_render_dns") {
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this program must be run as `wiremand` user")
-				}
-				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
-				try DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
-			}
+
             $0.command("domain_make",
                 Argument<String>("domain", description:"the domain to add to the system")
             ) { domainName in
@@ -343,6 +367,9 @@ struct WiremanD {
 			   Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
 			   Option<String?>("name", default:nil, description:"the name of the client that the key will be created for")
 			) { subnet, name in
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this function must be run as the `wiremand` user")
+				}
 				let dbPath = getCurrentDatabasePath()
 				let daemonDB = try DaemonDB(directory:dbPath, running:false)
 				
@@ -497,6 +524,48 @@ struct WiremanD {
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
 				try await DNSmasqExecutor.reload()
             }
+			
+			$0.command("client_list") {
+				guard getCurrentUser() == "wiremand" else {
+					appLogger.critical("this function must be run as the wiremand user")
+					exit(11)
+				}
+				let dbPath = getCurrentDatabasePath()
+				let daemonDB = try DaemonDB(directory:dbPath)
+				let allClients = try daemonDB.wireguardDatabase.allClientsWithImmutableSubnet()
+				let subnetSort = Dictionary(grouping:allClients.0, by: { $0.subnetName })
+				for subnetToList in subnetSort {
+					let immutableSubnetMatch:Bool
+					if (subnetToList.key == allClients.1) {
+						print(Colors.Yellow("\(subnetToList.key)"))
+						immutableSubnetMatch = true
+					} else {
+						print(Colors.yellow("\(subnetToList.key)"))
+						immutableSubnetMatch = false
+					}
+					let sortedClients = subnetToList.value.sorted(by: { $0.name < $1.name })
+					for curClient in sortedClients {
+						// print the online status
+						if (curClient.lastHandshake == nil) {
+							if immutableSubnetMatch == true && curClient.name == "localhost" {
+								print(Colors.bgCyan("[ IMMUTABLE ]"), terminator:"\t\t")
+							} else {
+								print(Colors.dim("[ UNSEEN ]"), terminator:"\t\t")
+							}
+						} else {
+							if curClient.lastHandshake!.timeIntervalSinceNow > -150 {
+								print(Colors.bgGreen("[ ONLINE ]"), terminator:"\t\t\t")
+							} else if curClient.lastHandshake!.timeIntervalSinceNow > (allClients.2 * 0.8) {
+								print(Colors.bgRed("[ DROPS SOON ]"), terminator:"\t\t")
+							} else {
+								print("[ OFFLINE ]", terminator:"\t\t\t")
+							}
+						}
+						
+						print("-\t\(curClient.name)")
+					}
+				}
+			}
             
             $0.command("run") {
                 enum Error:Swift.Error {
@@ -505,7 +574,7 @@ struct WiremanD {
                 guard getCurrentUser() == "wiremand" else {
                     fatalError("this function must be run as the wiremand user")
                 }
-				var appLogger = Logger(label:"wiremand")
+				
 				appLogger.logLevel = .info
                 let dbPath = getCurrentDatabasePath()
                 let daemonDB = try DaemonDB(directory:dbPath, running:true)
@@ -553,10 +622,10 @@ struct WiremanD {
                 })
 				try daemonDB.launchSchedule(.certbotRenewalCheck, interval:172800) { [logger = appLogger] in
 					do {
-						try await Command(bash:"sudo certbot renew -nq")
+						try await Command(bash:"sudo certbot renew -nq").runSync()
 						logger.info("ssl certificates have been checked for renewal")
 					} catch let error {
-						logger.error("ssl certificates could not be renewed")
+						logger.error("ssl certificates could not be renewed", metadata:["error": "\(error)"])
 					}
 				}
 				var allPorts = [UInt16:TCPServer]()

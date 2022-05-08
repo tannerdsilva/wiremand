@@ -336,6 +336,7 @@ struct WireguardDatabase {
 		let addressV4:AddressV4?
         let name:String
         let subnetName:String
+		let lastHandshake:Date?
     }
 	fileprivate func _clientAssignIPv4(publicKey:String, tx:Transaction) throws -> AddressV4 {
 		let ipv4Subnet = try metadata.getEntry(type:NetworkV4.self, forKey:Metadatas.wg_serverIPv4Block.rawValue, tx:tx)!
@@ -444,6 +445,7 @@ struct WireguardDatabase {
         let clientAddressCursor = try self.clientPub_ipv6.cursor(tx:tx)
         let clientNameCursor = try self.clientPub_clientName.cursor(tx:tx)
         let clientSubnetCursor = try self.clientPub_subnetName.cursor(tx:tx)
+		let clientHandshakeCursor = try self.clientPub_handshakeDate.cursor(tx:tx)
         if (subnet == nil) {
             // all clients are requested
             for curClient in clientAddressCursor {
@@ -457,7 +459,13 @@ struct WireguardDatabase {
 				} catch LMDBError.notFound {
 					addrv4 = nil
 				}
-				buildClients.update(with:ClientInfo(publicKey:publicKey, address:address, addressV4:addrv4, name:getName, subnetName:getSubnet))
+				let lastHandshake:Date?
+				do {
+					lastHandshake = Date(try clientHandshakeCursor.getEntry(.set, key:publicKey).value)
+				} catch LMDBError.notFound {
+					lastHandshake = nil
+				}
+				buildClients.update(with:ClientInfo(publicKey:publicKey, address:address, addressV4:addrv4, name:getName, subnetName:getSubnet, lastHandshake:lastHandshake))
             }
             return buildClients
         } else {
@@ -476,8 +484,13 @@ struct WireguardDatabase {
 					} catch LMDBError.notFound {
 						addrv4 = nil
 					}
-
-                    buildClients.update(with:ClientInfo(publicKey:String(getCurrentPub)!, address:clientAddress, addressV4:addrv4, name:clientName, subnetName:subnet!))
+					let lastHandshake:Date?
+					do {
+						lastHandshake = Date(try clientHandshakeCursor.getEntry(.set, key:String(getCurrentPub)!).value)
+					} catch LMDBError.notFound {
+						lastHandshake = nil
+					}
+                    buildClients.update(with:ClientInfo(publicKey:String(getCurrentPub)!, address:clientAddress, addressV4:addrv4, name:clientName, subnetName:subnet!, lastHandshake:lastHandshake))
                     
                     switch operation {
                     case .firstDup:
@@ -499,6 +512,14 @@ struct WireguardDatabase {
             return try _allClients(subnet:subnet, tx:someTrans)
         }
     }
+	func allClientsWithImmutableSubnet(subnet:String? = nil) throws -> (Set<ClientInfo>, String, TimeInterval) {
+		try env.transact(readOnly:true) { someTrans -> (Set<ClientInfo>, String, TimeInterval) in
+			let clients = try _allClients(tx:someTrans)
+			let subnet = try self.metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTrans)!
+			let invalidateTime = try self.metadata.getEntry(type:TimeInterval.self, forKey:Metadatas.wg_handshakeInvalidationInterval.rawValue, tx:someTrans)!
+			return (clients, subnet, invalidateTime)
+		}
+	}
     func validateNewClientName(subnet:String, clientName:String) throws -> Bool {
         try env.transact(readOnly:true) { someTrans -> Bool in
             if try subnetName_networkV6.containsEntry(key:subnet, tx:someTrans) == true {
