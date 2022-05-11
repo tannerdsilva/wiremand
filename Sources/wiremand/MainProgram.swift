@@ -139,10 +139,7 @@ struct WiremanD {
                 })
 				
 				let fp:FilePermissions = [.ownerReadWrite, .groupRead, .otherRead]
-				guard mkdir("/etc/systemd/system/dnsmasq.service.d", fp.rawValue) == 0 else {
-					print("unable to configure dnsmasq service override")
-					exit(5)
-				}
+				mkdir("/etc/systemd/system/dnsmasq.service.d", fp.rawValue)
 				let dnsMasqServiceOverride = try FileDescriptor.open("/etc/systemd/system/dnsmasq.service.d/10-afterWG.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 				try dnsMasqServiceOverride.closeAfter({
 					var buildConfig = "[Unit]\n"
@@ -151,10 +148,7 @@ struct WiremanD {
 				})
 
 				print("configuring wg-quick...")
-				guard mkdir("/etc/systemd/system/wg-quick@\(interfaceName).service.d", fp.rawValue) == 0 else {
-					print("unable to configure dnsmasq service override")
-					exit(5)
-				}
+				mkdir("/etc/systemd/system/wg-quick@\(interfaceName).service.d", fp.rawValue)
 				let wgQuickServiceOverride = try FileDescriptor.open("/etc/systemd/system/wg-quick@\(interfaceName).service.d/10-beforeDNSmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 				try wgQuickServiceOverride.closeAfter({
 					var buildConfig = "[Unit]\n"
