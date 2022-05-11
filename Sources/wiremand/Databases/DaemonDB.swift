@@ -25,8 +25,8 @@ extension Task:MDB_convertible {
     }
 }
 
-class DaemonDB {
-    static func create(directory:URL, publicHTTPPort:UInt16, internalTCPPort_begin:UInt16, internalTCPPort_end:UInt16) throws -> Environment {
+actor DaemonDB {
+    static func create(directory:URL, publicHTTPPort:UInt16) throws -> Environment {
 		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir], mapSize:75000000000, maxDBs:128, mode: [.ownerReadWriteExecute])
         try makeEnv.transact(readOnly:false) { someTrans in
             let metadata = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
@@ -34,8 +34,6 @@ class DaemonDB {
             _ = try makeEnv.openDatabase(named:Databases.scheduleInterval.rawValue, flags:[.create], tx:someTrans)
             _ = try makeEnv.openDatabase(named:Databases.scheduleLastFireDate.rawValue, flags:[.create], tx:someTrans)
             try metadata.setEntry(value:publicHTTPPort, forKey:Metadatas.daemonPublicListenPort.rawValue, tx:someTrans)
-            try metadata.setEntry(value:internalTCPPort_begin, forKey:Metadatas.daemonInternalTCPPort_begin.rawValue, tx:someTrans)
-            try metadata.setEntry(value:internalTCPPort_end, forKey:Metadatas.daemonInternalTCPPort_end.rawValue, tx:someTrans)
         }
 		return makeEnv
     }
@@ -53,20 +51,10 @@ class DaemonDB {
     enum Metadatas:String {
         case daemonRunningPID = "_daemonRunningPID" //pid_t
         case daemonPublicListenPort = "_daemonPublicHTTPListenPort" //UInt16
-        case daemonInternalTCPPort_begin = "_daemonInternalTCPListenPort_begin" //UInt16
-        case daemonInternalTCPPort_end = "_daemonInternalTCPListenPort_end" //UInt16
     }
     
-    func getPublicHTTPPort() throws -> UInt16 {
+    nonisolated func getPublicHTTPPort() throws -> UInt16 {
        return try metadata.getEntry(type:UInt16.self, forKey:Metadatas.daemonPublicListenPort.rawValue, tx:nil)!
-    }
-    
-    func getInternalTCPPort_Begin() throws -> UInt16 {
-        return try metadata.getEntry(type:UInt16.self, forKey:Metadatas.daemonInternalTCPPort_begin.rawValue, tx:nil)!
-    }
-    
-    func getInternalTCPPort_End() throws -> UInt16 {
-        return try metadata.getEntry(type:UInt16.self, forKey:Metadatas.daemonInternalTCPPort_end.rawValue, tx:nil)!
     }
     
     let env:Environment
@@ -109,9 +97,9 @@ class DaemonDB {
     }
     enum Schedule:String {
         case latestWireguardHandshakesCheck = "_wg_latestHandshakesCheck"
-        case certbotRenewalCheck = "_wg_"
+        case certbotRenewalCheck = "_wg_certbotRenewalCheck"
     }
-    func launchSchedule(_ schedule:Schedule, interval:TimeInterval, _ task:@escaping @Sendable () async -> Void) throws {
+    nonisolated func launchSchedule(_ schedule:Schedule, interval:TimeInterval, _ task:@escaping @Sendable () async -> Void) throws {
         try env.transact(readOnly:false) { installTaskTrans in
             // validate pid exclusivity for this process
             guard try self.metadata.getEntry(type:pid_t.self, forKey: Metadatas.daemonRunningPID.rawValue, tx:installTaskTrans)! == getpid() else {
@@ -153,7 +141,7 @@ class DaemonDB {
 			try env.sync()
         }
     }
-    func cancelSchedule(_ schedule:Schedule) throws {
+	nonisolated func cancelSchedule(_ schedule:Schedule) throws {
         do {
             try env.transact(readOnly:false) { someTrans in
                 let loadTask = try self.scheduledTasks.getEntry(type:Task<(), Swift.Error>.self, forKey:schedule.rawValue, tx:someTrans)!

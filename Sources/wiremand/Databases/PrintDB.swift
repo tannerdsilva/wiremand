@@ -389,12 +389,7 @@ actor PrintDB {
 		}
 		throw LMDBError.notFound
 	}
-	nonisolated func newPrintJob(port:UInt16, date:Date, data:Data) throws {
-		try env.transact(readOnly:false) { someTrans in
-			let macAddress = try port_mac.getEntry(type:String.self, forKey:port, tx:someTrans)!
-			try _newJob(mac:macAddress, date:date, data:data, tx:someTrans)
-		}
-	}
+
 	nonisolated func _documentSighting(mac:String, ua:String, serial:String, status:String?, remoteAddress:String, date:Date, domain:String, auth:AuthData?, tx:Transaction) throws {
 		try mac_lastSeen.setEntry(value:date, forKey:mac, tx:tx)
 		if status != nil {
@@ -473,7 +468,16 @@ actor PrintDB {
 		}
 	}
 	
-	// readonly function to check the authentication status of a given printer
+	// installs a new print job into the database
+	nonisolated func newPrintJob(port:UInt16, date:Date, data:Data) throws {
+		try env.transact(readOnly:false) { someTrans in
+			let macAddress = try port_mac.getEntry(type:String.self, forKey:port, tx:someTrans)!
+			try _newJob(mac:macAddress, date:date, data:data, tx:someTrans)
+		}
+		try env.sync(force:true)
+	}
+	
+	// check the authentication status of a given printer. if the printer is authorized and it has a print job, this function will return the job token that needs to be printed
 	nonisolated func checkForPrintJobs(mac:String, ua:String, serial:String, status:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws -> Data? {
 		try env.transact(readOnly:false) { someTrans -> Data? in
 			try _documentSighting(mac:mac, ua:ua, serial:serial, status:status, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
@@ -491,6 +495,7 @@ actor PrintDB {
 		}
 	}
 	
+	// check the authentication status of a given printer. assuming that the printer is authenticated, this function will return the raw print data that needs to go to the printer
 	nonisolated func retrievePrintJob(token:Data, mac:String, ua:String, serial:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws -> Data {
 		try env.transact(readOnly:false) { someTrans -> Data in
 			try _documentSighting(mac:mac, ua:ua, serial:serial, status:nil, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
@@ -504,6 +509,7 @@ actor PrintDB {
 		}
 	}
 	
+	// marks a print job as complete
 	nonisolated func completePrintJob(token:Data, mac:String, ua:String, serial:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws {
 		try env.transact(readOnly:false) { someTrans in
 			try _documentSighting(mac:mac, ua:ua, serial:serial, status:nil, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
@@ -515,5 +521,6 @@ actor PrintDB {
 			}
 			try _deleteJob(hash:token, tx:someTrans)
 		}
+		try env.sync(force:true)
 	}
 }

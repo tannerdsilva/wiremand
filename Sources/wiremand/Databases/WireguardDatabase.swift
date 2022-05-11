@@ -45,6 +45,7 @@ struct WireguardDatabase {
 			let pub_create = try makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, flags:[.create], tx:someTransaction)
 			let pub_subname = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, flags:[.create], tx:someTransaction)
             _ = try makeEnv.openDatabase(named:Databases.clientPub_handshakeDate.rawValue, flags:[.create], tx:someTransaction)
+			_ = try makeEnv.openDatabase(named:Databases.clientPub_invalidDate.rawValue, flags:[.create], tx:someTransaction)
 			let subnetName_network = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, flags:[.create], tx:someTransaction)
             let network_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[.create], tx:someTransaction)
             let subnetHash_securityKey = try makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, flags:[.create], tx:someTransaction)
@@ -157,6 +158,9 @@ struct WireguardDatabase {
         
         ///Maps a client public key to their respective handshake date
         case clientPub_handshakeDate = "wgdb_clientPub_handshakeDate" //String:Date? (optional value)
+		
+		///Maps a client public key to their respective invalidation date
+		case clientPub_invalidDate = "wgdb_clientPub_invalidDate" //String:Date (non-optional but not specified for the servers own public key since the server cannot invalidate itself)
         
         ///Maps a given subnet name to its respective IPv6 network
         case subnetName_networkV6 = "wgdb_subnetName_networkV6" //String:NetworkV6
@@ -191,6 +195,7 @@ struct WireguardDatabase {
 	let clientPub_createdOn:Database
 	let clientPub_subnetName:Database
     let clientPub_handshakeDate:Database
+	let clientPub_invalidDate:Database
 	
     // subnet info
 	let subnetName_networkV6:Database
@@ -238,13 +243,14 @@ struct WireguardDatabase {
 			let clientPub_createdOn = try makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, flags:[], tx:someTrans)
 			let clientPub_subnetName = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, flags:[], tx:someTrans)
             let clientPub_handshakeDate = try makeEnv.openDatabase(named:Databases.clientPub_handshakeDate.rawValue, flags:[], tx:someTrans)
+			let clientPub_invalidDate = try makeEnv.openDatabase(named:Databases.clientPub_invalidDate.rawValue, flags:[], tx:someTrans)
 			let subnetName_networkV6 = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, flags:[], tx:someTrans)
             let networkV6_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[], tx:someTrans)
             let subnetName_securityKey = try makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, flags:[], tx:someTrans)
             let subnetName_clientPub = try makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.dupSort], tx:someTrans)
             let subnetName_clientNameHash = try makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.dupSort], tx:someTrans)
             let ws_clientPub_configData = try makeEnv.openDatabase(named:Databases.webServe__clientPub_configData.rawValue, flags:[], tx:someTrans)
-            return [metadata, clientPub_ipv4, ipv4_clientPub, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub, subnetName_clientNameHash, ws_clientPub_configData]
+            return [metadata, clientPub_ipv4, ipv4_clientPub, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, clientPub_invalidDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub, subnetName_clientNameHash, ws_clientPub_configData]
 		}
         self.env = makeEnv
         self.metadata = dbs[0]
@@ -256,12 +262,13 @@ struct WireguardDatabase {
         self.clientPub_createdOn = dbs[6]
         self.clientPub_subnetName = dbs[7]
         self.clientPub_handshakeDate = dbs[8]
-        self.subnetName_networkV6 = dbs[9]
-        self.networkV6_subnetName = dbs[10]
-        self.subnetHash_securityKey = dbs[11]
-        self.subnetName_clientPub = dbs[12]
-        self.subnetName_clientNameHash = dbs[13]
-        self.webserve__clientPub_configData = dbs[14]
+		self.clientPub_invalidDate = dbs[9]
+        self.subnetName_networkV6 = dbs[10]
+        self.networkV6_subnetName = dbs[11]
+        self.subnetHash_securityKey = dbs[12]
+        self.subnetName_clientPub = dbs[13]
+        self.subnetName_clientNameHash = dbs[14]
+        self.webserve__clientPub_configData = dbs[15]
 	}
     
     // make a subnet
@@ -337,6 +344,7 @@ struct WireguardDatabase {
         let name:String
         let subnetName:String
 		let lastHandshake:Date?
+		let invalidationDate:Date
     }
 	fileprivate func _clientAssignIPv4(publicKey:String, tx:Transaction) throws -> AddressV4 {
 		let ipv4Subnet = try metadata.getEntry(type:NetworkV4.self, forKey:Metadatas.wg_serverIPv4Block.rawValue, tx:tx)!
@@ -348,7 +356,7 @@ struct WireguardDatabase {
 		try self.ipv4_clientPub.setEntry(value:publicKey, forKey:newV4, tx:tx)
 		return newV4
 	}
-	fileprivate func _clientMake(name:String, publicKey:String, subnet:String, ipv4:Bool, tx:Transaction) throws -> (AddressV6, AddressV4?) {
+	fileprivate func _clientMake(name:String, publicKey:String, subnet:String, ipv4:Bool, noHandshakeInvalidation:Date?, tx:Transaction) throws -> (AddressV6, AddressV4?) {
         // validate the subnet exists by retrieving its network
         let subnetNetwork = try subnetName_networkV6.getEntry(type:NetworkV6.self, forKey:subnet, tx:tx)!
 		
@@ -371,14 +379,21 @@ struct WireguardDatabase {
         try self.clientPub_clientName.setEntry(value:name, forKey:publicKey, flags:[.noOverwrite], tx:tx)
         try self.clientPub_createdOn.setEntry(value:Date(), forKey:publicKey, flags:[.noOverwrite], tx:tx)
         try self.clientPub_subnetName.setEntry(value:subnet, forKey:publicKey, flags:[.noOverwrite], tx:tx)
-        
+		
+		if (noHandshakeInvalidation != nil) {
+			try self.clientPub_invalidDate.setEntry(value:noHandshakeInvalidation!, forKey:publicKey, flags:[.noOverwrite], tx:tx)
+		} else {
+			let defaultInvalidation = try self.metadata.getEntry(type:TimeInterval.self, forKey:Metadatas.wg_noHandshakeInvalidationInterval.rawValue, tx:tx)!
+			try self.clientPub_invalidDate.setEntry(value:Date().addingTimeInterval(defaultInvalidation), forKey:publicKey, flags: [.noOverwrite], tx:tx)
+		}
+		
         try self.subnetName_clientPub.setEntry(value:publicKey, forKey:subnet, flags:[.noDupData], tx:tx)
         try self.subnetName_clientNameHash.setEntry(value:try Self.hash(clientName:name), forKey:subnet, flags:[.noDupData], tx:tx)
         return (newAddress, v4Addr)
     }
-	func clientMake(name:String, publicKey:String, subnet:String, ipv4:Bool = false) throws -> (AddressV6, AddressV4?) {
+	func clientMake(name:String, publicKey:String, subnet:String, ipv4:Bool = false, noHandshakeInvalidation:Date? = nil) throws -> (AddressV6, AddressV4?) {
         return try env.transact(readOnly:false) { someTrans in
-			return try _clientMake(name:name, publicKey:publicKey, subnet:subnet, ipv4:ipv4, tx:someTrans)
+			return try _clientMake(name:name, publicKey:publicKey, subnet:subnet, ipv4:ipv4, noHandshakeInvalidation:noHandshakeInvalidation, tx:someTrans)
         }
     }
     fileprivate func _clientRemove(publicKey:String, tx:Transaction) throws {
@@ -407,6 +422,7 @@ struct WireguardDatabase {
         do {
             try self.clientPub_handshakeDate.deleteEntry(key:publicKey, tx:tx)
         } catch LMDBError.notFound {}
+		try self.clientPub_invalidDate.deleteEntry(key:publicKey, tx:tx)
         try self.subnetName_clientPub.deleteEntry(key:clientSubnet, value:publicKey, tx:tx)
         try self.subnetName_clientNameHash.deleteEntry(key:clientSubnet, value:try Self.hash(clientName:clientName), tx:tx)
         do {
@@ -442,30 +458,35 @@ struct WireguardDatabase {
 	
     fileprivate func _allClients(subnet:String? = nil, tx:Transaction) throws -> Set<ClientInfo> {
         var buildClients = Set<ClientInfo>()
+		let serverPublicKey = try self.getServerPublicKey(tx)
         let clientAddressCursor = try self.clientPub_ipv6.cursor(tx:tx)
         let clientNameCursor = try self.clientPub_clientName.cursor(tx:tx)
         let clientSubnetCursor = try self.clientPub_subnetName.cursor(tx:tx)
 		let clientHandshakeCursor = try self.clientPub_handshakeDate.cursor(tx:tx)
+		let clientInvalidationCursor = try self.clientPub_invalidDate.cursor(tx:tx)
         if (subnet == nil) {
             // all clients are requested
             for curClient in clientAddressCursor {
                 let getName = String(try clientNameCursor.getEntry(.set, key:curClient.key).value)!
                 let getSubnet = String(try clientSubnetCursor.getEntry(.set, key:curClient.key).value)!
                 let publicKey = String(curClient.key)!
-                let address = AddressV6(curClient.value)!
-				let addrv4:AddressV4?
-				do {
-					addrv4 = try clientPub_ipv4.getEntry(type:AddressV4.self, forKey:publicKey, tx:tx)!
-				} catch LMDBError.notFound {
-					addrv4 = nil
+				if serverPublicKey != publicKey {
+					let address = AddressV6(curClient.value)!
+					let addrv4:AddressV4?
+					do {
+						addrv4 = try clientPub_ipv4.getEntry(type:AddressV4.self, forKey:publicKey, tx:tx)!
+					} catch LMDBError.notFound {
+						addrv4 = nil
+					}
+					let lastHandshake:Date?
+					do {
+						lastHandshake = Date(try clientHandshakeCursor.getEntry(.set, key:publicKey).value)
+					} catch LMDBError.notFound {
+						lastHandshake = nil
+					}
+					let invalidationDate = Date(try clientInvalidationCursor.getEntry(.set, key:publicKey).value)!
+					buildClients.update(with:ClientInfo(publicKey:publicKey, address:address, addressV4:addrv4, name:getName, subnetName:getSubnet, lastHandshake:lastHandshake, invalidationDate:invalidationDate))
 				}
-				let lastHandshake:Date?
-				do {
-					lastHandshake = Date(try clientHandshakeCursor.getEntry(.set, key:publicKey).value)
-				} catch LMDBError.notFound {
-					lastHandshake = nil
-				}
-				buildClients.update(with:ClientInfo(publicKey:publicKey, address:address, addressV4:addrv4, name:getName, subnetName:getSubnet, lastHandshake:lastHandshake))
             }
             return buildClients
         } else {
@@ -478,20 +499,23 @@ struct WireguardDatabase {
                     let getCurrentPub = try subnetNameCursor.getEntry(operation).value
                     let clientAddress = AddressV6(try clientAddressCursor.getEntry(.set, key:getCurrentPub).value)!
                     let clientName = String(try clientNameCursor.getEntry(.set, key:getCurrentPub).value)!
-					let addrv4:AddressV4?
-					do {
-						addrv4 = try clientPub_ipv4.getEntry(type:AddressV4.self, forKey:String(getCurrentPub)!, tx:tx)!
-					} catch LMDBError.notFound {
-						addrv4 = nil
+					let publicKey = String(getCurrentPub)!
+					if serverPublicKey != publicKey {
+						let addrv4:AddressV4?
+						do {
+							addrv4 = try clientPub_ipv4.getEntry(type:AddressV4.self, forKey:publicKey, tx:tx)!
+						} catch LMDBError.notFound {
+							addrv4 = nil
+						}
+						let lastHandshake:Date?
+						do {
+							lastHandshake = Date(try clientHandshakeCursor.getEntry(.set, key:publicKey).value)
+						} catch LMDBError.notFound {
+							lastHandshake = nil
+						}
+						let invalidationDate = Date(try clientInvalidationCursor.getEntry(.set, key:publicKey).value)!
+						buildClients.update(with:ClientInfo(publicKey:String(getCurrentPub)!, address:clientAddress, addressV4:addrv4, name:clientName, subnetName:subnet!, lastHandshake:lastHandshake, invalidationDate:invalidationDate))
 					}
-					let lastHandshake:Date?
-					do {
-						lastHandshake = Date(try clientHandshakeCursor.getEntry(.set, key:String(getCurrentPub)!).value)
-					} catch LMDBError.notFound {
-						lastHandshake = nil
-					}
-                    buildClients.update(with:ClientInfo(publicKey:String(getCurrentPub)!, address:clientAddress, addressV4:addrv4, name:clientName, subnetName:subnet!, lastHandshake:lastHandshake))
-                    
                     switch operation {
                     case .firstDup:
                         operation = .nextDup
@@ -512,7 +536,7 @@ struct WireguardDatabase {
             return try _allClients(subnet:subnet, tx:someTrans)
         }
     }
-	func allClientsWithImmutableSubnet(subnet:String? = nil) throws -> (Set<ClientInfo>, String, TimeInterval) {
+	fileprivate func allClientsWithImmutableSubnet(subnet:String? = nil) throws -> (Set<ClientInfo>, String, TimeInterval) {
 		try env.transact(readOnly:true) { someTrans -> (Set<ClientInfo>, String, TimeInterval) in
 			let clients = try _allClients(tx:someTrans)
 			let subnet = try self.metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTrans)!
@@ -535,6 +559,66 @@ struct WireguardDatabase {
         }
     }
     
+	func processHandshakes(_ handshakes:[String:Date], all:Set<String>) throws -> Set<String> {
+		return try env.transact(readOnly:false) { someTrans in
+			let clientHandshakeCursor = try clientPub_handshakeDate.cursor(tx:someTrans)
+			let clientInvalidationCursor = try clientPub_invalidDate.cursor(tx:someTrans)
+			let handshakeInvalidationTimeInterval = try metadata.getEntry(type:TimeInterval.self, forKey:Metadatas.wg_handshakeInvalidationInterval.rawValue, tx:someTrans)!
+			
+			// any public keys that need to be removed from the wireguard interface are passed into this variable
+			var removeKeys = Set<String>()
+			
+			// iterate through every client with nonzero handshake data
+			for curClient in handshakes {
+				
+				// check if the client exists in the database. client invalidator database is the best database to check for this, since it does not contain the serveres own public key
+				do {
+					let invalidationDate = Date(try clientInvalidationCursor.getEntry(.set, key:curClient.key).value)!
+					do {
+						// check the existing handshake
+						let existingHandshake = Date(try clientHandshakeCursor.getEntry(.set, key:curClient.key).value)!
+						if (existingHandshake < curClient.value) {
+							// only update the handshake in the database if the new handshake is a date that is further in time than the existing handshake
+							try clientHandshakeCursor.setEntry(value:curClient.value, forKey:curClient.key)
+							try clientInvalidationCursor.setEntry(value:curClient.value.addingTimeInterval(handshakeInvalidationTimeInterval), forKey:curClient.key)
+						} else if invalidationDate.timeIntervalSinceNow < 0 {
+							// if the client has reached their invalidation period
+							try _clientRemove(publicKey:curClient.key, tx:someTrans)
+						}
+					} catch LMDBError.notFound {
+						// this is hte first handshake for this user
+						try clientHandshakeCursor.setEntry(value:curClient.value, forKey:curClient.key)
+						try clientInvalidationCursor.setEntry(value:curClient.value.addingTimeInterval(handshakeInvalidationTimeInterval), forKey:curClient.key)
+						
+						// remove the webserve config if it exists since we now have proof that the client got the key
+						do {
+							try webserve__clientPub_configData.deleteEntry(key:curClient.key, tx:someTrans)
+						} catch LMDBError.notFound {}
+					}
+				} catch LMDBError.notFound {
+					
+					// the client is not in the database so it needs to be removed
+					removeKeys.update(with:curClient.key)
+				}
+			}
+			
+			let handshakenKeys = Set<String>(handshakes.keys)
+			let nonHandshaken = all.subtracting(handshakenKeys)
+			for curNonhandshakenClient in nonHandshaken {
+				do {
+					let invalidationDate = Date(try clientInvalidationCursor.getEntry(.set, key:curNonhandshakenClient).value)!
+					if invalidationDate.timeIntervalSinceNow < 0 {
+						try _clientRemove(publicKey:curNonhandshakenClient, tx:someTrans)
+					}
+				} catch LMDBError.notFound {
+					removeKeys.update(with:curNonhandshakenClient)
+				}
+			}
+			
+			return removeKeys
+		}
+	}
+	
     func processHandshakes(_ handshakes:[String:Date], zeros:Set<String>) throws -> Set<String> {
         //new readwrite
         return try env.transact(readOnly:false) { someTrans in

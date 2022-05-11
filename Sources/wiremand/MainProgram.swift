@@ -32,10 +32,8 @@ struct WiremanD {
                Option<String>("interfaceName", default:"wg2930"),
                Option<String>("user", default:"wiremand"),
                Option<Int>("wg_port", default:29300),
-               Option<Int>("public_httpPort", default:8080),
-               Option<Int>("private_tcpPrintPort_start", default:9100),
-               Option<Int>("private_tcpPrintPort_end", default:9300)
-            ) { interfaceName, installUserName, wgPort, httpPort, tcpPrintPortBegin, tcpPrintPortEnd in
+               Option<Int>("public_httpPort", default:8080)
+            ) { interfaceName, installUserName, wgPort, httpPort in
                 guard getCurrentUser() == "root" else {
                     print("You need to be root to install wiremand.")
                     exit(5)
@@ -205,6 +203,7 @@ struct WiremanD {
                     sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichWgQuick)\n"
                     sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichCertbot)\n"
                     sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichSystemcCTL) reload *\n"
+					sudoAddition += "%wiremand ALL=(wiremand:wiremand) /opt/wiremand\n"
                     try sudoersFD.writeAll(sudoAddition.utf8)
                 })
                 
@@ -263,7 +262,7 @@ struct WiremanD {
                 })
      
                 let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
-                let daemonDBEnv = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), internalTCPPort_begin: UInt16(tcpPrintPortBegin), internalTCPPort_end: UInt16(tcpPrintPortEnd))
+                let daemonDBEnv = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort))
 				try WireguardDatabase.createDatabase(environment:daemonDBEnv, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_serverPublicListenPort: UInt16(wgPort), serverIPv6Block: ipv6Scope!, serverIPv4Block:ipv4Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
                 
                 let ownIt = try await Command(bash:"chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/").runSync()
@@ -532,30 +531,19 @@ struct WiremanD {
 				}
 				let dbPath = getCurrentDatabasePath()
 				let daemonDB = try DaemonDB(directory:dbPath, running:false)
-				let allClients = try daemonDB.wireguardDatabase.allClientsWithImmutableSubnet()
-				let subnetSort = Dictionary(grouping:allClients.0, by: { $0.subnetName })
+				let allClients = try daemonDB.wireguardDatabase.allClients()
+				let subnetSort = Dictionary(grouping:allClients, by: { $0.subnetName })
 				for subnetToList in subnetSort {
-					let immutableSubnetMatch:Bool
-					if (subnetToList.key == allClients.1) {
-						print(Colors.Yellow("\(subnetToList.key)"))
-						immutableSubnetMatch = true
-					} else {
-						print(Colors.yellow("\(subnetToList.key)"))
-						immutableSubnetMatch = false
-					}
+					print(Colors.Yellow("\(subnetToList.key)"))
 					let sortedClients = subnetToList.value.sorted(by: { $0.name < $1.name })
 					for curClient in sortedClients {
 						// print the online status
 						if (curClient.lastHandshake == nil) {
-							if immutableSubnetMatch == true && curClient.name == "localhost" {
-								print(Colors.bgCyan("[ IMMUTABLE ]"), terminator:"\t\t")
-							} else {
-								print(Colors.dim("[ UNSEEN ]"), terminator:"\t\t")
-							}
+							print(Colors.dim("[ UNSEEN ]"), terminator:"\t\t")
 						} else {
 							if curClient.lastHandshake!.timeIntervalSinceNow > -150 {
 								print(Colors.bgGreen("[ ONLINE ]"), terminator:"\t\t\t")
-							} else if curClient.lastHandshake!.timeIntervalSinceNow > (allClients.2 * 0.8) {
+							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
 								print(Colors.bgRed("[ DROPS SOON ]"), terminator:"\t\t")
 							} else {
 								print("[ OFFLINE ]", terminator:"\t\t\t")
@@ -580,7 +568,7 @@ struct WiremanD {
                 let daemonDB = try DaemonDB(directory:dbPath, running:true)
                 let interfaceName = try daemonDB.wireguardDatabase.primaryInterfaceName()
 				let tcpPortBind = try daemonDB.wireguardDatabase.getServerInternalNetwork().address.string
-                try daemonDB.launchSchedule(.latestWireguardHandshakesCheck, interval:10, { [wgdb = daemonDB.wireguardDatabase] in
+                try daemonDB.launchSchedule(.latestWireguardHandshakesCheck, interval:10, { [wgdb = daemonDB.wireguardDatabase, logger = appLogger] in
                     do {
                         // run the shell command to check for the handshakes associated with the various public keys
                         let checkHandshakes = try await Command(bash:"sudo wg show \(interfaceName) latest-handshakes").runSync()
@@ -608,6 +596,7 @@ struct WiremanD {
                                 handshakes[publicKeyString] = Date(timeIntervalSince1970:asTimeInterval)
                             }
                         }
+						
                         // save the handshake data to the database
                         let removeDatabase = try wgdb.processHandshakes(handshakes, zeros:zeros)
                         for curRemove in removeDatabase {
@@ -617,12 +606,12 @@ struct WiremanD {
 							try? await WireguardExecutor.saveConfiguration(interfaceName:interfaceName)
 						}
                     } catch let error {
-                        print("task error: \(error)")
+						logger.error("handshake check error", metadata:["error": "\(error)"])
                     }
                 })
 				try daemonDB.launchSchedule(.certbotRenewalCheck, interval:172800) { [logger = appLogger] in
 					do {
-						try await Command(bash:"sudo certbot renew -nq").runSync()
+						_ = try await Command(bash:"sudo certbot renew -nq").runSync()
 						logger.info("ssl certificates have been checked for renewal")
 					} catch let error {
 						logger.error("ssl certificates could not be renewed", metadata:["error": "\(error)"])
@@ -631,7 +620,6 @@ struct WiremanD {
 				var allPorts = [UInt16:TCPServer]()
 				try! await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort, _ in
 					let newServer = try TCPServer(host:tcpPortBind, port:newPort, db:daemonDB.printerDatabase)
-					print(Colors.Magenta("{PRINT} - a new port has been opened \(newPort) at address \(tcpPortBind)"))
 					allPorts[newPort] = newServer
 				}, closer: { oldPort in
 					allPorts[oldPort] = nil
