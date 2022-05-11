@@ -155,7 +155,7 @@ struct WiremanD {
 					print("unable to configure dnsmasq service override")
 					exit(5)
 				}
-				let wgQuickServiceOverride = try FileDescriptor.open("/etc/systemd/system/wg-quick@\(interfaceName)/10-beforeDNSmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
+				let wgQuickServiceOverride = try FileDescriptor.open("/etc/systemd/system/wg-quick@\(interfaceName).service.d/10-beforeDNSmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 				try wgQuickServiceOverride.closeAfter({
 					var buildConfig = "[Unit]\n"
 					buildConfig += "Before=dnsmasq.service\n"
