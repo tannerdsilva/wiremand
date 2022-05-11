@@ -81,6 +81,13 @@ struct WiremanD {
 					exit(7)
 				}
 				
+				print("disabling systemd service 'dnsmasq'")
+				let dnsMasqDisable = try await Command(bash:"systemctl disable dnsmasq").runSync()
+				guard disableResolved.succeeded == true else {
+					print("unable to disable dnsmasq service")
+					exit(7)
+				}
+
                 print("generating wireguard keys...")
                 
                 // set up the wireguard interface
@@ -139,28 +146,20 @@ struct WiremanD {
                 })
 				
 				let fp:FilePermissions = [.ownerReadWrite, .groupRead, .otherRead]
-				mkdir("/etc/systemd/system/dnsmasq.service.d", fp.rawValue)
-				let dnsMasqServiceOverride = try FileDescriptor.open("/etc/systemd/system/dnsmasq.service.d/10-afterWG.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
-				try dnsMasqServiceOverride.closeAfter({
-					var buildConfig = "[Unit]\n"
-					buildConfig += "After=wg-quick@\(interfaceName).service"
-					try dnsMasqServiceOverride.writeAll(buildConfig.utf8)
-				})
-
 				print("configuring wg-quick...")
 				mkdir("/etc/systemd/system/wg-quick@\(interfaceName).service.d", fp.rawValue)
 				let wgQuickServiceOverride = try FileDescriptor.open("/etc/systemd/system/wg-quick@\(interfaceName).service.d/10-beforeDNSmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 				try wgQuickServiceOverride.closeAfter({
 					var buildConfig = "[Unit]\n"
-					buildConfig += "Before=dnsmasq.service\n"
-					buildConfig += "Wants=dnsmasq.service\n"
+					buildConfig += "Before=dnsmasq.service wiremand.service\n"
+					buildConfig += "Wants=dnsmasq.service wiremand.service\n"
 					try wgQuickServiceOverride.writeAll(buildConfig.utf8)
 				})
                 
                 print("making user `wiremand`...")
                 
                 // make the user
-                let makeUser = try await Command(bash:"useradd -md /var/lib/\(installUserName) -U -G www-data \(installUserName)").runSync()
+                let makeUser = try await Command(bash:"useradd -md /var/lib/\(installUserName) \(installUserName)").runSync()
                 guard makeUser.succeeded == true else {
                     print("unable to create `wiremand` user on the system")
                     exit(8)
@@ -229,13 +228,7 @@ struct WiremanD {
                     buildConfig += "WantedBy=multi-user.target\n"
                     try systemdFD.writeAll(buildConfig.utf8)
                 })
-                
-                let enableWiremand = try await Command(bash:"systemctl enable wiremand").runSync()
-                guard enableWiremand.succeeded == true else {
-                    print("unable to enable wiremand service")
-                    exit(15)
-                }
-                
+
                 // begin configuring nginx
                 var nginxOwn = try await Command(bash:"chown root:\(installUserName) /etc/nginx && chown root:\(installUserName) /etc/nginx/conf.d && chown root:\(installUserName) /etc/nginx/sites-enabled").runSync()
                 guard nginxOwn.succeeded == true else {
