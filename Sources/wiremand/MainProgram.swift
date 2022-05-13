@@ -72,14 +72,14 @@ struct WiremanD {
 					print("unable to install dnsmasq and wireguard")
 					exit(6)
 				}
-				
-				print("disabling systemd-resolved")
-				
-				let disableResolved = try await Command(bash:"systemctl disable systemd-resolved && systemctl stop systemd-resolved").runSync()
-				guard disableResolved.succeeded == true else {
-					print("unable to disable systemd-resolved service")
-					exit(7)
-				}
+//				
+//				print("disabling systemd-resolved")
+//				
+//				let disableResolved = try await Command(bash:"systemctl disable systemd-resolved && systemctl stop systemd-resolved").runSync()
+//				guard disableResolved.succeeded == true else {
+//					print("unable to disable systemd-resolved service")
+//					exit(7)
+//				}
 				
 				print("disabling systemd service 'dnsmasq'")
 				let dnsMasqDisable = try await Command(bash:"systemctl disable dnsmasq && systemctl stop dnsmasq").runSync()
@@ -133,7 +133,7 @@ struct WiremanD {
 				let dnsMasqConfFile = try FileDescriptor.open("/etc/dnsmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 				try dnsMasqConfFile.closeAfter({
 					var buildConfig = "interface=wg2930\n"
-					buildConfig += "listen-address=\(ipv6Scope!.address)"
+					buildConfig += "listen-address=\(ipv6Scope!.address)\n"
 					buildConfig += "bind-interfaces\n"
 					buildConfig += "server=::1#5353\n"
 					buildConfig += "server=127.0.0.1#5353\n"
