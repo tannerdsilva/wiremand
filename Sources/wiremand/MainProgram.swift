@@ -134,6 +134,7 @@ struct WiremanD {
 				try dnsMasqConfFile.closeAfter({
 					var buildConfig = "interface=wg2930\n"
 					buildConfig += "listen-address=\(ipv6Scope!.address)\n"
+					buildConfig += "except-interface=lo\n"
 					buildConfig += "bind-interfaces\n"
 					buildConfig += "server=::1#5353\n"
 					buildConfig += "server=127.0.0.1#5353\n"
@@ -347,6 +348,7 @@ struct WiremanD {
 				print(Colors.Green("[OK] - Printer assigned to local TCP port \(printerMetadata.port)"))
 				print(Colors.Yellow("\tusername: - \(printerMetadata.username)"))
 				print(Colors.Yellow("\tpassword: - \(printerMetadata.password)"))
+				print(Colors.cyan("Listening for print jobs at address \(try daemonDB.wireguardDatabase.getServerInternalNetwork().address.string)"))
 			}
 			
 			$0.command("client_revoke",
