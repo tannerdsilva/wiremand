@@ -151,6 +151,14 @@ actor DaemonDB {
         } catch LMDBError.notFound {}
 		try env.sync()
     }
+	nonisolated func reloadRunningDaemon() throws {
+		do {
+			try env.transact(readOnly:true) { someTrans in
+				let daemonPID = try metadata.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
+				kill(daemonPID, SIGHUP)
+			}
+		} catch LMDBError.notFound {}
+	}
     
     deinit {
         try! env.transact(readOnly:false) { someTrans in

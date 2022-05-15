@@ -191,6 +191,22 @@ actor PrintDB {
 		}
 	}
 	
+	nonisolated func deauthorizeMacAddress(mac:String) throws {
+		let closedPort = try env.transact(readOnly:false) { someTrans -> UInt16 in
+			//get the port for this mac
+			let getPort = try self.mac_port.getEntry(type:UInt16.self, forKey:mac, tx:someTrans)!
+			try self.port_mac.deleteEntry(key:getPort, tx:someTrans)
+			try self.mac_port.deleteEntry(key:mac, tx:someTrans)
+			try self.mac_un.deleteEntry(key:mac, tx:someTrans)
+			try self.mac_pw.deleteEntry(key:mac, tx:someTrans)
+			try self.mac_subnetName.deleteEntry(key:mac, tx:someTrans)
+			return getPort
+		}
+		Task.detached {
+			try await self.firePortCloser(port:closedPort)
+		}
+	}
+	
 	nonisolated func getAuthorizedPrinterInfo() throws -> [AuthorizedPrinter] {
 		return try env.transact(readOnly:true) { someTrans in
 			let port_macCursor = try port_mac.cursor(tx:someTrans)

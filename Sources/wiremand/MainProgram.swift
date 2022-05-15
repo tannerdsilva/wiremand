@@ -5,6 +5,7 @@ import SystemPackage
 import SwiftSlash
 import QuickLMDB
 import Logging
+import SignalStack
 
 extension NetworkV6 {
 	func maskingAddress() -> NetworkV6 {
@@ -72,15 +73,7 @@ struct WiremanD {
 					print("unable to install dnsmasq and wireguard")
 					exit(6)
 				}
-//				
-//				print("disabling systemd-resolved")
-//				
-//				let disableResolved = try await Command(bash:"systemctl disable systemd-resolved && systemctl stop systemd-resolved").runSync()
-//				guard disableResolved.succeeded == true else {
-//					print("unable to disable systemd-resolved service")
-//					exit(7)
-//				}
-				
+
 				print("disabling systemd service 'dnsmasq'")
 				let dnsMasqDisable = try await Command(bash:"systemctl disable dnsmasq && systemctl stop dnsmasq").runSync()
 				guard dnsMasqDisable.succeeded == true else {
@@ -113,20 +106,6 @@ struct WiremanD {
 					exit(7)
 				}
 				
-//				print("reconfiguring dns services...")
-//
-//				guard remove("/etc/resolv.conf") == 0 else {
-//					print("unable to remove /etc/resolv.conf")
-//					exit(9)
-//				}
-//
-//				let resolvConf = try FileDescriptor.open("/etc/resolv.conf", .writeOnly, options:[.create, .truncate], permissions: [.ownerRead, .ownerWrite, .groupRead, .otherRead])
-//				try resolvConf.closeAfter({
-//					var buildConfig = "nameserver 127.0.0.1\n"
-//					buildConfig += "nameserver 8.8.8.8\n"
-//					try resolvConf.writeAll(buildConfig.utf8)
-//				})
-				
 				print("configuring dnsmasq...")
 				
 				// set up the dnsmasq daemon
@@ -134,7 +113,6 @@ struct WiremanD {
 				try dnsMasqConfFile.closeAfter({
 					var buildConfig = "interface=wg2930\n"
 					buildConfig += "listen-address=\(ipv6Scope!.address)\n"
-					buildConfig += "except-interface=lo\n"
 					buildConfig += "bind-interfaces\n"
 					buildConfig += "server=::1#5353\n"
 					buildConfig += "server=127.0.0.1#5353\n"
@@ -146,17 +124,49 @@ struct WiremanD {
 					try dnsMasqConfFile.writeAll(buildConfig.utf8)
 				})
 				
-				let fp:FilePermissions = [.ownerReadWrite, .groupRead, .otherRead]
-				print("configuring wg-quick...")
-				mkdir("/etc/systemd/system/wg-quick@\(interfaceName).service.d", fp.rawValue)
-				let wgQuickServiceOverride = try FileDescriptor.open("/etc/systemd/system/wg-quick@\(interfaceName).service.d/10-beforeDNSmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
-				try wgQuickServiceOverride.closeAfter({
-					var buildConfig = "[Unit]\n"
-					buildConfig += "Before=dnsmasq.service wiremand.service\n"
-					buildConfig += "Wants=dnsmasq.service wiremand.service\n"
-					try wgQuickServiceOverride.writeAll(buildConfig.utf8)
-				})
+				print("determining tool paths...")
 				
+				// find wireguard and wg-quick
+				let whichCertbot = try await Command(bash:"which certbot").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
+				let whichWg = try await Command(bash:"which wg").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
+				let whichWgQuick = try await Command(bash:"which wg-quick").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
+				let whichSystemcCTL = try await Command(bash:"which systemctl").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
+
+				print("building and enabling wiremand-interface.service...")
+				
+				let fp:FilePermissions = [.ownerReadWrite, .groupRead, .otherRead]
+				let interfaceUnitFile = try FileDescriptor.open("/etc/systemd/system/wiremand-interface.service", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
+				try interfaceUnitFile.closeAfter {
+					var buildConfig = "[Unit]\n"
+					buildConfig += "Description=Wiremand wireguard interface\n"
+					buildConfig += "After=network-online.target nss-lookup.target\n"
+					buildConfig += "Before=dnsmasq.service wiremand.service"
+					buildConfig += "Wants=network-online.target nss-lookup.target dnsmasq.service wiremand.service\n"
+					buildConfig += "[Service]\n"
+					buildConfig += "Type=oneshot\n"
+					buildConfig += "RemainAfterExit=yes\n"
+					buildConfig += "ExecStart=\(whichWgQuick) up \(interfaceName)\n"
+					buildConfig += "ExecStop=\(whichWgQuick) down \(interfaceName)\n"
+					buildConfig += "[Install]\n"
+					buildConfig += "WantedBy=multi-user.target\n"
+					try interfaceUnitFile.writeAll(buildConfig.utf8)
+				}
+				
+				guard try await Command(bash:"systemctl enable wiremand-interface.service").runSync().succeeded == true else {
+					print("unable to enable wiremand-interface service")
+					exit(8)
+				}
+				
+				print("reconfiguring dnsmasq.service...")
+				
+				mkdir("/etc/systemd/system/dnsmasq.service.d", fp.rawValue)
+				let dnsmasqOverride = try FileDescriptor.open("/etc/systemd/system/dnsmasq.service.d/wiremand-reconfig.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
+				try dnsmasqOverride.closeAfter {
+					var buildConfig = "[Unit]\n"
+					buildConfig += "After=wiremand-interface.service\n"
+					buildConfig += "Requires=wiremand-interface.service\n"
+				}
+
 				print("making user `wiremand`...")
 				
 				// make the user
@@ -180,13 +190,6 @@ struct WiremanD {
 					try sysctlFwdFD.writeAll(makeLine.utf8)
 				})
 				
-				print("determining tool paths...")
-				
-				// find wireguard and wg-quick
-				let whichCertbot = try await Command(bash:"which certbot").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
-				let whichWg = try await Command(bash:"which wg").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
-				let whichWgQuick = try await Command(bash:"which wg-quick").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
-				let whichSystemcCTL = try await Command(bash:"which systemctl").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
 
 				print("installing soduers modifications for `\(installUserName)` user...")
 				
@@ -217,8 +220,9 @@ struct WiremanD {
 				try systemdFD.closeAfter({
 					var buildConfig = "[Unit]\n"
 					buildConfig += "Description=wireguard management daemon\n"
-					buildConfig += "After=network-online.target\n"
-					buildConfig += "Wants=network-online.target\n\n"
+					buildConfig += "After=network-online.target wiremand-interface.service\n"
+					buildConfig += "Wants=network-online.target\n"
+					buildConfig += "Requires=wiremand-interface.service\n"
 					buildConfig += "[Service]\n"
 					buildConfig += "User=\(installUserName)\n"
 					buildConfig += "Group=\(installUserName)\n"
@@ -551,10 +555,15 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this function must be run as the wiremand user")
 				}
-				
 				appLogger.logLevel = .info
 				let dbPath = getCurrentDatabasePath()
 				let daemonDB = try DaemonDB(directory:dbPath, running:true)
+				await SignalStack.global.add(signal: SIGHUP, { _ in
+					Task.detached {
+						appLogger.info("port sync triggered")
+						try await daemonDB.printerDatabase.portSync()
+					}
+				})
 				let interfaceName = try daemonDB.wireguardDatabase.primaryInterfaceName()
 				let tcpPortBind = try daemonDB.wireguardDatabase.getServerInternalNetwork().address.string
 				try daemonDB.launchSchedule(.latestWireguardHandshakesCheck, interval:10, { [wgdb = daemonDB.wireguardDatabase, logger = appLogger] in
