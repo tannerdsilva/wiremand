@@ -132,39 +132,20 @@ struct WiremanD {
 				let whichWgQuick = try await Command(bash:"which wg-quick").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
 				let whichSystemcCTL = try await Command(bash:"which systemctl").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
 
-				print("building and enabling wiremand-interface.service...")
-				
-				let fp:FilePermissions = [.ownerReadWrite, .groupRead, .otherRead]
-				let interfaceUnitFile = try FileDescriptor.open("/etc/systemd/system/wiremand-interface.service", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
-				try interfaceUnitFile.closeAfter {
-					var buildConfig = "[Unit]\n"
-					buildConfig += "Description=Wiremand wireguard interface\n"
-					buildConfig += "After=network-online.target nss-lookup.target\n"
-					buildConfig += "Before=dnsmasq.service wiremand.service"
-					buildConfig += "Wants=network-online.target nss-lookup.target dnsmasq.service wiremand.service\n"
-					buildConfig += "[Service]\n"
-					buildConfig += "Type=oneshot\n"
-					buildConfig += "RemainAfterExit=yes\n"
-					buildConfig += "ExecStart=\(whichWgQuick) up \(interfaceName)\n"
-					buildConfig += "ExecStop=\(whichWgQuick) down \(interfaceName)\n"
-					buildConfig += "[Install]\n"
-					buildConfig += "WantedBy=multi-user.target\n"
-					try interfaceUnitFile.writeAll(buildConfig.utf8)
-				}
-				
-				guard try await Command(bash:"systemctl enable wiremand-interface.service").runSync().succeeded == true else {
-					print("unable to enable wiremand-interface service")
+				print("enabling wg-quick@\(interfaceName).service...")
+
+				guard try await Command(bash:"systemctl enable wg-quick@\(interfaceName).service").runSync().succeeded == true else {
+					print("unable to enable wg-quick@\(interfaceName).service")
 					exit(8)
 				}
 				
-				print("reconfiguring dnsmasq.service...")
-				
-				mkdir("/etc/systemd/system/dnsmasq.service.d", fp.rawValue)
-				let dnsmasqOverride = try FileDescriptor.open("/etc/systemd/system/dnsmasq.service.d/wiremand-reconfig.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
+				print("reconfiguring systemd-resolved...")
+				let fp:FilePermissions = [.ownerReadWrite, .groupRead, .otherRead]
+				mkdir("/etc/systemd/resolved.conf.d", fp.rawValue)
+				let dnsmasqOverride = try FileDescriptor.open("/etc/systemd/resolved.conf.d/disableStub.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 				try dnsmasqOverride.closeAfter {
-					var buildConfig = "[Unit]\n"
-					buildConfig += "After=wiremand-interface.service\n"
-					buildConfig += "Requires=wiremand-interface.service\n"
+					var buildConfig = "[Resolve]\n"
+					buildConfig += "DNSStubListener=no\n"
 				}
 
 				print("making user `wiremand`...")
@@ -220,9 +201,9 @@ struct WiremanD {
 				try systemdFD.closeAfter({
 					var buildConfig = "[Unit]\n"
 					buildConfig += "Description=wireguard management daemon\n"
-					buildConfig += "After=network-online.target wiremand-interface.service\n"
+					buildConfig += "After=network-online.target wg-quick@\(interfaceName).service\n"
 					buildConfig += "Wants=network-online.target\n"
-					buildConfig += "Requires=wiremand-interface.service\n"
+					buildConfig += "Requires=wg-quick@\(interfaceName).service\n"
 					buildConfig += "[Service]\n"
 					buildConfig += "User=\(installUserName)\n"
 					buildConfig += "Group=\(installUserName)\n"
@@ -233,6 +214,8 @@ struct WiremanD {
 					buildConfig += "WantedBy=multi-user.target\n"
 					try systemdFD.writeAll(buildConfig.utf8)
 				})
+				
+				print("configuring nginx...")
 
 				// begin configuring nginx
 				var nginxOwn = try await Command(bash:"chown root:\(installUserName) /etc/nginx && chown root:\(installUserName) /etc/nginx/conf.d && chown root:\(installUserName) /etc/nginx/sites-enabled").runSync()
@@ -252,6 +235,16 @@ struct WiremanD {
 					let buildUpstream = "upstream wiremandv4 {\n\tserver 127.0.0.1:8080;\n}\nupstream wiremandv6 {\n\tserver [::1]:8080;\n}\n"
 					_ = try nginxUpstreams.writeAll(buildUpstream.utf8)
 				})
+				
+				print("installing wiremand bash alias in /etc/skel...")
+				
+				let bashRCHandle = try FileDescriptor.open("/etc/skel/.bashrc", .writeOnly, options:[.append], permissions:[.ownerReadWrite, .groupRead, .otherRead])
+				try bashRCHandle.closeAfter {
+					let addLine = "alias wiremand='sudo -u wiremand /opt/wiremand'"
+					try bashRCHandle.writeAll(addLine.utf8)
+				}
+				
+				print("installing databases...")
 	 
 				let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
 				let daemonDBEnv = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort))
@@ -261,6 +254,8 @@ struct WiremanD {
 				guard ownIt.succeeded == true else {
 					fatalError("unable to change ownership of /var/lib/\(installUserName)/ directory")
 				}
+				
+				print("acquiring SSL certificates for \(endpoint!)")
 				
 				try await CertbotExecute.acquireSSL(domain:endpoint!.lowercased())
 				try NginxExecutor.install(domain:endpoint!.lowercased())
