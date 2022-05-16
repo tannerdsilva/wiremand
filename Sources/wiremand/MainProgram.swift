@@ -98,22 +98,12 @@ struct WiremanD {
 					try wgConfigFile.writeAll(buildConfig.utf8)
 				})
 				
-				print("enabling wireguard services...")
-				
-				let enableWireguard = try await Command(bash:"systemctl enable wg-quick@\(interfaceName) && systemctl start wg-quick@\(interfaceName)").runSync()
-				guard enableWireguard.succeeded == true else {
-					print("unable to enable wireguard service")
-					exit(7)
-				}
-				
 				print("configuring dnsmasq...")
 				
 				// set up the dnsmasq daemon
 				let dnsMasqConfFile = try FileDescriptor.open("/etc/dnsmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 				try dnsMasqConfFile.closeAfter({
-					var buildConfig = "interface=wg2930\n"
-					buildConfig += "listen-address=\(ipv6Scope!.address)\n"
-					buildConfig += "bind-interfaces\n"
+					var buildConfig = "listen-address=\(ipv6Scope!.address)\n"
 					buildConfig += "server=::1#5353\n"
 					buildConfig += "server=127.0.0.1#5353\n"
 					buildConfig += "user=\(installUserName)\n"
@@ -139,13 +129,21 @@ struct WiremanD {
 					exit(8)
 				}
 				
+				print("enabling dnsmasq.service...")
+
+				guard try await Command(bash:"systemctl enable dnsmasq.service").runSync().succeeded == true else {
+					print("unable to enable dnsmasq.service")
+					exit(8)
+				}
+								
 				print("reconfiguring systemd-resolved...")
-				let fp:FilePermissions = [.ownerReadWrite, .groupRead, .otherRead]
+				let fp:FilePermissions = [.ownerReadWriteExecute, .groupRead, .otherRead]
 				mkdir("/etc/systemd/resolved.conf.d", fp.rawValue)
 				let dnsmasqOverride = try FileDescriptor.open("/etc/systemd/resolved.conf.d/disableStub.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 				try dnsmasqOverride.closeAfter {
 					var buildConfig = "[Resolve]\n"
 					buildConfig += "DNSStubListener=no\n"
+					try dnsmasqOverride.writeAll(buildConfig.utf8)
 				}
 
 				print("making user `wiremand`...")
@@ -214,6 +212,13 @@ struct WiremanD {
 					buildConfig += "WantedBy=multi-user.target\n"
 					try systemdFD.writeAll(buildConfig.utf8)
 				})
+				
+				print("enabling wiremand.service...")
+
+				guard try await Command(bash:"systemctl enable wiremand.service").runSync().succeeded == true else {
+					print("unable to enable wiremand.service")
+					exit(8)
+				}
 				
 				print("configuring nginx...")
 
