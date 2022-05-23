@@ -678,7 +678,36 @@ struct WiremanD {
 			}
 			
 			$0.command("update") {
+				guard getCurrentUser() == "root" else {
+					fatalError("this function must be run as the root user")
+				}
 				
+				appLogger.info("stopping wiremand service")
+				
+				let stopResult = try await Command(bash:"systemctl stop wiremand.service").runSync()
+				guard stopResult.succeeded == true else {
+					appLogger.critical("unable to stop wiremand.service")
+					exit(1)
+				}
+				
+				appLogger.info("installing executable into /opt")
+				
+				// install the executable in the system
+				let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
+				let exeData = try Data(contentsOf:exePath)
+				let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
+				try exeFD.writeAll(exeData)
+				try exeFD.close()
+				
+				appLogger.info("starting wiremand service")
+				
+				let startResult = try await Command(bash:"systemctl start wiremand.service").runSync()
+				guard startResult.succeeded == true else {
+					appLogger.critical("unable to start wiremand.service")
+					exit(2)
+				}
+				
+				appLogger.info("wiremand successfully updated")
 			}
 			
 			$0.command("run") {
