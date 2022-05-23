@@ -159,8 +159,8 @@ actor PrintDB {
 	let mac_pw:Database
     let mac_subnetName:Database
 	nonisolated func _addAuthorizedPrinter(mac:String, subnet:String, tx:Transaction) throws -> (port:UInt16, username:String, password:String) {
-		let pw = String.random(length:12, separator:"-")
-		let un = String.random(length:12, separator:"-")
+		let pw = String.random(length:12, separator:"_")
+		let un = String.random(length:12, separator:"_")
 		let newPort = try tx.transact(readOnly:false) { [pw, un] someTrans -> UInt16 in
 			var newPort:UInt16
 			let getFirstPort = try metadata.getEntry(type:UInt16.self, forKey:Metadatas.startPort.rawValue, tx:someTrans)!

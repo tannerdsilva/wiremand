@@ -15,4 +15,18 @@ extension String {
 		}
 		return randomString
 	}
+	
+	public func validateEmail() -> Bool {
+		let selfSplit = self.split(separator:"@")
+		guard selfSplit.count == 2 else {
+			return false
+		}
+		guard selfSplit[1].contains(".") == true else {
+			return false
+		}
+		guard selfSplit[0].count > 0 && selfSplit[1].count > 0 else {
+			return false
+		}
+		return true
+	}
 }

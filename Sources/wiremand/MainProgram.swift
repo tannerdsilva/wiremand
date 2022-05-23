@@ -6,6 +6,7 @@ import SwiftSlash
 import QuickLMDB
 import Logging
 import SignalStack
+import SwiftSMTP
 
 extension NetworkV6 {
 	func maskingAddress() -> NetworkV6 {
@@ -33,12 +34,25 @@ struct WiremanD {
 			   Option<String>("interfaceName", default:"wg2930"),
 			   Option<String>("user", default:"wiremand"),
 			   Option<Int>("wg_port", default:29300),
-			   Option<Int>("public_httpPort", default:8080)
-			) { interfaceName, installUserName, wgPort, httpPort in
+			   Option<Int>("public_httpPort", default:8080),
+			   VariadicOption<String>("email", default:[], description: "administrator email that should receive vital notifications about the system", validator:nil)
+			) { interfaceName, installUserName, wgPort, httpPort, emailOptions in
 				guard getCurrentUser() == "root" else {
 					print("You need to be root to install wiremand.")
 					exit(5)
 				}
+
+				var adminEmail:String? = nil
+				repeat {
+					print("[NOTIFY] your email address: ", terminator:"")
+					adminEmail = readLine()
+				} while adminEmail == nil || adminEmail!.count == 0 || adminEmail!.validateEmail() == false
+				
+				var adminName:String? = nil
+				repeat {
+					print("[NOTIFY] your name: ", terminator:"")
+					adminName = readLine()
+				} while adminName == nil || adminName!.count == 0
 				
 				// ask for the public endpoint
 				var endpoint:String? = nil
@@ -104,6 +118,7 @@ struct WiremanD {
 				let dnsMasqConfFile = try FileDescriptor.open("/etc/dnsmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 				try dnsMasqConfFile.closeAfter({
 					var buildConfig = "listen-address=\(ipv6Scope!.address)\n"
+					buildConfig += "listen-address=::1\nlisten-address=127.0.0.1\n"
 					buildConfig += "server=::1#5353\n"
 					buildConfig += "server=127.0.0.1#5353\n"
 					buildConfig += "user=\(installUserName)\n"
@@ -252,7 +267,7 @@ struct WiremanD {
 				print("installing databases...")
 	 
 				let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
-				let daemonDBEnv = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort))
+				let daemonDBEnv = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), notify:Email.Contact(name:adminName!, emailAddress:adminEmail!))
 				try WireguardDatabase.createDatabase(environment:daemonDBEnv, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_serverPublicListenPort: UInt16(wgPort), serverIPv6Block: ipv6Scope!, serverIPv4Block:ipv4Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
 				
 				let ownIt = try await Command(bash:"chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/").runSync()
@@ -262,7 +277,7 @@ struct WiremanD {
 				
 				print("acquiring SSL certificates for \(endpoint!)")
 				
-				try await CertbotExecute.acquireSSL(domain:endpoint!.lowercased())
+				try await CertbotExecute.acquireSSL(domain:endpoint!.lowercased(), email:adminEmail!)
 				try NginxExecutor.install(domain:endpoint!.lowercased())
 				try await NginxExecutor.reload()
 				
@@ -272,7 +287,91 @@ struct WiremanD {
 				}
 				print(Colors.Green("[OK] - Installation complete. Please restart this machine."))
 			}
+			
+			$0.command("notify_add",
+			   Option<String?>("name", default:nil, description:"The name of the user that is to be notified of system critical events."),
+			   Option<String?>("email", default:nil, description:"The email of the user that is to be notified of system critical events.")
+			) { userName, userEmail in
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this program must be run as `wiremand` user")
+				}
+				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				
+				// list existing admins
+				let admins = try daemonDB.getNotifyUsers().sorted(by: { $0.name ?? "" < $1.name ?? "" })
+				print(Colors.Cyan("There are \(admins.count) admins that are being notified of system-critical events."))
+				for curNotify in admins {
+					print("-\t\(curNotify.name!) : \(curNotify.emailAddress)")
+				}
+				
+				// prompt for the name that will be added
+				var adminName:String? = userName
+				repeat {
+					print("name: ", terminator:"")
+					adminName = readLine()
+				} while adminName == nil || adminName!.count == 0
+				
+				// prompt for the email that needs to be added
+				var adminEmail:String? = userEmail
+				repeat {
+					print("email: ", terminator:"")
+					adminEmail = readLine()
+				} while adminEmail == nil || adminEmail!.count == 0 || adminEmail!.validateEmail() == false
+				guard adminEmail != nil && adminEmail?.validateEmail() == true else {
+					print("please enter a valid email address")
+					exit(1)
+				}
+				
+				try daemonDB.addNotifyUser(name:adminName!, email: adminEmail!)
+				try await CertbotExecute.updateNotifyUsers(daemon: daemonDB)
+			}
 
+			$0.command("notify_remove",
+				Option<String?>("email", default:nil, description:"The email of the user that is to removed from system critical notifications.")
+			) { removeEmail in
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this program must be run as `wiremand` user")
+				}
+				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				
+				// list the existing admins
+				let admins = try daemonDB.getNotifyUsers().sorted(by: { $0.name ?? "" < $1.name ?? "" })
+				print(Colors.Cyan("There are \(admins.count) admins that are being notified of system-critical events."))
+				for curNotify in admins {
+					print("-\t\(curNotify.name!) : \(curNotify.emailAddress)")
+				}
+				
+				// prompt for the email that needs to be removed
+				var adminEmail:String? = removeEmail
+				if adminEmail == nil {
+					repeat {
+						print("email address to remove: ", terminator:"")
+						adminEmail = readLine()
+					} while adminEmail == nil || adminEmail!.count == 0 || adminEmail!.validateEmail() == false
+				}
+				guard adminEmail != nil && adminEmail?.validateEmail() == true else {
+					print("please enter a valid email address")
+					exit(1)
+				}
+				
+				// remove and reload
+				try daemonDB.removeNotifyUser(email:adminEmail!)
+				try await CertbotExecute.updateNotifyUsers(daemon:daemonDB)
+				print(Colors.Green("[OK] - this user will no longer be notified."))
+			}
+			
+			$0.command("notify_list") {
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this program must be run as `wiremand` user")
+				}
+				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				let admins = try daemonDB.getNotifyUsers().sorted(by: { $0.name ?? "" < $1.name ?? "" })
+				print(Colors.Cyan("There are \(admins.count) admins that are being notified of system-critical events."))
+				for curNotify in admins {
+					print("-\t\(curNotify.name!) : \(curNotify.emailAddress)")
+				}
+			}
+			
 			$0.command("domain_make",
 				Argument<String>("domain", description:"the domain to add to the system")
 			) { domainName in
@@ -280,7 +379,7 @@ struct WiremanD {
 					fatalError("this program must be run as `wiremand` user")
 				}
 				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
-				try await CertbotExecute.acquireSSL(domain: domainName.lowercased())
+				try await CertbotExecute.acquireSSL(domain: domainName.lowercased(), daemon:daemonDB)
 				try NginxExecutor.install(domain: domainName.lowercased())
 				try await NginxExecutor.reload()
 				let (newSubnet, newSK) = try daemonDB.wireguardDatabase.subnetMake(name:domainName.lowercased())
@@ -306,7 +405,7 @@ struct WiremanD {
 				}
 			}
 			
-			$0.command("printer_authorize",
+			$0.command("printer_make",
 			   Option<String?>("mac", default:nil, description:"the mac address of the printer to authorized"),
 			   Option<String?>("subnet", default:nil, description:"the subnet name that the printer will be assigned to")
 			) { mac, subnet in
@@ -335,7 +434,7 @@ struct WiremanD {
 				
 				var useMac:String? = mac
 				if (useMac == nil || useMac!.count == 0) {
-					print("Please enter a MAC address for this printer:")
+					print("Please enter a MAC address for the new printer:")
 					let allAuthorized = Dictionary(grouping:try daemonDB.printerDatabase.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
 					for curSub in allAuthorized {
 						print(Colors.Yellow("- \(curSub.key)"))
@@ -344,15 +443,47 @@ struct WiremanD {
 						}
 					}
 					repeat {
-						print("mac address: ", terminator:"")
+						print("MAC address: ", terminator:"")
 						useMac = readLine()
 					} while useMac == nil || useMac!.count == 0
 				}
 				let printerMetadata = try daemonDB.printerDatabase.authorizeMacAddress(mac:useMac!.lowercased(), subnet:useSubnet!)
-				print(Colors.Green("[OK] - Printer assigned to local TCP port \(printerMetadata.port)"))
-				print(Colors.Yellow("\tusername: - \(printerMetadata.username)"))
-				print(Colors.Yellow("\tpassword: - \(printerMetadata.password)"))
-				print(Colors.cyan("Listening for print jobs at address \(try daemonDB.wireguardDatabase.getServerInternalNetwork().address.string)"))
+				print(Colors.Green("[OK] - Printer assigned to \(useSubnet!)"))
+				print(Colors.Yellow("\tPrinter username: - \(printerMetadata.username)"))
+				print(Colors.Yellow("\tPrinter password: - \(printerMetadata.password)"))
+				print(" - - - - - - - - - - - - - - - - - ")
+				print(Colors.Cyan("\tServer print port: \(printerMetadata.port)"))
+				print(Colors.Cyan("\tServer print address: \(try daemonDB.wireguardDatabase.getServerInternalNetwork().address.string)"))
+				try daemonDB.reloadRunningDaemon()
+			}
+			
+			$0.command("printer_revoke",
+			   Option<String?>("mac", default:nil, description:"the mac address of the printer to authorized")
+			) { mac in
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this function must be run as the wiremand user")
+				}
+				let dbPath = getCurrentDatabasePath()
+				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				
+				var useMac:String? = mac
+				if (useMac == nil || useMac!.count == 0) {
+					print("Please enter a MAC address to revoke:")
+					let allAuthorized = Dictionary(grouping:try daemonDB.printerDatabase.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
+					for curSub in allAuthorized.sorted(by: { $0.key < $1.key }) {
+						print(Colors.Yellow("- \(curSub.key)"))
+						for curMac in curSub.value {
+							print(Colors.dim("\t-\t\(curMac)"))
+						}
+					}
+					repeat {
+						print("MAC address: ", terminator:"")
+						useMac = readLine()
+					} while useMac == nil || useMac!.count == 0
+				}
+				
+				try daemonDB.printerDatabase.deauthorizeMacAddress(mac:useMac!)
+				try daemonDB.reloadRunningDaemon()
 			}
 			
 			$0.command("client_revoke",
@@ -526,26 +657,28 @@ struct WiremanD {
 				let daemonDB = try DaemonDB(directory:dbPath, running:false)
 				let allClients = try daemonDB.wireguardDatabase.allClients()
 				let subnetSort = Dictionary(grouping:allClients, by: { $0.subnetName })
-				for subnetToList in subnetSort {
+				for subnetToList in subnetSort.sorted(by: { $0.key < $1.key }) {
 					print(Colors.Yellow("\(subnetToList.key)"))
 					let sortedClients = subnetToList.value.sorted(by: { $0.name < $1.name })
 					for curClient in sortedClients {
 						// print the online status
 						if (curClient.lastHandshake == nil) {
-							print(Colors.dim("[ UNSEEN ]"), terminator:"\t\t")
+							print(Colors.dim("\t-\t\(curClient.name)"))
 						} else {
 							if curClient.lastHandshake!.timeIntervalSinceNow > -150 {
-								print(Colors.bgGreen("[ ONLINE ]"), terminator:"\t\t\t")
+								print(Colors.Green("\t-\t\(curClient.name)"))
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
-								print(Colors.bgRed("[ DROPS SOON ]"), terminator:"\t\t")
+								print(Colors.Red("\t-\t\(curClient.name)"))
 							} else {
-								print("[ OFFLINE ]", terminator:"\t\t\t")
+								print("\t-\t\(curClient.name)")
 							}
 						}
-						
-						print("-\t\(curClient.name)")
 					}
 				}
+			}
+			
+			$0.command("update") {
+				
 			}
 			
 			$0.command("run") {

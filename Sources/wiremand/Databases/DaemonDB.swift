@@ -1,6 +1,8 @@
 import QuickLMDB
 import Foundation
 import CLMDB
+import NIO
+import SwiftSMTP
 
 extension Task:MDB_convertible {
     public init?(_ value: MDB_val) {
@@ -26,13 +28,15 @@ extension Task:MDB_convertible {
 }
 
 actor DaemonDB {
-    static func create(directory:URL, publicHTTPPort:UInt16) throws -> Environment {
+	static func create(directory:URL, publicHTTPPort:UInt16, notify:Email.Contact) throws -> Environment {
 		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir], mapSize:75000000000, maxDBs:128, mode: [.ownerReadWriteExecute])
         try makeEnv.transact(readOnly:false) { someTrans in
             let metadata = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
             _ = try makeEnv.openDatabase(named:Databases.scheduleTasks.rawValue, flags:[.create], tx:someTrans)
             _ = try makeEnv.openDatabase(named:Databases.scheduleInterval.rawValue, flags:[.create], tx:someTrans)
             _ = try makeEnv.openDatabase(named:Databases.scheduleLastFireDate.rawValue, flags:[.create], tx:someTrans)
+			let notifyDB = try makeEnv.openDatabase(named:Databases.notifyUsers.rawValue, flags:[.create], tx:someTrans)
+			try notifyDB.setEntry(value:notify.emailAddress, forKey:notify.name!, tx:someTrans)
             try metadata.setEntry(value:publicHTTPPort, forKey:Metadatas.daemonPublicListenPort.rawValue, tx:someTrans)
         }
 		return makeEnv
@@ -43,6 +47,7 @@ actor DaemonDB {
         case scheduleTasks = "ddb_schedule_tasks"				// Schedule:Task<(), Swift.Error>
         case scheduleInterval = "ddb_schedule_interval"			// Schedule:TimeInterval
         case scheduleLastFireDate = "ddb_schedule_lastFire"		// Schedule:Date?
+		case notifyUsers = "ddb_notify"							// String:String
     }
     enum Error:Swift.Error {
         case daemonAlreadyRunning
@@ -57,12 +62,15 @@ actor DaemonDB {
        return try metadata.getEntry(type:UInt16.self, forKey:Metadatas.daemonPublicListenPort.rawValue, tx:nil)!
     }
     
+	let loopGroup = MultiThreadedEventLoopGroup(numberOfThreads:System.coreCount)
+	
     let env:Environment
     let metadata:Database
     let scheduledTasks:Database
     let scheduleInterval:Database
     let scheduleLastFire:Database
-    
+	let notifyDB:Database
+	
     let wireguardDatabase:WireguardDatabase
 	let printerDatabase:PrintDB
 	
@@ -74,6 +82,13 @@ actor DaemonDB {
             let scheduledTasks = try makeEnv.openDatabase(named:Databases.scheduleTasks.rawValue, flags:[], tx:someTrans)
             let scheduleIntervalDB = try makeEnv.openDatabase(named:Databases.scheduleInterval.rawValue, flags:[], tx:someTrans)
             let scheduleLastFire = try makeEnv.openDatabase(named:Databases.scheduleLastFireDate.rawValue, flags:[], tx:someTrans)
+			let notifyDB:Database
+			do {
+				notifyDB = try makeEnv.openDatabase(named:Databases.notifyUsers.rawValue, flags:[], tx:someTrans)
+			} catch LMDBError.notFound {
+				notifyDB = try makeEnv.openDatabase(named:Databases.notifyUsers.rawValue, flags:[.create], tx:someTrans)
+				try notifyDB.setEntry(value:"tsilva@escalantegolf.com", forKey:"Tanner Silva", tx:someTrans)
+			}
             if running {
                 do {
                     let lastPid = try metadataDB.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
@@ -85,13 +100,14 @@ actor DaemonDB {
                 try metadataDB.setEntry(value:getpid(), forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)
                 try scheduledTasks.deleteAllEntries(tx:someTrans)
             }
-            return [metadataDB, scheduledTasks, scheduleIntervalDB, scheduleLastFire]
+            return [metadataDB, scheduledTasks, scheduleIntervalDB, scheduleLastFire, notifyDB]
         }
         self.env = makeEnv
         self.metadata = dbs[0]
         self.scheduledTasks = dbs[1]
         self.scheduleInterval = dbs[2]
         self.scheduleLastFire = dbs[3]
+		self.notifyDB = dbs[4]
         self.wireguardDatabase = try WireguardDatabase(environment:makeEnv)
 		self.printerDatabase = try PrintDB(environment:makeEnv, directory:directory)
     }
@@ -158,6 +174,48 @@ actor DaemonDB {
 				kill(daemonPID, SIGHUP)
 			}
 		} catch LMDBError.notFound {}
+	}
+	
+	nonisolated func addNotifyUser(name:String, email:String) throws {
+		try env.transact(readOnly:false) { someTrans in
+			try self.notifyDB.setEntry(value:email, forKey:name, flags:[.noOverwrite], tx:someTrans)
+		}
+		try env.sync()
+	}
+	
+	nonisolated func getNotifyUsers() throws -> [Email.Contact] {
+		return try env.transact(readOnly:true) { someTrans in
+			var buildUsers = [Email.Contact]()
+			let notifyCursor = try self.notifyDB.cursor(tx:someTrans)
+			for curUser in notifyCursor {
+				let curEmail = String(curUser.value)!
+				let curName = String(curUser.key)!
+				buildUsers.append(Email.Contact(name:curName, emailAddress: curEmail))
+			}
+			return buildUsers
+		}
+	}
+	
+	nonisolated func removeNotifyUser(name:String) throws {
+		try env.transact(readOnly:false) { someTrans in
+			try self.notifyDB.deleteEntry(key:name, tx:someTrans)
+		}
+		try env.sync()
+	}
+	
+	nonisolated func removeNotifyUser(email:String) throws {
+		try env.transact(readOnly:false) { someTrans in
+			let notifyCursor = try self.notifyDB.cursor(tx:someTrans)
+			for curUserKV in notifyCursor {
+				let curEmail = String(curUserKV.value)!
+				if curEmail == email {
+					try notifyCursor.deleteEntry()
+					return
+				}
+			}
+			throw LMDBError.notFound
+		}
+		try env.sync()
 	}
     
     deinit {
