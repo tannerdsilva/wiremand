@@ -151,11 +151,11 @@ fileprivate struct PrinterPoll:HBResponder {
 						request.logger.info("printer didn't ask for a job token")
 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 					}
-					let jobData = try printDB.retrievePrintJob(token:Data(base64Encoded:jobToken)! ,mac:mac, ua:userAgent, serial:serial, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
+					let (jobData, cutMode) = try printDB.retrievePrintJob(token:Data(base64Encoded:jobToken)! ,mac:mac, ua:userAgent, serial:serial, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
 					var newByteBuffer = ByteBuffer()
 					newByteBuffer.writeData(jobData)
 					request.logger.info("printer is getting job data", metadata:["length": "\(jobData.count)"])
-					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "text/plain")), body:.byteBuffer(newByteBuffer)))
+					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "text/plain"), ("X-Star-Cut", "\(cutMode.rawValue); feed=true")), body:.byteBuffer(newByteBuffer)))
 					
 				case .DELETE:
 					guard let jobToken = request.uri.queryParameters["token"] else {
