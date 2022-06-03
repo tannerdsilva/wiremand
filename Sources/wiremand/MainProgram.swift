@@ -38,7 +38,7 @@ struct WiremanD {
 			   VariadicOption<String>("email", default:[], description: "administrator email that should receive vital notifications about the system", validator:nil)
 			) { interfaceName, installUserName, wgPort, httpPort, emailOptions in
 				guard getCurrentUser() == "root" else {
-					print("You need to be root to install wiremand.")
+					appLogger.critical("You need to be root to install wiremand.")
 					exit(5)
 				}
 
@@ -79,28 +79,29 @@ struct WiremanD {
 					}
 				} while ipv4Scope == nil
 				
-				print("installing software...")
+				appLogger.info("installing software...")
 				
 				// install software
 				let installCommand = try await Command(bash:"apt-get update && apt-get install wireguard resolvconf dnsmasq stubby nginx certbot -y").runSync()
 				guard installCommand.succeeded == true else {
-					print("unable to install dnsmasq and wireguard")
+					appLogger.critical("unable to install dnsmasq and wireguard")
 					exit(6)
 				}
 
-				print("disabling systemd service 'dnsmasq'")
+				appLogger.info("disabling systemd service 'dnsmasq'")
+				
 				let dnsMasqDisable = try await Command(bash:"systemctl disable dnsmasq && systemctl stop dnsmasq").runSync()
 				guard dnsMasqDisable.succeeded == true else {
-					print("unable to disable dnsmasq service")
+					appLogger.critical("unable to disable dnsmasq service")
 					exit(7)
 				}
 
-				print("generating wireguard keys...")
+				appLogger.info("generating wireguard keys...")
 				
 				// set up the wireguard interface
 				let newKeys = try await WireguardExecutor.generate()
 				
-				print("writing wireguard configuration...")
+				appLogger.info("writing wireguard configuration...")
 				
 				let wgConfigFile = try FileDescriptor.open("/etc/wireguard/\(interfaceName).conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite])
 				try wgConfigFile.closeAfter({
@@ -112,7 +113,7 @@ struct WiremanD {
 					try wgConfigFile.writeAll(buildConfig.utf8)
 				})
 				
-				print("configuring dnsmasq...")
+				appLogger.info("configuring dnsmasq...")
 				
 				// set up the dnsmasq daemon
 				let dnsMasqConfFile = try FileDescriptor.open("/etc/dnsmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
@@ -129,7 +130,7 @@ struct WiremanD {
 					try dnsMasqConfFile.writeAll(buildConfig.utf8)
 				})
 				
-				print("determining tool paths...")
+				appLogger.info("determining tool paths...")
 				
 				// find wireguard and wg-quick
 				let whichCertbot = try await Command(bash:"which certbot").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
@@ -137,21 +138,21 @@ struct WiremanD {
 				let whichWgQuick = try await Command(bash:"which wg-quick").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
 				let whichSystemcCTL = try await Command(bash:"which systemctl").runSync().stdout.compactMap { String(data:$0, encoding:.utf8) }.first!
 
-				print("enabling wg-quick@\(interfaceName).service...")
+				appLogger.info("enabling wg-quick@\(interfaceName).service...")
 
 				guard try await Command(bash:"systemctl enable wg-quick@\(interfaceName).service").runSync().succeeded == true else {
-					print("unable to enable wg-quick@\(interfaceName).service")
+					appLogger.critical("unable to enable wg-quick@\(interfaceName).service")
 					exit(8)
 				}
 				
-				print("enabling dnsmasq.service...")
+				appLogger.info("enabling dnsmasq.service...")
 
 				guard try await Command(bash:"systemctl enable dnsmasq.service").runSync().succeeded == true else {
 					print("unable to enable dnsmasq.service")
 					exit(8)
 				}
 								
-				print("reconfiguring systemd-resolved...")
+				appLogger.info("reconfiguring systemd-resolved...")
 				let fp:FilePermissions = [.ownerReadWriteExecute, .groupRead, .otherRead]
 				mkdir("/etc/systemd/resolved.conf.d", fp.rawValue)
 				let dnsmasqOverride = try FileDescriptor.open("/etc/systemd/resolved.conf.d/disableStub.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
@@ -161,21 +162,21 @@ struct WiremanD {
 					try dnsmasqOverride.writeAll(buildConfig.utf8)
 				}
 
-				print("making user `wiremand`...")
+				appLogger.info("making user `wiremand`...")
 				
 				// make the user
 				let makeUser = try await Command(bash:"useradd -md /var/lib/\(installUserName) \(installUserName)").runSync()
 				guard makeUser.succeeded == true else {
-					print("unable to create `wiremand` user on the system")
+					appLogger.critical("unable to create `wiremand` user on the system")
 					exit(8)
 				}
 				
 				// get the uid and gid of our new user
 				guard let getUsername = getpwnam(installUserName) else {
-					print("unable to get uid and gid for wiremand")
+					appLogger.critical("unable to get uid and gid for wiremand")
 					exit(9)
 				}
-				print("\t->\tcreated new uid \(getUsername.pointee.pw_uid) and gid \(getUsername.pointee.pw_gid)")
+				appLogger.info("\t->\tcreated new uid \(getUsername.pointee.pw_uid) and gid \(getUsername.pointee.pw_gid)")
 				
 				// enable ipv6 forwarding on this system
 				let sysctlFwdFD = try FileDescriptor.open("/etc/sysctl.d/10-ip-forward.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
@@ -185,7 +186,7 @@ struct WiremanD {
 				})
 				
 
-				print("installing soduers modifications for `\(installUserName)` user...")
+				appLogger.info("installing soduers modifications for `\(installUserName)` user...")
 				
 				// add the sudoers modifications for this user
 				let sudoersFD = try FileDescriptor.open("/etc/sudoers.d/\(installUserName)", .writeOnly, options:[.create, .truncate], permissions: [.ownerRead, .groupRead])
@@ -198,7 +199,7 @@ struct WiremanD {
 					try sudoersFD.writeAll(sudoAddition.utf8)
 				})
 				
-				print("installing executable into /opt...")
+				appLogger.info("installing executable into /opt...")
 				
 				// install the executable in the system
 				let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
@@ -207,7 +208,7 @@ struct WiremanD {
 				try exeFD.writeAll(exeData)
 				try exeFD.close()
 				
-				print("installing systemd service for wiremand...")
+				appLogger.info("installing systemd service for wiremand...")
 				
 				// install the systemd service for the daemon
 				let systemdFD = try FileDescriptor.open("/etc/systemd/system/wiremand.service", .writeOnly, options:[.create, .truncate], permissions:[.ownerRead, .ownerWrite, .groupRead, .otherRead])
@@ -228,24 +229,24 @@ struct WiremanD {
 					try systemdFD.writeAll(buildConfig.utf8)
 				})
 				
-				print("enabling wiremand.service...")
+				appLogger.info("enabling wiremand.service...")
 
 				guard try await Command(bash:"systemctl enable wiremand.service").runSync().succeeded == true else {
-					print("unable to enable wiremand.service")
+					appLogger.critical("unable to enable wiremand.service")
 					exit(8)
 				}
 				
-				print("configuring nginx...")
+				appLogger.info("configuring nginx...")
 
 				// begin configuring nginx
 				var nginxOwn = try await Command(bash:"chown root:\(installUserName) /etc/nginx && chown root:\(installUserName) /etc/nginx/conf.d && chown root:\(installUserName) /etc/nginx/sites-enabled").runSync()
 				guard nginxOwn.succeeded == true else {
-					print("unable to change ownership of nginx directories to include wiremand in group")
+					appLogger.critical("unable to change ownership of nginx directories to include wiremand in group")
 					exit(10)
 				}
 				nginxOwn = try await Command(bash:"chmod 775 /etc/nginx && chmod 775 /etc/nginx/conf.d && chmod 775 /etc/nginx/sites-enabled").runSync()
 				guard nginxOwn.succeeded == true else {
-					print("unable to change mode of nginx directories to include wiremand in group")
+					appLogger.critical("unable to change mode of nginx directories to include wiremand in group")
 					exit(11)
 				}
 				
@@ -256,7 +257,7 @@ struct WiremanD {
 					_ = try nginxUpstreams.writeAll(buildUpstream.utf8)
 				})
 				
-				print("installing wiremand bash alias in /etc/skel...")
+				appLogger.info("installing wiremand bash alias in /etc/skel...")
 				
 				let bashRCHandle = try FileDescriptor.open("/etc/skel/.bashrc", .writeOnly, options:[.append], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 				try bashRCHandle.closeAfter {
@@ -264,7 +265,7 @@ struct WiremanD {
 					try bashRCHandle.writeAll(addLine.utf8)
 				}
 				
-				print("installing databases...")
+				appLogger.info("installing databases...")
 	 
 				let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
 				let daemonDBEnv = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), notify:Email.Contact(name:adminName!, emailAddress:adminEmail!))
@@ -275,17 +276,43 @@ struct WiremanD {
 					fatalError("unable to change ownership of /var/lib/\(installUserName)/ directory")
 				}
 				
-				print("acquiring SSL certificates for \(endpoint!)")
+				appLogger.info("acquiring SSL certificates for \(endpoint!)")
 				
 				try await CertbotExecute.acquireSSL(domain:endpoint!.lowercased(), email:adminEmail!)
 				try NginxExecutor.install(domain:endpoint!.lowercased())
 				try await NginxExecutor.reload()
 				
 				guard try await Command(bash:"systemctl daemon-reload").runSync().succeeded == true else {
-					print("unable to reload the systemctl daemon")
+					appLogger.critical("unable to reload the systemctl daemon")
 					exit(10)
 				}
-				print(Colors.Green("[OK] - Installation complete. Please restart this machine."))
+				appLogger.info("Installation complete. Please restart this machine.")
+			}
+			
+			$0.command("update") {
+				guard getCurrentUser() == "root" else {
+					fatalError("this function must be run as the root user")
+				}
+				appLogger.info("stopping wiremand service")
+				let stopResult = try await Command(bash:"systemctl stop wiremand.service").runSync()
+				guard stopResult.succeeded == true else {
+					appLogger.critical("unable to stop wiremand.service")
+					exit(1)
+				}
+				appLogger.info("installing executable into /opt")
+				// install the executable in the system
+				let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
+				let exeData = try Data(contentsOf:exePath)
+				let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
+				try exeFD.writeAll(exeData)
+				try exeFD.close()
+				appLogger.info("starting wiremand service")
+				let startResult = try await Command(bash:"systemctl start wiremand.service").runSync()
+				guard startResult.succeeded == true else {
+					appLogger.critical("unable to start wiremand.service")
+					exit(2)
+				}
+				appLogger.info("wiremand successfully updated")
 			}
 			
 			$0.command("notify_add",
@@ -486,6 +513,47 @@ struct WiremanD {
 				try daemonDB.reloadRunningDaemon()
 			}
 			
+			$0.command("printer_set_cutmode",
+			   Option<String?>("mac", default:nil, description:"the mac address of the printer to edit the cut mode"),
+				Option<String?>("cut", default:nil, description:"the cut mode to assign to the printer. may be 'full', 'partial', or 'none'")
+			) { mac, cut in
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this function must be run as the wiremand user")
+				}
+				let dbPath = getCurrentDatabasePath()
+				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				
+				var useMac:String? = mac
+				if (useMac == nil || useMac!.count == 0) {
+					print("Please enter a MAC address to edit:")
+					let allAuthorized = Dictionary(grouping:try daemonDB.printerDatabase.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
+					for curSub in allAuthorized.sorted(by: { $0.key < $1.key }) {
+						print(Colors.Yellow("- \(curSub.key)"))
+						for curMac in curSub.value {
+							print(Colors.dim("\t-\t\(curMac.mac)"))
+						}
+					}
+					repeat {
+						print("MAC address: ", terminator:"")
+						useMac = readLine()
+					} while useMac == nil || useMac!.count == 0
+				}
+				
+				var useCut:String? = cut
+				if (useCut == nil || useCut!.count == 0) {
+					repeat {
+						print("Cut mode [ full | partial | none ]: ", terminator:"")
+						useCut = readLine()
+					} while PrintDB.CutMode(rawValue:useCut!) == nil
+				}
+				guard let cutMode = PrintDB.CutMode(rawValue:useCut!) else {
+					appLogger.critical("Invalid cut mode specified")
+					exit(5)
+				}
+				try daemonDB.printerDatabase.assignCutMode(mac:useMac!, mode:cutMode)
+				try daemonDB.reloadRunningDaemon()
+			}
+			
 			$0.command("client_revoke",
 			   Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
 			   Option<String?>("name", default:nil, description:"the name of the client that the key will be created for")
@@ -525,7 +593,7 @@ struct WiremanD {
 				if (useClient == nil || useClient!.count == 0) {
 					let allClients = try daemonDB.wireguardDatabase.allClients(subnet:useSubnet)
 					switch allClients.count {
-						case 1:
+						case 0:
 							print(Colors.Yellow("There are no clients on this subnet yet."))
 							exit(1)
 						default:
@@ -676,40 +744,7 @@ struct WiremanD {
 					}
 				}
 			}
-			
-			$0.command("update") {
-				guard getCurrentUser() == "root" else {
-					fatalError("this function must be run as the root user")
-				}
-				
-				appLogger.info("stopping wiremand service")
-				
-				let stopResult = try await Command(bash:"systemctl stop wiremand.service").runSync()
-				guard stopResult.succeeded == true else {
-					appLogger.critical("unable to stop wiremand.service")
-					exit(1)
-				}
-				
-				appLogger.info("installing executable into /opt")
-				
-				// install the executable in the system
-				let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
-				let exeData = try Data(contentsOf:exePath)
-				let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
-				try exeFD.writeAll(exeData)
-				try exeFD.close()
-				
-				appLogger.info("starting wiremand service")
-				
-				let startResult = try await Command(bash:"systemctl start wiremand.service").runSync()
-				guard startResult.succeeded == true else {
-					appLogger.critical("unable to start wiremand.service")
-					exit(2)
-				}
-				
-				appLogger.info("wiremand successfully updated")
-			}
-			
+						
 			$0.command("run") {
 				enum Error:Swift.Error {
 					case handshakeCheckError

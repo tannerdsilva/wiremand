@@ -3,6 +3,11 @@ import Foundation
 import CLMDB
 
 actor PrintDB {
+	enum CutMode:String {
+		case full = "full"
+		case partial = "partial"
+		case none = "none"
+	}
     actor Logger {
         struct Event {
             let date:Date
@@ -121,7 +126,8 @@ actor PrintDB {
         case mac_un = "mac_un"							//String:String
 		case mac_pw = "mac_pw"							//String:String
         case mac_subnetName = "mac_subnetName"			//String:String
-        
+        case mac_cutMode = "mac_cutMode"				//String:CutMode
+		
         // print jobs for authorized printers
         case mac_printJobDate = "mac_printJobDate"                              //String:Date [DUPSORT]
         case macPrintJobHash_printJobData = "macPrintJobHash_printJobData"      //Data:Data
@@ -152,12 +158,15 @@ actor PrintDB {
 		let username:String
 		let password:String
 		let subnet:String
+		let cutMode:CutMode
 	}
     let port_mac:Database
     let mac_port:Database
 	let mac_un:Database
 	let mac_pw:Database
     let mac_subnetName:Database
+	let mac_cutMode:Database
+	
 	nonisolated func _addAuthorizedPrinter(mac:String, subnet:String, tx:Transaction) throws -> (port:UInt16, username:String, password:String) {
 		let pw = String.random(length:12, separator:"_")
 		let un = String.random(length:12, separator:"_")
@@ -174,6 +183,7 @@ actor PrintDB {
 			try mac_un.setEntry(value:un, forKey:mac, flags:[.noOverwrite], tx:someTrans)
 			try mac_pw.setEntry(value:pw, forKey:mac, flags:[.noOverwrite], tx:someTrans)
 			try mac_subnetName.setEntry(value:subnet, forKey:mac, flags:[.noOverwrite], tx:someTrans)
+			try mac_cutMode.setEntry(value:CutMode.full.rawValue, forKey:mac, flags:[.noOverwrite], tx:someTrans)
 			return newPort
 		}
 		Task.detached {
@@ -191,6 +201,12 @@ actor PrintDB {
 		}
 	}
 	
+	nonisolated func assignCutMode(mac:String, mode:CutMode) throws {
+		try env.transact(readOnly:false) { someTrans in
+			return try mac_cutMode.setEntry(value:mode.rawValue, forKey:mac, tx:someTrans)
+		}
+	}
+	
 	nonisolated func deauthorizeMacAddress(mac:String) throws {
 		let closedPort = try env.transact(readOnly:false) { someTrans -> UInt16 in
 			//get the port for this mac
@@ -200,6 +216,7 @@ actor PrintDB {
 			try self.mac_un.deleteEntry(key:mac, tx:someTrans)
 			try self.mac_pw.deleteEntry(key:mac, tx:someTrans)
 			try self.mac_subnetName.deleteEntry(key:mac, tx:someTrans)
+			try self.mac_cutMode.deleteEntry(key:mac, tx:someTrans)
 			return getPort
 		}
 		Task.detached {
@@ -217,7 +234,8 @@ actor PrintDB {
 				let un = try mac_un.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!
 				let pw = try mac_pw.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!
 				let subnet = try mac_subnetName.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!
-				buildList.append(AuthorizedPrinter(mac:macAddress, port:portNumber, username:un, password:pw, subnet:subnet))
+				let cutMode = CutMode(rawValue:try mac_cutMode.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!)!
+				buildList.append(AuthorizedPrinter(mac:macAddress, port:portNumber, username:un, password:pw, subnet:subnet, cutMode:cutMode))
 			}
 			return buildList
 		}
@@ -313,7 +331,17 @@ actor PrintDB {
             let mac_un = try makeEnv.openDatabase(named:Databases.mac_un.rawValue, flags:[.create], tx:someTrans)
 			let mac_pw = try makeEnv.openDatabase(named:Databases.mac_pw.rawValue, flags:[.create], tx:someTrans)
 			let mac_sub = try makeEnv.openDatabase(named:Databases.mac_subnetName.rawValue, flags:[.create], tx:someTrans)
-            
+			let mac_cutMode:Database
+			do {
+				mac_cutMode = try makeEnv.openDatabase(named:Databases.mac_cutMode.rawValue, flags:[], tx:someTrans)
+			} catch LMDBError.notFound {
+				mac_cutMode = try makeEnv.openDatabase(named:Databases.mac_cutMode.rawValue, flags:[.create], tx:someTrans)
+				let macCursor = try mac_sub.cursor(tx:someTrans)
+				for curMac in macCursor {
+					try mac_cutMode.setEntry(value:CutMode.full.rawValue, forKey:String(curMac.key)!, tx:someTrans)
+				}
+			}
+			
             let mac_printDate = try makeEnv.openDatabase(named:Databases.mac_printJobDate.rawValue, flags:[.create, .dupSort], tx:someTrans)
             let macPrintHash_jobData = try makeEnv.openDatabase(named:Databases.macPrintJobHash_printJobData.rawValue, flags:[.create], tx:someTrans)
             
@@ -340,7 +368,7 @@ actor PrintDB {
 				} catch LMDBError.keyExists {}
 			}
 			
-			return [meta, p_m, m_p, mac_un, mac_pw, mac_sub, mac_printDate, macPrintHash_jobData, mac_authDate, mac_remoteAddress, mac_serial, mac_lastSeen, mac_status, mac_ua, mac_cd, mac_lastUN, mac_lastPW, mac_lastAuthAtt]
+			return [meta, p_m, m_p, mac_un, mac_pw, mac_sub, mac_cutMode, mac_printDate, macPrintHash_jobData, mac_authDate, mac_remoteAddress, mac_serial, mac_lastSeen, mac_status, mac_ua, mac_cd, mac_lastUN, mac_lastPW, mac_lastAuthAtt]
         }
 		try makeEnv.sync(force:true)
 		self.env = makeEnv
@@ -350,21 +378,22 @@ actor PrintDB {
 		self.mac_un = dbs[3]
 		self.mac_pw = dbs[4]
         self.mac_subnetName = dbs[5]
+		self.mac_cutMode = dbs[6]
+	
+        self.mac_printJobDate = dbs[7]
+        self.macPrintHash_printJobData = dbs[8]
 		
-        self.mac_printJobDate = dbs[6]
-        self.macPrintHash_printJobData = dbs[7]
+        self.mac_lastAuthenticated = dbs[9]
+        self.mac_remoteAddress = dbs[10]
+        self.mac_serial = dbs[11]
 		
-        self.mac_lastAuthenticated = dbs[8]
-        self.mac_remoteAddress = dbs[9]
-        self.mac_serial = dbs[10]
-		
-		self.mac_lastSeen = dbs[11]
-		self.mac_status = dbs[12]
-		self.mac_userAgent = dbs[13]
-		self.mac_callingDomain = dbs[13]
-		self.mac_lastUN = dbs[14]
-		self.mac_lastPW = dbs[15]
-		self.mac_lastAuthAttempt = dbs[16]
+		self.mac_lastSeen = dbs[12]
+		self.mac_status = dbs[13]
+		self.mac_userAgent = dbs[14]
+		self.mac_callingDomain = dbs[15]
+		self.mac_lastUN = dbs[16]
+		self.mac_lastPW = dbs[17]
+		self.mac_lastAuthAttempt = dbs[18]
 		
 		self.logger = try Logger(directory:directory)
     }
@@ -512,8 +541,8 @@ actor PrintDB {
 	}
 	
 	// check the authentication status of a given printer. assuming that the printer is authenticated, this function will return the raw print data that needs to go to the printer
-	nonisolated func retrievePrintJob(token:Data, mac:String, ua:String, serial:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws -> Data {
-		try env.transact(readOnly:false) { someTrans -> Data in
+	nonisolated func retrievePrintJob(token:Data, mac:String, ua:String, serial:String, remoteAddress:String, date:Date, domain:String, auth:AuthData? = nil) throws -> (Data, CutMode) {
+		try env.transact(readOnly:false) { someTrans -> (Data, CutMode) in
 			try _documentSighting(mac:mac, ua:ua, serial:serial, status:nil, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
 			do {
 				try _authenticationCheck(mac:mac, serial:serial, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
@@ -521,7 +550,8 @@ actor PrintDB {
 				try someTrans.commit()
 				throw error
 			}
-			return try self.macPrintHash_printJobData.getEntry(type:Data.self, forKey:token, tx:someTrans)!
+			let cutMode = CutMode(rawValue:try self.mac_cutMode.getEntry(type:String.self, forKey:mac, tx:someTrans)!)!
+			return (try self.macPrintHash_printJobData.getEntry(type:Data.self, forKey:token, tx:someTrans)!, cutMode)
 		}
 	}
 	
