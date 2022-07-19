@@ -4,6 +4,7 @@ import Foundation
 import SystemPackage
 
 struct WireguardDatabase {
+	static let latestDBVersion = 0
 	enum Error:Swift.Error {
 		case immutableClient
 	}
@@ -30,7 +31,7 @@ struct WireguardDatabase {
 	fileprivate static func newSecurityKey() throws -> String {
 		return try Self.generateRandomData().base64EncodedString()
 	}
-	static func createDatabase(environment:Environment, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, serverIPv4Block:NetworkV4, publicKey:String, defaultSubnetMask:UInt8, noHandshakeInvalidationInterval:TimeInterval = 900, handshakeInvalidationInterval:TimeInterval = 2629800) throws {
+	static func createDatabase(environment:Environment, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, serverIPv4Block:NetworkV4, publicKey:String, defaultSubnetMask:UInt8, noHandshakeInvalidationInterval:TimeInterval = 3600, handshakeInvalidationInterval:TimeInterval = 2629800) throws {
 
 		let makeEnv = environment
 		try makeEnv.transact(readOnly: false) { someTransaction in
@@ -87,6 +88,8 @@ struct WireguardDatabase {
 			try metadataDB.setEntry(value:defaultSubnetMask, forKey:Metadatas.wg_defaultSubnetMask.rawValue, tx:someTransaction)
 			try metadataDB.setEntry(value:noHandshakeInvalidationInterval, forKey:Metadatas.wg_noHandshakeInvalidationInterval.rawValue, tx:someTransaction)
 			try metadataDB.setEntry(value:handshakeInvalidationInterval, forKey:Metadatas.wg_handshakeInvalidationInterval.rawValue, tx:someTransaction)
+			
+			try metadataDB.setEntry(value:0, forKey:Metadatas.wg_database_version.rawValue, tx:someTransaction)
 		}
 	}
 	
@@ -100,6 +103,7 @@ struct WireguardDatabase {
 		case wg_defaultSubnetMask = "defaultSubnetMask" //UInt8
 		case wg_noHandshakeInvalidationInterval = "noHandshakeInvalidationInterval" //TimeInterval
 		case wg_handshakeInvalidationInterval = "handshakeInvalidationInterval" //TimeInterval
+		case wg_database_version = "wg_database_version" //UInt64
 	}
 	func primaryInterfaceName(_ tx:Transaction? = nil) throws -> String {
 		return try self.metadata.getEntry(type:String.self, forKey:Metadatas.wg_primaryInterfaceName.rawValue, tx:tx)!
@@ -250,6 +254,15 @@ struct WireguardDatabase {
 			let subnetName_clientPub = try makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.dupSort], tx:someTrans)
 			let subnetName_clientNameHash = try makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.dupSort], tx:someTrans)
 			let ws_clientPub_configData = try makeEnv.openDatabase(named:Databases.webServe__clientPub_configData.rawValue, flags:[], tx:someTrans)
+			
+			
+			do {
+				let dbVersion = try metadata.getEntry(type:UInt64.self, forKey:Metadatas.wg_database_version.rawValue, tx:someTrans)
+			} catch LMDBError.notFound {
+				let initialVersion:UInt64 = 0
+				try metadata.setEntry(value:initialVersion, forKey:Metadatas.wg_database_version.rawValue, flags:[.noOverwrite], tx:someTrans)
+				try metadata.setEntry(value:3600, forKey:Metadatas.wg_noHandshakeInvalidationInterval.rawValue, tx:someTrans)
+			}
 			return [metadata, clientPub_ipv4, ipv4_clientPub, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, clientPub_invalidDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub, subnetName_clientNameHash, ws_clientPub_configData]
 		}
 		self.env = makeEnv
@@ -300,6 +313,7 @@ struct WireguardDatabase {
 			return (suggestedSubnet, randomString)
 		}
 	}
+	
 	// validate the security keys for a given subnet
 	func validateSecurity(dk subnetHash:String, sk securityKey:String) throws -> Bool {
 		return try env.transact(readOnly:true) { someTrans in
@@ -420,6 +434,7 @@ struct WireguardDatabase {
 		try self.clientPub_clientName.deleteEntry(key:publicKey, tx:tx)
 		try self.clientPub_subnetName.deleteEntry(key:publicKey, tx:tx)
 		do {
+			// handshake date may have never been written to the database
 			try self.clientPub_handshakeDate.deleteEntry(key:publicKey, tx:tx)
 		} catch LMDBError.notFound {}
 		try self.clientPub_invalidDate.deleteEntry(key:publicKey, tx:tx)
