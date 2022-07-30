@@ -432,6 +432,90 @@ struct WiremanD {
 				}
 			}
 			
+			$0.command("punt",
+			   Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
+			  Option<String?>("name", default:nil, description:"the name of the client that the key will be created for")
+		   ) { subnet, name in
+			   guard getCurrentUser() == "wiremand" else {
+				   fatalError("this function must be run as the `wiremand` user")
+			   }
+			   let dbPath = getCurrentDatabasePath()
+			   let daemonDB = try DaemonDB(directory:dbPath, running:false)
+			   
+			   var useSubnet:String? = subnet
+			   if (useSubnet == nil || useSubnet!.count == 0) {
+
+				   let allSubnets = try daemonDB.wireguardDatabase.allSubnets()
+				   switch allSubnets.count {
+					   case 0:
+						   fatalError("there are no subnets configured (this should not be the case)")
+					   case 1:
+						   print("There is only one subnet configured - it has been automatically selected.")
+						   useSubnet = allSubnets.first!.name
+					   default:
+						   print("Please select the subnet of the client you would like to remove:")
+						   for curSub in allSubnets {
+							   print(Colors.dim("\t-\t\(curSub.name)"))
+						   }
+						   repeat {
+							   print("subnet name: ", terminator:"")
+							   useSubnet = readLine()
+						   } while useSubnet == nil || useSubnet!.count == 0
+				   }
+			   }
+			   guard try daemonDB.wireguardDatabase.validateSubnet(name:useSubnet!) == true else {
+				   fatalError("the subnet name '\(useSubnet!)' does not exist")
+			   }
+			   
+			   var useClient:String? = name
+			   if (useClient == nil || useClient!.count == 0) {
+				   let allClients = try daemonDB.wireguardDatabase.allClients(subnet:useSubnet)
+				   switch allClients.count {
+					   case 0:
+						   print(Colors.Yellow("There are no clients on this subnet yet."))
+						   exit(1)
+					   default:
+						   print(Colors.Yellow("There are \(allClients.count) clients on this subnet:"))
+						   for curClient in allClients {
+							   print(Colors.dim("\t-\t\(curClient.name)"))
+						   }
+				   }
+				   repeat {
+					   print("client name (optional): ", terminator:"")
+					   useClient = readLine()
+				   } while useClient == nil
+			   }
+				
+				let newInvalidDate:Date
+				if (useClient!.count == 0) {
+					do {
+						newInvalidDate = try daemonDB.wireguardDatabase.puntAllClients(subnet:useSubnet!)
+					} catch LMDBError.notFound {
+						print(Colors.Red("Error - no clients exist under this subnet. Nothing to punt."))
+						exit(1)
+					}
+				} else {
+					newInvalidDate = try daemonDB.wireguardDatabase.puntClientInvalidation(subnet:useSubnet!, name:useClient!)
+				}
+				
+				print(Colors.Green("Successfully punted until \(newInvalidDate)"))
+			}
+			
+			$0.command("domain_revoke",
+				Argument<String>("domain", description:"the domain to remove from the system")
+			) { domainStr in
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this program must be run as `wiremand` user")
+				}
+				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				try! daemonDB.wireguardDatabase.subnetRemove(name:domainStr.lowercased())
+				try! DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
+				try! await DNSmasqExecutor.reload()
+				try! NginxExecutor.uninstall(domain:domainStr.lowercased())
+				try! await NginxExecutor.reload()
+				try! await CertbotExecute.removeSSL(domain:domainStr)
+			}
+			
 			$0.command("printer_make",
 			   Option<String?>("mac", default:nil, description:"the mac address of the printer to authorized"),
 			   Option<String?>("subnet", default:nil, description:"the subnet name that the printer will be assigned to")

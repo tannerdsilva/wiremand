@@ -41,6 +41,10 @@ server {
             try newDomainConfigFile.writeAll(Self.serverConfig(domain: domain).utf8)
         })
     }
+	
+	static func uninstall(domain:String) throws {
+		try FileManager.default.removeItem(atPath:"/etc/nginx/sites-enabled/\(domain).conf")
+	}
     
     static func reload() async throws {
         let result = try await Command(bash:"sudo systemctl reload nginx").runSync()

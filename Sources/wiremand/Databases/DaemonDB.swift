@@ -82,13 +82,8 @@ actor DaemonDB {
             let scheduledTasks = try makeEnv.openDatabase(named:Databases.scheduleTasks.rawValue, flags:[], tx:someTrans)
             let scheduleIntervalDB = try makeEnv.openDatabase(named:Databases.scheduleInterval.rawValue, flags:[], tx:someTrans)
             let scheduleLastFire = try makeEnv.openDatabase(named:Databases.scheduleLastFireDate.rawValue, flags:[], tx:someTrans)
-			let notifyDB:Database
-			do {
-				notifyDB = try makeEnv.openDatabase(named:Databases.notifyUsers.rawValue, flags:[], tx:someTrans)
-			} catch LMDBError.notFound {
-				notifyDB = try makeEnv.openDatabase(named:Databases.notifyUsers.rawValue, flags:[.create], tx:someTrans)
-				try notifyDB.setEntry(value:"tsilva@escalantegolf.com", forKey:"Tanner Silva", tx:someTrans)
-			}
+			let notifyDB = try makeEnv.openDatabase(named:Databases.notifyUsers.rawValue, flags:[], tx:someTrans)
+			
             if running {
                 do {
                     let lastPid = try metadataDB.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
