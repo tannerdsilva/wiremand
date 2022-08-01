@@ -656,20 +656,18 @@ struct WireguardDatabase {
 	
 	@discardableResult func puntAllClients(subnet:String, to newInvalidDate:Date? = nil) throws -> Date {
 		return try env.transact(readOnly:false) { someTrans in
-			return try env.transact(readOnly:false) { someTrans in
-				let subnetPubsCursor = try self.subnetName_clientPub.cursor(tx:someTrans)
-				
-				// search every client in this subnet for a matching name
-				var puntTo:Date? = newInvalidDate
-				for curKV in try subnetPubsCursor.makeDupIterator(key:subnet) {
-					puntTo = try self._puntClientInvalidation(to:puntTo, publicKey:curKV.value, tx:someTrans)
-				}
-				
-				guard let didPunt = puntTo else {
-					throw LMDBError.notFound
-				}
-				return didPunt
+			let subnetPubsCursor = try self.subnetName_clientPub.cursor(tx:someTrans)
+			
+			// search every client in this subnet for a matching name
+			var puntTo:Date? = newInvalidDate
+			for curKV in try subnetPubsCursor.makeDupIterator(key:subnet) {
+				puntTo = try self._puntClientInvalidation(to:puntTo, publicKey:curKV.value, tx:someTrans)
 			}
+			
+			guard let didPunt = puntTo else {
+				throw LMDBError.notFound
+			}
+			return didPunt
 		}
 	}
 	

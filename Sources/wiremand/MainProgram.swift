@@ -486,19 +486,21 @@ struct WiremanD {
 				   } while useClient == nil
 			   }
 				
+				
 				let newInvalidDate:Date
 				if (useClient!.count == 0) {
+					appLogger.debug("punting all clients in subnet", metadata:["subnet": "\(useSubnet!)"]);
 					do {
 						newInvalidDate = try daemonDB.wireguardDatabase.puntAllClients(subnet:useSubnet!)
 					} catch LMDBError.notFound {
-						print(Colors.Red("Error - no clients exist under this subnet. Nothing to punt."))
+						appLogger.error("no clients exist under this subnet. nothing to punt.")
 						exit(1)
 					}
 				} else {
+					appLogger.debug("punting individual client", metadata:["subnet": "\(useSubnet!)", "client": "\(useClient!)"])
 					newInvalidDate = try daemonDB.wireguardDatabase.puntClientInvalidation(subnet:useSubnet!, name:useClient!)
 				}
-				
-				print(Colors.Green("Successfully punted until \(newInvalidDate)"))
+				appLogger.info("successfully punted", metadata:["now invalidating on": "\(newInvalidDate)"])
 			}
 			
 			$0.command("domain_revoke",
