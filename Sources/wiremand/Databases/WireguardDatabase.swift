@@ -617,7 +617,7 @@ struct WireguardDatabase {
 		}
 	}
 	
-	@discardableResult fileprivate func _puntClientInvalidation<K>(to newInvalidationDate:Date? = nil, publicKey:K, tx:Transaction) throws -> Date where K:MDB_encodable {
+	fileprivate func _puntClientInvalidation<K>(to newInvalidationDate:Date? = nil, publicKey:K, tx:Transaction) throws -> Date where K:MDB_encodable {
 		// this is the new date that is to be assigned to the client
 		let targetDate:Date
 		
