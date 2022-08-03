@@ -613,6 +613,8 @@ struct WiremanD {
 						print(Colors.dim("\t-\t\(curMac.mac)"))
 						let statusInfo = try daemonDB.printerDatabase.getPrinterStatus(mac:curMac.mac)
 						print("\t-> Last Connected: \(statusInfo.lastSeen)")
+						print("\t-> Status: \(statusInfo.status)")
+						print("\t-> Jobs: \(statusInfo.jobs)")
 					}
 				}
 			}

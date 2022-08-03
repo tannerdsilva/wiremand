@@ -254,6 +254,7 @@ actor PrintDB {
 		let mac:String
 		let lastSeen:Date
 		let status:String
+		let jobs:Set<Date>
 		let lastAuthAttempt:Date?
 		let lastAuthenticated:Date?
 	}
@@ -410,6 +411,12 @@ actor PrintDB {
 		try env.transact(readOnly:true) { someTrans in
 			let lastSeen = try self.mac_lastSeen.getEntry(type:Date.self, forKey:mac, tx:someTrans)!
 			let status = try self.mac_status.getEntry(type:String.self, forKey:mac, tx:someTrans)!
+			let jobCursor = try self.mac_printJobDate.cursor(tx:someTrans)
+			var jobs = Set<Date>()
+			for curJob in try jobCursor.makeDupIterator(key:mac) {
+				let jobDate = Date(curJob.value)!
+				jobs.update(with:jobDate)
+			}
 			let lastAuth:Date?
 			do {
 				lastAuth = try self.mac_lastAuthenticated.getEntry(type:Date.self, forKey:mac, tx: someTrans)!
@@ -422,7 +429,7 @@ actor PrintDB {
 			} catch LMDBError.notFound {
 				lastAuthAttempt = nil
 			}
-			return PrinterStatus(mac:mac, lastSeen:lastSeen, status:status, lastAuthAttempt:lastAuthAttempt, lastAuthenticated:lastAuth)
+			return PrinterStatus(mac:mac, lastSeen:lastSeen, status:status, jobs:jobs, lastAuthAttempt:lastAuthAttempt, lastAuthenticated:lastAuth)
 		}
 	}
 	
