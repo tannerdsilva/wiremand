@@ -39,8 +39,8 @@ class TCPServer {
 		channel = try bootstrap.bind(host:host, port:Int(port)).wait()
 	}
 	
-	func stop() {
-		channel.close()
+	func stop() throws {
+		try channel.close().wait()
 	}
 }
 

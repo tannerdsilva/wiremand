@@ -115,7 +115,7 @@ fileprivate struct PrinterPoll:HBResponder {
 			// this is the function that will actually return a useful and accurate response to the printer
 			let authorization = request.headers["Authorization"].first?.makeAuthData()
 			if (authorization != nil) {
-				request.logger.debug("decoded username and password", metadata:["username":"\(authorization?.un)", "password":"\(authorization?.pw)"])
+				request.logger.debug("decoded username and password", metadata:["username":"\(String(describing: authorization?.un))", "password":"\(String(describing: authorization?.pw))"])
 			}
 			
 			do {

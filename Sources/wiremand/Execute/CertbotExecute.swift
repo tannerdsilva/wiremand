@@ -29,7 +29,7 @@ struct CertbotExecute {
 	}
 	
 	static func removeSSL(domain:String) async throws {
-		let removeAction = try await Command(bash:"sudo certbot delete -n -d \(domain)").runSync()
+		let removeAction = try await Command(bash:"sudo certbot delete -n --cert-name \(domain)").runSync()
 		guard removeAction.succeeded == true else {
 			throw Error.unableToRemoveSSL
 		}

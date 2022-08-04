@@ -599,6 +599,26 @@ struct WiremanD {
 				try daemonDB.reloadRunningDaemon()
 			}
 			
+			$0.command("printer_list") {
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this function must be run as the wiremand user")
+				}
+				let dbPath = getCurrentDatabasePath()
+				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				
+				let allAuthorized = Dictionary(grouping:try daemonDB.printerDatabase.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
+				for curSub in allAuthorized.sorted(by: { $0.key < $1.key }) {
+					print(Colors.Yellow("- \(curSub.key)"))
+					for curMac in curSub.value {
+						print(Colors.dim("\t-\t\(curMac.mac)"))
+						let statusInfo = try daemonDB.printerDatabase.getPrinterStatus(mac:curMac.mac)
+						print("\t-> Last Connected: \(statusInfo.lastSeen)")
+						print("\t-> Status: \(statusInfo.status)")
+						print("\t-> Jobs: \(statusInfo.jobs)")
+					}
+				}
+			}
+			
 			$0.command("printer_set_cutmode",
 			   Option<String?>("mac", default:nil, description:"the mac address of the printer to edit the cut mode"),
 				Option<String?>("cut", default:nil, description:"the cut mode to assign to the printer. may be 'full', 'partial', or 'none'")
