@@ -37,9 +37,10 @@ server {
     
     static func install(domain:String) throws {
         let newDomainConfigFile = try FileDescriptor.open("/etc/nginx/sites-enabled/\(domain).conf", .writeOnly, options: [.truncate, .create], permissions: [.ownerReadWrite, .groupReadWrite, .otherRead])
-        try newDomainConfigFile.closeAfter({
-            try newDomainConfigFile.writeAll(Self.serverConfig(domain: domain).utf8)
-        })
+        defer {
+			try! newDomainConfigFile.close()
+		}
+		try newDomainConfigFile.writeAll(Self.serverConfig(domain: domain).utf8)
     }
 	
 	static func uninstall(domain:String) throws {
