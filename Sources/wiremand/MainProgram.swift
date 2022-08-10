@@ -716,6 +716,10 @@ struct WiremanD {
 				let (_, _, _, _, _, interfaceName) = try daemonDB.wireguardDatabase.getWireguardConfigMetas()
 				let (newV4, curV6, pubString) = try daemonDB.wireguardDatabase.clientAssignIPv4(subnet:useSubnet!, name:useClient!)
 				try await WireguardExecutor.updateExistingClient(publicKey:pubString, with:curV6, and:newV4, interfaceName:interfaceName)
+				try await WireguardExecutor.saveConfiguration(interfaceName: interfaceName)
+				
+				print("On the client [Peer], please update allowed-ips to the following value:\n")
+				print("AllowedIPs=\(curV6.string)/128,\(newV4.string)/32")
 			}
 			
 			$0.command("client_revoke",

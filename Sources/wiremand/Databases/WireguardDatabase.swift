@@ -405,6 +405,10 @@ struct WireguardDatabase {
 	}
 	// INTERNAL FUNCTION: Assigns an IPv4 address to an existing client. This function does not check if the public key is valid!
 	fileprivate func _clientAssignIPv4(publicKey:String, tx:Transaction) throws -> AddressV4 {
+		let myPubKey = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:tx)!
+		guard myPubKey != publicKey else {
+			throw Error.immutableClient
+		}
 		let ipv4Subnet = try metadata.getEntry(type:NetworkV4.self, forKey:Metadatas.wg_serverIPv4Block.rawValue, tx:tx)!
 		var newV4:AddressV4
 		repeat {

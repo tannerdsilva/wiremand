@@ -300,8 +300,6 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
 					pubKeyRemove = try wgdb.clientRemove(subnet:domainString, name:keyName)
 					(newClientAddress, optionalV4) = try wgdb.clientMake(name:keyName, publicKey:newKeys.publicKey, subnet:domainString, ipv4:false)
 				}
-               
-
                 
                 var buildKey = "[Interface]\n"
                 buildKey += "PrivateKey = " + newKeys.privateKey + "\n"
