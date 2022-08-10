@@ -713,7 +713,9 @@ struct WiremanD {
 						useClient = readLine()
 					} while useClient == nil && useClient!.count == 0
 				}
-				let (newV4, curV6) = try daemonDB.wireguardDatabase.clientAssignIPv4(subnet:useSubnet!, name:useClient!)
+				let (_, _, _, _, _, interfaceName) = try daemonDB.wireguardDatabase.getWireguardConfigMetas()
+				let (newV4, curV6, pubString) = try daemonDB.wireguardDatabase.clientAssignIPv4(subnet:useSubnet!, name:useClient!)
+				try await WireguardExecutor.updateExistingClient(publicKey:pubString, with:curV6, and:newV4, interfaceName:interfaceName)
 			}
 			
 			$0.command("client_revoke",

@@ -291,11 +291,13 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
 				
 				let newClientAddress:AddressV6
 				let optionalV4:AddressV4?
+				let pubKeyRemove:String?
 				do {
 					(newClientAddress, optionalV4) = try wgdb.clientMake(name:keyName, publicKey:newKeys.publicKey, subnet:domainString, ipv4:false)
+					pubKeyRemove = nil
 				} catch LMDBError.keyExists {
-					request.logger.info("client name already exists on this subnet. ")
-					try wgdb.clientRemove(subnet:domainString, name:keyName)
+					request.logger.info("client name already exists on this subnet", metadata:["client": "\(keyName)", "subnet": "\(domainString)"])
+					pubKeyRemove = try wgdb.clientRemove(subnet:domainString, name:keyName)
 					(newClientAddress, optionalV4) = try wgdb.clientMake(name:keyName, publicKey:newKeys.publicKey, subnet:domainString, ipv4:false)
 				}
                
@@ -323,6 +325,9 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
                 var buildBytes = ByteBuffer()
                 buildBytes.writeString(buildKey)
                 
+				if (pubKeyRemove != nil) {
+					try await WireguardExecutor.uninstall(publicKey:pubKeyRemove!, interfaceName:interfaceName)
+				}
 				try await WireguardExecutor.install(publicKey:newKeys.publicKey, presharedKey:newKeys.presharedKey, address:newClientAddress, addressv4:optionalV4, interfaceName:interfaceName)
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:self.daemonDB)
 				Task.detached {

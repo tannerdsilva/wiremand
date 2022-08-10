@@ -414,7 +414,7 @@ struct WireguardDatabase {
 		try self.ipv4_clientPub.setEntry(value:publicKey, forKey:newV4, flags:[.noOverwrite], tx:tx)
 		return newV4
 	}
-	func clientAssignIPv4(subnet:String, name:String) throws -> (AddressV4, AddressV6) {
+	func clientAssignIPv4(subnet:String, name:String) throws -> (AddressV4, AddressV6, String) {
 		try env.transact(readOnly:false) { someTrans in
 			let subnetClientsCursor = try self.subnetName_clientPub.cursor(tx:someTrans)
 			let clientNameCursor = try self.clientPub_clientName.cursor(tx:someTrans)
@@ -424,7 +424,7 @@ struct WireguardDatabase {
 				if (nameString == name) {
 					let pubString = String(curClient.value)!
 					let existingAddress = try self.clientPub_ipv6.getEntry(type:AddressV6.self, forKey:pubString, tx:someTrans)!
-					return (try self._clientAssignIPv4(publicKey:pubString, tx:someTrans), existingAddress)
+					return (try self._clientAssignIPv4(publicKey:pubString, tx:someTrans), existingAddress, pubString)
 				}
 			}
 			throw LMDBError.notFound
@@ -471,7 +471,7 @@ struct WireguardDatabase {
 			return try _clientMake(name:name, publicKey:publicKey, subnet:subnet, ipv4:ipv4, noHandshakeInvalidation:noHandshakeInvalidation, tx:someTrans)
 		}
 	}
-	fileprivate func _clientRemove(publicKey:String, tx:Transaction) throws {
+	@discardableResult fileprivate func _clientRemove(publicKey:String, tx:Transaction) throws -> String {
 		// validate that our own key is not being removed
 		let myPubKey = try self.metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:tx)!
 		guard publicKey != myPubKey else {
@@ -504,14 +504,15 @@ struct WireguardDatabase {
 		do {
 			try self.webserve__clientPub_configData.deleteEntry(key:publicKey, tx:tx)
 		} catch LMDBError.notFound {}
+		return publicKey
 	}
-	func clientRemove(publicKey:String) throws {
-		try env.transact(readOnly:false) { someTrans in
-			try self._clientRemove(publicKey:publicKey, tx:someTrans)
+	@discardableResult func clientRemove(publicKey:String) throws -> String {
+		return try env.transact(readOnly:false) { someTrans in
+			return try self._clientRemove(publicKey:publicKey, tx:someTrans)
 		}
 	}
-	func clientRemove(subnet:String, name:String) throws {
-		try env.transact(readOnly:false) { someTrans in
+	@discardableResult func clientRemove(subnet:String, name:String) throws -> String {
+		return try env.transact(readOnly:false) { someTrans in
 			let getName = try self.clientPub_clientName.cursor(tx:someTrans)
 			let subnetNameHashCursor = try self.subnetName_clientNameHash.cursor(tx:someTrans)
 			
@@ -524,7 +525,6 @@ struct WireguardDatabase {
 					let nameHash = try Self.hash(clientName:nameString)
 					if try subnetNameHashCursor.containsEntry(key:subnet, value:nameHash) == true {
 						try _clientRemove(publicKey:String(kv.key)!, tx:someTrans)
-						return
 					}
 				}
 			}
