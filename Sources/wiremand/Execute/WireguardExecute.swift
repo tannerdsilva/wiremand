@@ -58,6 +58,17 @@ struct WireguardExecutor {
         }
     }
     
+	static func updateExistingClient(publicKey:String, with newIPv6Address:AddressV6, and newIPv4Address:AddressV4? = nil, interfaceName:String) async throws {
+		var allowedIPs = "allowed-ips \(newIPv6Address.string)/128"
+		if (newIPv4Address != nil) {
+			allowedIPs += ",\(newIPv4Address!.string)/32"
+		}
+    	let installNewAddress = try await Command(bash:"sudo wg set \(interfaceName) peer \(publicKey) \(allowedIPs)").runSync()
+    	guard installNewAddress.succeeded == true else {
+    		throw Error.wireguardCmdError
+    	}
+    }
+    
     static func uninstall(publicKey:String, interfaceName:String) async throws {
         let removeKey = try await Command(bash:"sudo wg set \(interfaceName) peer \(publicKey) remove").runSync()
         guard removeKey.succeeded == true else {

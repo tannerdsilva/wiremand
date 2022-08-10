@@ -2,6 +2,8 @@ import Foundation
 import Hummingbird
 import NIOFoundationCompat
 import Logging
+import AddressKit
+import QuickLMDB
 
 extension String {
 	fileprivate func makeAuthData() -> PrintDB.AuthData? {
@@ -36,7 +38,7 @@ class PublicHTTPWebServer {
 		let makePP = PrinterPoll(printDB:pp)
 		let logLevel:Logger.Level
 		#if DEBUG
-		logLevel = .trace
+		logLevel = .info
 		#else
 		logLevel = .error
 		#endif
@@ -287,7 +289,16 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
 				
 				let (wg_dns_name, wg_port, wg_internal_network, serverV4, pubKey, interfaceName) = try wgdb.getWireguardConfigMetas()
 				
-                let (newClientAddress, optionalV4) = try wgdb.clientMake(name:keyName, publicKey:newKeys.publicKey, subnet:domainString, ipv4:false)
+				let newClientAddress:AddressV6
+				let optionalV4:AddressV4?
+				do {
+					(newClientAddress, optionalV4) = try wgdb.clientMake(name:keyName, publicKey:newKeys.publicKey, subnet:domainString, ipv4:false)
+				} catch LMDBError.keyExists {
+					request.logger.info("client name already exists on this subnet. ")
+					try wgdb.clientRemove(subnet:domainString, name:keyName)
+					(newClientAddress, optionalV4) = try wgdb.clientMake(name:keyName, publicKey:newKeys.publicKey, subnet:domainString, ipv4:false)
+				}
+               
 
                 
                 var buildKey = "[Interface]\n"

@@ -403,16 +403,34 @@ struct WireguardDatabase {
 		let lastHandshake:Date?
 		let invalidationDate:Date
 	}
+	// INTERNAL FUNCTION: Assigns an IPv4 address to an existing client. This function does not check if the public key is valid!
 	fileprivate func _clientAssignIPv4(publicKey:String, tx:Transaction) throws -> AddressV4 {
 		let ipv4Subnet = try metadata.getEntry(type:NetworkV4.self, forKey:Metadatas.wg_serverIPv4Block.rawValue, tx:tx)!
 		var newV4:AddressV4
 		repeat {
 			newV4 = ipv4Subnet.range.randomAddress()
 		} while try self.ipv4_clientPub.containsEntry(key:newV4, tx:tx) == true
-		try self.clientPub_ipv4.setEntry(value:newV4, forKey:publicKey, tx:tx)
-		try self.ipv4_clientPub.setEntry(value:publicKey, forKey:newV4, tx:tx)
+		try self.clientPub_ipv4.setEntry(value:newV4, forKey:publicKey, flags:[.noOverwrite], tx:tx)
+		try self.ipv4_clientPub.setEntry(value:publicKey, forKey:newV4, flags:[.noOverwrite], tx:tx)
 		return newV4
 	}
+	func clientAssignIPv4(subnet:String, name:String) throws -> (AddressV4, AddressV6) {
+		try env.transact(readOnly:false) { someTrans in
+			let subnetClientsCursor = try self.subnetName_clientPub.cursor(tx:someTrans)
+			let clientNameCursor = try self.clientPub_clientName.cursor(tx:someTrans)
+			
+			for curClient in try subnetClientsCursor.makeDupIterator(key:subnet) {
+				let nameString = String(try clientNameCursor.getEntry(.set, key:curClient.value).value)!
+				if (nameString == name) {
+					let pubString = String(curClient.value)!
+					let existingAddress = try self.clientPub_ipv6.getEntry(type:AddressV6.self, forKey:pubString, tx:someTrans)!
+					return (try self._clientAssignIPv4(publicKey:pubString, tx:someTrans), existingAddress)
+				}
+			}
+			throw LMDBError.notFound
+		}
+	}
+	
 	fileprivate func _clientMake(name:String, publicKey:String, subnet:String, ipv4:Bool, noHandshakeInvalidation:Date?, tx:Transaction) throws -> (AddressV6, AddressV4?) {
 		// validate the subnet exists by retrieving its network
 		let subnetNetwork = try subnetName_networkV6.getEntry(type:NetworkV6.self, forKey:subnet, tx:tx)!
