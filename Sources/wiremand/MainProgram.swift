@@ -974,8 +974,8 @@ struct WiremanD {
 				})
 				try daemonDB.launchSchedule(.certbotRenewalCheck, interval:172800) { [logger = appLogger] in
 					do {
-						_ = try await Command(bash:"sudo certbot renew -nq").runSync()
-						logger.info("ssl certificates have been checked for renewal")
+						try await CertbotExecute.renewCertificates()
+						_ = try await NginxExecutor.reload()
 					} catch let error {
 						logger.error("ssl certificates could not be renewed", metadata:["error": "\(error)"])
 					}

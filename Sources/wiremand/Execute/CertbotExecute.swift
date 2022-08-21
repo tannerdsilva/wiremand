@@ -6,6 +6,7 @@ struct CertbotExecute {
         case unableToAcquireSSL([String], [String])
 		case unableToUpdateContacts
 		case unableToRemoveSSL
+		case unableToRenewSSL
     }
 	
 	static func acquireSSL(domain:String, daemon:DaemonDB) async throws {
@@ -33,5 +34,13 @@ struct CertbotExecute {
 		guard removeAction.succeeded == true else {
 			throw Error.unableToRemoveSSL
 		}
+	}
+	
+	static func renewCertificates() async throws {
+		let renewAction = try await Command(bash:"sudo certbot renew -nq").runSync()
+		guard renewAction.succeeded == true else {
+			throw Error.unableToRenewSSL
+		}
+		WiremanD.appLogger.info("ssl certificates successfully renewed")
 	}
 }

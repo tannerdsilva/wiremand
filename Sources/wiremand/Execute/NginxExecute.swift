@@ -52,5 +52,6 @@ server {
         guard result.succeeded == true else {
             fatalError("unable to reload nginx")
         }
+		WiremanD.appLogger.info("nginx successfully reloaded")
     }
 }
