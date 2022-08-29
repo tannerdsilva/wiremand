@@ -614,7 +614,7 @@ struct WiremanD {
 						let statusInfo = try daemonDB.printerDatabase.getPrinterStatus(mac:curMac.mac)
 						print("\t-> Last Connected: \(statusInfo.lastSeen)")
 						print("\t-> Status: \(statusInfo.status)")
-						print("\t-> Jobs: \(statusInfo.jobs)")
+						print("\t-> \(statusInfo.jobs.count) Pending Jobs: \(statusInfo.jobs.sorted(by: { $0 < $1 }))")
 					}
 				}
 			}

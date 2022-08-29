@@ -1,7 +1,13 @@
 import XCTest
 import class Foundation.Bundle
+import wiremand
 
 final class wiremandTests: XCTestCase {
+	
+	func testDNSResolver() async throws {
+		let testResult = try await wiremand.DigExecutor.resolveAddresses(for:"google.com")
+		print("\(testResult) ")
+	}
     func testExample() throws {
         // This is an example of a functional test case.
         // Use XCTAssert and related functions to verify your tests produce the correct

@@ -96,6 +96,8 @@ struct WireguardDatabase {
 	enum Metadatas:String {
 		case wg_primaryInterfaceName = "wg_primaryWGInterfaceName" //String
 		case wg_serverPublicDomainName = "wg_serverPublicDomainName" //String
+		case wg_serverPublicIPv4Address = "wg_serverPublicIPv4Address" // AddressV4
+		case wg_serverPublicIPv6Address = "wg_serverPublicIPv6Address" // AddressV6
 		case wg_serverPublicListenPort = "wg_serverPublicListenPort" //UInt16
 		case wg_serverIPv6Block = "wg_serverIPv6Subnet" //NetworkV6 where address == servers own internal IP
 		case wg_serverIPv4Block = "wg_serverIPv4Subnet" //NetworkV4 where address == servers own internal IP
@@ -256,7 +258,7 @@ struct WireguardDatabase {
 			let ws_clientPub_configData = try makeEnv.openDatabase(named:Databases.webServe__clientPub_configData.rawValue, flags:[], tx:someTrans)
 			
 			do {
-				let _ = try metadata.getEntry(type:UInt64.self, forKey:Metadatas.wg_database_version.rawValue, tx:someTrans)!
+				let dbv = try metadata.getEntry(type:UInt64.self, forKey:Metadatas.wg_database_version.rawValue, tx:someTrans)!
 			} catch LMDBError.notFound {
 				let initialVersion:UInt64 = 0
 				try metadata.setEntry(value:initialVersion, forKey:Metadatas.wg_database_version.rawValue, flags:[.noOverwrite], tx:someTrans)
