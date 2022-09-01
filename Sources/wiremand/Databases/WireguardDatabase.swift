@@ -531,6 +531,7 @@ struct WireguardDatabase {
 					let nameHash = try Self.hash(clientName:nameString)
 					if try subnetNameHashCursor.containsEntry(key:subnet, value:nameHash) == true {
 						try _clientRemove(publicKey:String(kv.key)!, tx:someTrans)
+						return String(kv.key)!
 					}
 				}
 			}
