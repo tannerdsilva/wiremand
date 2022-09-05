@@ -265,6 +265,31 @@ struct WireguardDatabase {
 				try metadata.setEntry(value:3600, forKey:Metadatas.wg_noHandshakeInvalidationInterval.rawValue, tx:someTrans)
 			}
 			
+			do {
+				let getIPv4 = try metadata.getEntry(type:AddressV4.self, forKey:Metadatas.wg_serverPublicIPv4Address.rawValue, tx:someTrans)!
+				let getIPv6 = try metadata.getEntry(type:AddressV6.self, forKey:Metadatas.wg_serverPublicIPv6Address.rawValue, tx:someTrans)!
+				WiremanD.appLogger.debug("ip addresses already resolved in database", metadata:["ipv4": "\(getIPv4.string)", "ipv6": "\(getIPv6.string)"])
+			} catch LMDBError.notFound {
+				let getDNSName = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTrans)!
+				WiremanD.appLogger.debug("dns name not resolved in database. launching resolver task...")
+				Task.detached { [dnsName = getDNSName, env = makeEnv] in
+					do {
+						let (ipv4, ipv6) = try await DigExecutor.resolveAddresses(for:dnsName)
+						guard ipv4 != nil && ipv6 != nil else {
+							WiremanD.appLogger.error("nil addresses returned from DigExecutor")
+							throw DigExecutor.Error.noAddressesFound
+						}
+						try env.transact(readOnly:false) { someTrans in
+							try metadata.setEntry(value:ipv4!, forKey:Metadatas.wg_serverPublicIPv4Address.rawValue, tx:someTrans)
+							try metadata.setEntry(value:ipv6!, forKey:Metadatas.wg_serverPublicIPv6Address.rawValue, tx:someTrans)
+						}
+						WiremanD.appLogger.debug("successfully upgraded dns with resolved IP addresses")
+					} catch let error {
+						WiremanD.appLogger.error("error resolving DNS name", metadata:["error": "\(error)"])
+					}
+				}
+			}
+			
 			return [metadata, clientPub_ipv4, ipv4_clientPub, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, clientPub_invalidDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub, subnetName_clientNameHash, ws_clientPub_configData]
 		}
 		self.env = makeEnv
