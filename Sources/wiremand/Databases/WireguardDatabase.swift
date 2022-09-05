@@ -144,7 +144,7 @@ struct WireguardDatabase {
 		///Maps a client public key to their respective ipv4 address assignment (intended for small uses)
 		case clientPub_ipv4 = "wgdb_clientPub_IPv4"	//String:AddressV4
 		
-		///Maps a client ipv4 address assignment to their respective public key (intended for small uses)
+		///Maps a client ipv4 address assignment to their respective public key (intended for infrequent uses)
 		case ipv4_clientPub = "wgdb_IPv4_clientPub"	//AddressV4:String
 		
 		///Maps a client public key to their respective ipv6 address assignment
