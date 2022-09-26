@@ -423,27 +423,27 @@ class IPDatabase {
 			Self.logger.info("access check for database passed")
 		}
 		let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
-			let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, tx:someTrans)
+			let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
 			
 			if apiKey != nil {
 				try meta.setEntry(value:apiKey!, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans)
 			}
 			
-			let rPID_pIP = try makeEnv.openDatabase(named:Databases.resolvingPID_pendingIP.rawValue, tx:someTrans)
-			let pIP_rPID = try makeEnv.openDatabase(named:Databases.pendingIP_resolvingPID.rawValue, tx:someTrans)
+			let rPID_pIP = try makeEnv.openDatabase(named:Databases.resolvingPID_pendingIP.rawValue, flags:[.create], tx:someTrans)
+			let pIP_rPID = try makeEnv.openDatabase(named:Databases.pendingIP_resolvingPID.rawValue, flags:[.create], tx:someTrans)
 			
-			let d_pIP = try makeEnv.openDatabase(named:Databases.date_pendingIP.rawValue, tx:someTrans)
-			let pIP_d = try makeEnv.openDatabase(named:Databases.pendingIP_date.rawValue, tx:someTrans)
+			let d_pIP = try makeEnv.openDatabase(named:Databases.date_pendingIP.rawValue, flags:[.create], tx:someTrans)
+			let pIP_d = try makeEnv.openDatabase(named:Databases.pendingIP_date.rawValue, flags:[.create], tx:someTrans)
 			
-			let ipH_dat = try makeEnv.openDatabase(named:Databases.ipHash_resolvedData.rawValue, tx:someTrans)
-			let ipH_date = try makeEnv.openDatabase(named:Databases.ipHash_resolveSuccessDate.rawValue, tx:someTrans)
-			let date_ipH = try makeEnv.openDatabase(named:Databases.resolveSuccessDate_ipHash.rawValue, tx:someTrans)
+			let ipH_dat = try makeEnv.openDatabase(named:Databases.ipHash_resolvedData.rawValue, flags:[.create], tx:someTrans)
+			let ipH_date = try makeEnv.openDatabase(named:Databases.ipHash_resolveSuccessDate.rawValue, flags:[.create], tx:someTrans)
+			let date_ipH = try makeEnv.openDatabase(named:Databases.resolveSuccessDate_ipHash.rawValue, flags:[.create], tx:someTrans)
 			
-			let resFD_ipH = try makeEnv.openDatabase(named:Databases.resolveFailDate_ipHash.rawValue, tx:someTrans)
-			let ipH_resFD = try makeEnv.openDatabase(named:Databases.ipHash_resolveFailDate.rawValue, tx:someTrans)
-			let ipH_resFM = try makeEnv.openDatabase(named:Databases.ipHash_resolveFailMessage.rawValue, tx:someTrans)
+			let resFD_ipH = try makeEnv.openDatabase(named:Databases.resolveFailDate_ipHash.rawValue, flags:[.create], tx:someTrans)
+			let ipH_resFD = try makeEnv.openDatabase(named:Databases.ipHash_resolveFailDate.rawValue, flags:[.create], tx:someTrans)
+			let ipH_resFM = try makeEnv.openDatabase(named:Databases.ipHash_resolveFailMessage.rawValue, flags:[.create], tx:someTrans)
 			
-			let ipH_ipS = try makeEnv.openDatabase(named:Databases.ipHash_ipString.rawValue, tx:someTrans)
+			let ipH_ipS = try makeEnv.openDatabase(named:Databases.ipHash_ipString.rawValue, flags:[.create], tx:someTrans)
 			
 			return [meta, rPID_pIP, pIP_rPID, d_pIP, pIP_d, ipH_dat, ipH_date, date_ipH, resFD_ipH, ipH_resFD, ipH_resFM, ipH_ipS]
 		}
