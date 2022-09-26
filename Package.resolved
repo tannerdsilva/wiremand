@@ -203,9 +203,9 @@
         "package": "SwiftDate",
         "repositoryURL": "https://github.com/tannerdsilva/SwiftDate.git",
         "state": {
-          "branch": null,
-          "revision": "700dde1b3417fd4a7fd2bec9f5bc8ab2de1b96b4",
-          "version": "6.1.0"
+          "branch": "master",
+          "revision": "ef1ee3c670f2fca251fc6dd24912dc8c30b17194",
+          "version": null
         }
       },
       {

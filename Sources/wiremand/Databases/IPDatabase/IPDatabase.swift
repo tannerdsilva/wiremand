@@ -15,6 +15,7 @@ class IPDatabase {
 	enum Error:Swift.Error {
 		case resolverLaunchError
 		case pendingRemovalError
+		case ipStackNotConfigured
 	}
 	internal static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads:2)
 	fileprivate static func makeLogger() -> Logger {
@@ -408,7 +409,7 @@ class IPDatabase {
 		}
 	}
 	
-	init(base:URL) throws {
+	init(base:URL, apiKey:String? = nil) throws {
 		let makeEnvPath = base.appendingPathComponent("ip-db", isDirectory:true)
 		
 		let makeEnv = try Environment(path:makeEnvPath.path, flags:[.noSync], mapSize:4000000000, maxDBs:16, mode:[.ownerReadWriteExecute, .groupReadWriteExecute, .otherReadExecute])
@@ -422,6 +423,10 @@ class IPDatabase {
 		}
 		let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
 			let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, tx:someTrans)
+			
+			if apiKey != nil {
+				try meta.setEntry(value:apiKey!, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans)
+			}
 			
 			let rPID_pIP = try makeEnv.openDatabase(named:Databases.resolvingPID_pendingIP.rawValue, tx:someTrans)
 			let pIP_rPID = try makeEnv.openDatabase(named:Databases.pendingIP_resolvingPID.rawValue, tx:someTrans)
@@ -478,7 +483,7 @@ class IPDatabase {
 		let shouldSync = try env.transact(readOnly:false) { someTrans -> Bool in
 			do {
 				let resolveStatus = try self.getResolveStatus(ipString:ipv4.string, tx:someTrans)
-				Self.logger.debug("installing an address that is alrady accounted for. no action taken.", metadata:["ip": "\(ipv4.string)", "status": "\(String(describing:resolveStatus))"])
+				Self.logger.debug("installing an address that is already accounted for. no action taken.", metadata:["ip": "\(ipv4.string)", "status": "\(String(describing:resolveStatus))"])
 				return false
 			} catch LMDBError.notFound {
 				Self.logger.debug("installing address in database", metadata:["ip": "\(ipv4.string)"])

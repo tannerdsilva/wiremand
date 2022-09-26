@@ -441,6 +441,7 @@ struct WireguardDatabase {
 		let name:String
 		let subnetName:String
 		let lastHandshake:Date?
+		let endpoint:String?
 		let invalidationDate:Date
 	}
 	// INTERNAL FUNCTION: Assigns an IPv4 address to an existing client. This function does not check if the public key is valid!
@@ -606,6 +607,7 @@ struct WireguardDatabase {
 		let clientNameCursor = try self.clientPub_clientName.cursor(tx:tx)
 		let clientSubnetCursor = try self.clientPub_subnetName.cursor(tx:tx)
 		let clientHandshakeCursor = try self.clientPub_handshakeDate.cursor(tx:tx)
+		let clientEndpointCursor = try self.clientPub_endpointAddress.cursor(tx:tx)
 		let clientInvalidationCursor = try self.clientPub_invalidDate.cursor(tx:tx)
 		if (subnet == nil) {
 			// all clients are requested
@@ -627,8 +629,14 @@ struct WireguardDatabase {
 					} catch LMDBError.notFound {
 						lastHandshake = nil
 					}
+					let endpoint:String?
+					do {
+						endpoint = String(try clientEndpointCursor.getEntry(.set, key:publicKey).value)
+					} catch LMDBError.notFound {
+						endpoint = nil
+					}
 					let invalidationDate = Date(try clientInvalidationCursor.getEntry(.set, key:publicKey).value)!
-					buildClients.update(with:ClientInfo(publicKey:publicKey, address:address, addressV4:addrv4, name:getName, subnetName:getSubnet, lastHandshake:lastHandshake, invalidationDate:invalidationDate))
+					buildClients.update(with:ClientInfo(publicKey:publicKey, address:address, addressV4:addrv4, name:getName, subnetName:getSubnet, lastHandshake:lastHandshake, endpoint:endpoint, invalidationDate:invalidationDate))
 				}
 			}
 			return buildClients
@@ -656,8 +664,14 @@ struct WireguardDatabase {
 						} catch LMDBError.notFound {
 							lastHandshake = nil
 						}
+						let endpoint:String?
+						do {
+							endpoint = String(try clientEndpointCursor.getEntry(.set, key:publicKey).value)
+						} catch LMDBError.notFound {
+							endpoint = nil
+						}
 						let invalidationDate = Date(try clientInvalidationCursor.getEntry(.set, key:publicKey).value)!
-						buildClients.update(with:ClientInfo(publicKey:String(getCurrentPub)!, address:clientAddress, addressV4:addrv4, name:clientName, subnetName:subnet!, lastHandshake:lastHandshake, invalidationDate:invalidationDate))
+						buildClients.update(with:ClientInfo(publicKey:String(getCurrentPub)!, address:clientAddress, addressV4:addrv4, name:clientName, subnetName:subnet!, lastHandshake:lastHandshake, endpoint:endpoint, invalidationDate:invalidationDate))
 					}
 					switch operation {
 					case .firstDup:

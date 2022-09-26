@@ -100,6 +100,12 @@ struct WiremanD {
 					}
 				} while ipv4Scope == nil
 				
+				var ipStackKey:String? = nil
+				print("ipstack api key (press RETURN if you do not wish to use ipstack): ", terminator:"")
+				if let asString = readLine(), asString.count > 4 {
+					ipStackKey = asString
+				}
+				
 				appLogger.info("installing software...")
 				
 				// install software
@@ -297,6 +303,7 @@ struct WiremanD {
 				let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
 				let daemonDBEnv = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), notify:Email.Contact(name:adminName!, emailAddress:adminEmail!))
 				try WireguardDatabase.createDatabase(environment:daemonDBEnv, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_resolvedServerPublicIPv4:resExtV4!, wg_resolvedServerPublicIPv6:resExtV6!, wg_serverPublicListenPort:UInt16(wgPort), serverIPv6Block: ipv6Scope!, serverIPv4Block:ipv4Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
+				let _ = try IPDatabase(base:homeDir, apiKey:ipStackKey)
 				
 				let ownIt = try await Command(bash:"chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/").runSync()
 				guard ownIt.succeeded == true else {

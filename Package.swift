@@ -19,7 +19,8 @@ let package = Package(
 		.package(url:"https://github.com/tannerdsilva/SignalStack.git", .upToNextMinor(from:"1.1.1")),
 		.package(url:"https://github.com/tannerdsilva/swift-smtp.git", .revision("09a0e2d8cedcc7d4121823ca6aa9cbd81ecb0e00")),
 		.package(url:"https://github.com/swift-server/async-http-client.git", .upToNextMinor(from:"1.11.5")),
-		.package(url:"https://github.com/tannerdsilva/SwiftDate.git", .upToNextMinor(from:"6.1.0"))
+		.package(url:"https://github.com/tannerdsilva/SwiftDate.git", .branch("master")),
+		.package(url:"https://github.com/apple/swift-system.git", .upToNextMajor(from:"1.0.0"))
     ],
     targets: [
         // Targets are the basic building blocks of a package. A target can define a module or a test suite.
@@ -36,7 +37,8 @@ let package = Package(
 				.product(name:"SwiftSMTP", package:"swift-smtp"),
                 "cblake2b",
 				.product(name:"AsyncHTTPClient", package:"async-http-client"),
-				.product(name:"SwiftDate", package:"SwiftDate")
+				.product(name:"SwiftDate", package:"SwiftDate"),
+				.product(name:"SystemPackage", package:"swift-system")
             ]),
         .target(name:"cblake2b"),
         .testTarget(
