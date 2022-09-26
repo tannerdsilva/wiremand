@@ -46,6 +46,7 @@ struct WiremanD {
 			   Option<Int>("public_httpPort", default:8080),
 			   VariadicOption<String>("email", default:[], description: "administrator email that should receive vital notifications about the system", validator:nil)
 			) { interfaceName, installUserName, wgPort, httpPort, emailOptions in
+				appLogger.logLevel = .trace
 				guard getCurrentUser() == "root" else {
 					appLogger.critical("You need to be root to install wiremand.")
 					exit(5)
@@ -53,20 +54,20 @@ struct WiremanD {
 
 				var adminEmail:String? = nil
 				repeat {
-					print("[NOTIFY] your email address: ", terminator:"")
+					print(" -> [PROMPT] your email address (to notify of critical events): ", terminator:"")
 					adminEmail = readLine()
 				} while adminEmail == nil || adminEmail!.count == 0 || adminEmail!.validateEmail() == false
 				
 				var adminName:String? = nil
 				repeat {
-					print("[NOTIFY] your name: ", terminator:"")
+					print(" -> [PROMPT](required) your name: ", terminator:"")
 					adminName = readLine()
 				} while adminName == nil || adminName!.count == 0
 				
 				// ask for the public endpoint
 				var endpoint:String? = nil
 				repeat {
-					print("external endpoint dns name: ", terminator:"")
+					print(" -> [PROMPT](required) external endpoint dns name: ", terminator:"")
 					endpoint = readLine()
 				} while (endpoint == nil || endpoint!.count == 0)
 
@@ -85,7 +86,7 @@ struct WiremanD {
 				// ask for the client ipv6 scope
 				var ipv6Scope:NetworkV6? = nil
 				repeat {
-					print("vpn internal ipv6 block (cidr where address is servers primary internal address): ", terminator:"")
+					print(" -> [PROMPT](required) vpn internal ipv6 block (cidr where address is servers primary internal address): ", terminator:"")
 					if let asString = readLine(), let asNetwork = NetworkV6(cidr:asString) {
 						ipv6Scope = asNetwork
 					}
@@ -94,14 +95,14 @@ struct WiremanD {
 				// ask for the client ipv4 scope
 				var ipv4Scope:NetworkV4? = nil
 				repeat {
-					print("vpn internal ipv4 block (cidr where address is servers primary internal address): ", terminator:"")
+					print(" -> [PROMPT](required) vpn internal ipv4 block (cidr where address is servers primary internal address): ", terminator:"")
 					if let asString = readLine(), let asNetwork = NetworkV4(cidr:asString) {
 						ipv4Scope = asNetwork
 					}
 				} while ipv4Scope == nil
 				
 				var ipStackKey:String? = nil
-				print("ipstack api key (press RETURN if you do not wish to use ipstack): ", terminator:"")
+				print(" -> [PROMPT](optional) ipstack api key (press RETURN if you do not wish to use ipstack): ", terminator:"")
 				if let asString = readLine(), asString.count > 4 {
 					ipStackKey = asString
 				}
@@ -203,7 +204,7 @@ struct WiremanD {
 					appLogger.critical("unable to get uid and gid for wiremand")
 					exit(9)
 				}
-				appLogger.info("\t->\tcreated new uid \(getUsername.pointee.pw_uid) and gid \(getUsername.pointee.pw_gid)")
+				appLogger.info("wiremand user & group created", metadata:["uid": "\(getUsername.pointee.pw_uid)", "gid":"\(getUsername.pointee.pw_gid)"])
 				
 				// enable ipv6 forwarding on this system
 				let sysctlFwdFD = try FileDescriptor.open("/etc/sysctl.d/10-ip-forward.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
@@ -302,8 +303,13 @@ struct WiremanD {
 	 
 				let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
 				let daemonDBEnv = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), notify:Email.Contact(name:adminName!, emailAddress:adminEmail!))
+				appLogger.trace("daemon db created...")
+				
 				try WireguardDatabase.createDatabase(environment:daemonDBEnv, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_resolvedServerPublicIPv4:resExtV4!, wg_resolvedServerPublicIPv6:resExtV6!, wg_serverPublicListenPort:UInt16(wgPort), serverIPv6Block: ipv6Scope!, serverIPv4Block:ipv4Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
+				appLogger.trace("wireguard database created...")
+				
 				let _ = try IPDatabase(base:homeDir, apiKey:ipStackKey)
+				appLogger.trace("ip database created...")
 				
 				let ownIt = try await Command(bash:"chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/").runSync()
 				guard ownIt.succeeded == true else {

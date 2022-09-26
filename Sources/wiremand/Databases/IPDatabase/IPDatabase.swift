@@ -410,9 +410,10 @@ class IPDatabase {
 	}
 	
 	init(base:URL, apiKey:String? = nil) throws {
-		let makeEnvPath = base.appendingPathComponent("ip-db", isDirectory:true)
+		let makeEnvPath = base.appendingPathComponent("ip-db", isDirectory:false)
 		
-		let makeEnv = try Environment(path:makeEnvPath.path, flags:[.noSync], mapSize:4000000000, maxDBs:16, mode:[.ownerReadWriteExecute, .groupReadWriteExecute, .otherReadExecute])
+		let makeEnv = try Environment(path:makeEnvPath.path, flags:[.noSync, .noSubDir], mapSize:4000000000, maxDBs:16, mode:[.ownerReadWriteExecute, .groupReadWriteExecute, .otherReadExecute])
+		Self.logger.trace("lmdb environment created")
 		
 		// determine what kind of access we have to the memorymap
 		let accessVal = access(base.path, R_OK | W_OK | X_OK)
