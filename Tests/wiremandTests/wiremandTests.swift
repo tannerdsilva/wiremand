@@ -1,11 +1,17 @@
 import XCTest
 import class Foundation.Bundle
+import SwiftSlash
 import wiremand
 
 final class wiremandTests: XCTestCase {
-	
+	func testIPAddressResolver() async throws {
+		let getIP = try await Command(bash:"curl ifconfig.me").runSync()
+		guard getIP.exitCode == 0 else {
+			exit(1)
+		}
+	}
 	func testDNSResolver() async throws {
-		let testResult = try await wiremand.DigExecutor.resolveAddresses(for:"google.com")
+		let testResult = try await DigExecutor.resolveAddresses(for:"google.com")
 		print("\(testResult) ")
 	}
     func testExample() throws {

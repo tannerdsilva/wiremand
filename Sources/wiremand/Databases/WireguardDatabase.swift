@@ -31,7 +31,7 @@ struct WireguardDatabase {
 	fileprivate static func newSecurityKey() throws -> String {
 		return try Self.generateRandomData().base64EncodedString()
 	}
-	static func createDatabase(environment:Environment, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, serverIPv4Block:NetworkV4, publicKey:String, defaultSubnetMask:UInt8, noHandshakeInvalidationInterval:TimeInterval = 3600, handshakeInvalidationInterval:TimeInterval = 2629800) throws {
+	static func createDatabase(environment:Environment, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_resolvedServerPublicIPv4:AddressV4, wg_resolvedServerPublicIPv6:AddressV6, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, serverIPv4Block:NetworkV4, publicKey:String, defaultSubnetMask:UInt8, noHandshakeInvalidationInterval:TimeInterval = 3600, handshakeInvalidationInterval:TimeInterval = 2629800) throws {
 
 		let makeEnv = environment
 		try makeEnv.transact(readOnly: false) { someTransaction in
@@ -46,6 +46,7 @@ struct WireguardDatabase {
 			let pub_create = try makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, flags:[.create], tx:someTransaction)
 			let pub_subname = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, flags:[.create], tx:someTransaction)
 			_ = try makeEnv.openDatabase(named:Databases.clientPub_handshakeDate.rawValue, flags:[.create], tx:someTransaction)
+			_ = try makeEnv.openDatabase(named:Databases.clientPub_endpointAddress.rawValue, flags:[.create], tx:someTransaction)
 			_ = try makeEnv.openDatabase(named:Databases.clientPub_invalidDate.rawValue, flags:[.create], tx:someTransaction)
 			let subnetName_network = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, flags:[.create], tx:someTransaction)
 			let network_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[.create], tx:someTransaction)
@@ -81,6 +82,10 @@ struct WireguardDatabase {
 			//assign required metadata values
 			try metadataDB.setEntry(value:wg_primaryInterfaceName, forKey:Metadatas.wg_primaryInterfaceName.rawValue, tx:someTransaction)
 			try metadataDB.setEntry(value:wg_serverPublicDomainName, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTransaction)
+			
+			try metadataDB.setEntry(value:wg_resolvedServerPublicIPv4, forKey:Metadatas.wg_serverPublicIPv4Address.rawValue, tx:someTransaction)
+			try metadataDB.setEntry(value:wg_resolvedServerPublicIPv6, forKey:Metadatas.wg_serverPublicIPv6Address.rawValue, tx:someTransaction)
+			
 			try metadataDB.setEntry(value:wg_serverPublicListenPort, forKey:Metadatas.wg_serverPublicListenPort.rawValue, tx:someTransaction)
 			try metadataDB.setEntry(value:serverIPv6Block, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTransaction)
 			try metadataDB.setEntry(value:serverIPv4Block, forKey:Metadatas.wg_serverIPv4Block.rawValue, tx:someTransaction)
@@ -96,8 +101,8 @@ struct WireguardDatabase {
 	enum Metadatas:String {
 		case wg_primaryInterfaceName = "wg_primaryWGInterfaceName" //String
 		case wg_serverPublicDomainName = "wg_serverPublicDomainName" //String
-		case wg_serverPublicIPv4Address = "wg_serverPublicIPv4Address" // AddressV4
-		case wg_serverPublicIPv6Address = "wg_serverPublicIPv6Address" // AddressV6
+		case wg_serverPublicIPv4Address = "wg_serverPublicIPv4Address" // AddressV4?
+		case wg_serverPublicIPv6Address = "wg_serverPublicIPv6Address" // AddressV6?
 		case wg_serverPublicListenPort = "wg_serverPublicListenPort" //UInt16
 		case wg_serverIPv6Block = "wg_serverIPv6Subnet" //NetworkV6 where address == servers own internal IP
 		case wg_serverIPv4Block = "wg_serverIPv4Subnet" //NetworkV4 where address == servers own internal IP
@@ -165,6 +170,9 @@ struct WireguardDatabase {
 		///Maps a client public key to their respective handshake date
 		case clientPub_handshakeDate = "wgdb_clientPub_handshakeDate" //String:Date? (optional value)
 		
+		///Maps a client public key to their respective endpoint address
+		case clientPub_endpointAddress = "wgdb_clientPub_endpointAddr" //String:String? (optional value)
+		
 		///Maps a client public key to their respective invalidation date
 		case clientPub_invalidDate = "wgdb_clientPub_invalidDate" //String:Date (non-optional but not specified for the servers own public key since the server cannot invalidate itself)
 		
@@ -201,6 +209,7 @@ struct WireguardDatabase {
 	let clientPub_createdOn:Database
 	let clientPub_subnetName:Database
 	let clientPub_handshakeDate:Database
+	let clientPub_endpointAddress:Database
 	let clientPub_invalidDate:Database
 	
 	// subnet info
@@ -249,6 +258,7 @@ struct WireguardDatabase {
 			let clientPub_createdOn = try makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, flags:[], tx:someTrans)
 			let clientPub_subnetName = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, flags:[], tx:someTrans)
 			let clientPub_handshakeDate = try makeEnv.openDatabase(named:Databases.clientPub_handshakeDate.rawValue, flags:[], tx:someTrans)
+			let clientPub_endpointAddress = try makeEnv.openDatabase(named:Databases.clientPub_endpointAddress.rawValue, flags:[.create], tx:someTrans)
 			let clientPub_invalidDate = try makeEnv.openDatabase(named:Databases.clientPub_invalidDate.rawValue, flags:[], tx:someTrans)
 			let subnetName_networkV6 = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, flags:[], tx:someTrans)
 			let networkV6_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[], tx:someTrans)
@@ -258,7 +268,7 @@ struct WireguardDatabase {
 			let ws_clientPub_configData = try makeEnv.openDatabase(named:Databases.webServe__clientPub_configData.rawValue, flags:[], tx:someTrans)
 			
 			do {
-				let dbv = try metadata.getEntry(type:UInt64.self, forKey:Metadatas.wg_database_version.rawValue, tx:someTrans)!
+				let _ = try metadata.getEntry(type:UInt64.self, forKey:Metadatas.wg_database_version.rawValue, tx:someTrans)!
 			} catch LMDBError.notFound {
 				let initialVersion:UInt64 = 0
 				try metadata.setEntry(value:initialVersion, forKey:Metadatas.wg_database_version.rawValue, flags:[.noOverwrite], tx:someTrans)
@@ -273,24 +283,26 @@ struct WireguardDatabase {
 				let getDNSName = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTrans)!
 				WiremanD.appLogger.debug("dns name not resolved in database. launching resolver task...")
 				Task.detached { [dnsName = getDNSName, env = makeEnv] in
-					do {
-						let (ipv4, ipv6) = try await DigExecutor.resolveAddresses(for:dnsName)
-						guard ipv4 != nil && ipv6 != nil else {
-							WiremanD.appLogger.error("nil addresses returned from DigExecutor")
-							throw DigExecutor.Error.noAddressesFound
-						}
-						try env.transact(readOnly:false) { someTrans in
-							try metadata.setEntry(value:ipv4!, forKey:Metadatas.wg_serverPublicIPv4Address.rawValue, tx:someTrans)
-							try metadata.setEntry(value:ipv6!, forKey:Metadatas.wg_serverPublicIPv6Address.rawValue, tx:someTrans)
-						}
-						WiremanD.appLogger.debug("successfully upgraded dns with resolved IP addresses")
-					} catch let error {
-						WiremanD.appLogger.error("error resolving DNS name", metadata:["error": "\(error)"])
+					let (ipv4, ipv6) = try await DigExecutor.resolveAddresses(for:dnsName)
+					guard ipv6 != nil else {
+						WiremanD.appLogger.error("there is no AAAA record", metadata:["dns_name":"\(dnsName)"])
+						throw DigExecutor.Error.noAddressesFound
 					}
+					
+					guard ipv4 != nil else {
+						WiremanD.appLogger.error("there is no A record", metadata:["dns_name" :"\(dnsName)"])
+						throw DigExecutor.Error.noAddressesFound
+					}
+					
+					try env.transact(readOnly:false) { someTrans in
+						try metadata.setEntry(value:ipv4!, forKey:Metadatas.wg_serverPublicIPv4Address.rawValue, tx:someTrans)
+						try metadata.setEntry(value:ipv6!, forKey:Metadatas.wg_serverPublicIPv6Address.rawValue, tx:someTrans)
+					}
+					WiremanD.appLogger.debug("successfully upgraded dns with resolved IP addresses")
 				}
 			}
 			
-			return [metadata, clientPub_ipv4, ipv4_clientPub, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, clientPub_invalidDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub, subnetName_clientNameHash, ws_clientPub_configData]
+			return [metadata, clientPub_ipv4, ipv4_clientPub, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, clientPub_endpointAddress, clientPub_invalidDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub, subnetName_clientNameHash, ws_clientPub_configData]
 		}
 		self.env = makeEnv
 		self.metadata = dbs[0]
@@ -302,13 +314,14 @@ struct WireguardDatabase {
 		self.clientPub_createdOn = dbs[6]
 		self.clientPub_subnetName = dbs[7]
 		self.clientPub_handshakeDate = dbs[8]
-		self.clientPub_invalidDate = dbs[9]
-		self.subnetName_networkV6 = dbs[10]
-		self.networkV6_subnetName = dbs[11]
-		self.subnetHash_securityKey = dbs[12]
-		self.subnetName_clientPub = dbs[13]
-		self.subnetName_clientNameHash = dbs[14]
-		self.webserve__clientPub_configData = dbs[15]
+		self.clientPub_endpointAddress = dbs[9]
+		self.clientPub_invalidDate = dbs[10]
+		self.subnetName_networkV6 = dbs[11]
+		self.networkV6_subnetName = dbs[12]
+		self.subnetHash_securityKey = dbs[13]
+		self.subnetName_clientPub = dbs[14]
+		self.subnetName_clientNameHash = dbs[15]
+		self.webserve__clientPub_configData = dbs[16]
 	}
 	
 	// subnet info container
@@ -513,28 +526,50 @@ struct WireguardDatabase {
 		let clientSubnet = try self.clientPub_subnetName.getEntry(type:String.self, forKey:publicKey, tx:tx)!
 		let clientName = try self.clientPub_clientName.getEntry(type:String.self, forKey:publicKey, tx:tx)!
 		
+		let hadIPv4:Bool
 		// remove the ipv4 address if the client had one
 		do {
 			let ipv4Addr = try self.clientPub_ipv4.getEntry(type:AddressV4.self, forKey:publicKey, tx:tx)!
 			try self.clientPub_ipv4.deleteEntry(key:publicKey, tx:tx)
 			try self.ipv4_clientPub.deleteEntry(key:ipv4Addr, tx:tx)
-		} catch LMDBError.notFound {}
+			hadIPv4 = true
+		} catch LMDBError.notFound {
+			hadIPv4 = false
+		}
 		
 		// with this info we can delete everything else from the database
 		try self.clientPub_ipv6.deleteEntry(key:publicKey, tx:tx)
 		try self.ipv6_clientPub.deleteEntry(key:clientAddress, tx:tx)
 		try self.clientPub_clientName.deleteEntry(key:publicKey, tx:tx)
 		try self.clientPub_subnetName.deleteEntry(key:publicKey, tx:tx)
+		
+		let didHandshake:Bool
 		do {
 			// handshake date may have never been written to the database
 			try self.clientPub_handshakeDate.deleteEntry(key:publicKey, tx:tx)
-		} catch LMDBError.notFound {}
+			didHandshake = true
+		} catch LMDBError.notFound {
+			didHandshake = false
+		}
+		let didCaptureEndpoint:Bool
+		do {
+			// endpoint may have never been written to the database
+			try self.clientPub_endpointAddress.deleteEntry(key:publicKey, tx:tx)
+			didCaptureEndpoint = true
+		} catch LMDBError.notFound {
+			didCaptureEndpoint = false
+		}
 		try self.clientPub_invalidDate.deleteEntry(key:publicKey, tx:tx)
 		try self.subnetName_clientPub.deleteEntry(key:clientSubnet, value:publicKey, tx:tx)
 		try self.subnetName_clientNameHash.deleteEntry(key:clientSubnet, value:try Self.hash(clientName:clientName), tx:tx)
+		let hadWebserveConfig:Bool
 		do {
 			try self.webserve__clientPub_configData.deleteEntry(key:publicKey, tx:tx)
-		} catch LMDBError.notFound {}
+			hadWebserveConfig = true
+		} catch LMDBError.notFound {
+			hadWebserveConfig = false
+		}
+		WiremanD.appLogger.debug("successfully removed client from database", metadata:["public_key": "\(publicKey)", "client_name": "\(clientName)", "client_subnet": "\(clientSubnet)", "had_ipv4": "\(hadIPv4)", "did_handshake": "\(didHandshake)", "did_have_endpoint": "\(didCaptureEndpoint)", "had_webserve_config": "\(hadWebserveConfig)"])
 		return publicKey
 	}
 	@discardableResult func clientRemove(publicKey:String) throws -> String {
@@ -727,10 +762,12 @@ struct WireguardDatabase {
 		}
 	}
 	
-	func processHandshakes(_ handshakes:[String:Date], all:Set<String>) throws -> Set<String> {
+	func processHandshakes(_ handshakes:[String:Date], endpoints:[String:String], all:Set<String>) throws -> Set<String> {
 		return try env.transact(readOnly:false) { someTrans in
 			let clientHandshakeCursor = try clientPub_handshakeDate.cursor(tx:someTrans)
 			let clientInvalidationCursor = try clientPub_invalidDate.cursor(tx:someTrans)
+			let clientEndpointCursor = try clientPub_endpointAddress.cursor(tx:someTrans)
+			
 			let handshakeInvalidationTimeInterval = try metadata.getEntry(type:TimeInterval.self, forKey:Metadatas.wg_handshakeInvalidationInterval.rawValue, tx:someTrans)!
 			
 			// any public keys that need to be removed from the wireguard interface are passed into this variable
@@ -749,6 +786,8 @@ struct WireguardDatabase {
 							// only update the handshake in the database if the new handshake is a date that is further in time than the existing handshake
 							try clientHandshakeCursor.setEntry(value:curClient.value, forKey:curClient.key)
 							try clientInvalidationCursor.setEntry(value:curClient.value.addingTimeInterval(handshakeInvalidationTimeInterval), forKey:curClient.key)
+							let clientEndpoint = endpoints[curClient.key]!
+							try clientEndpointCursor.setEntry(value:clientEndpoint, forKey:curClient.key)
 						} else if invalidationDate.timeIntervalSinceNow < 0 {
 							// if the client has reached their invalidation period
 							try _clientRemove(publicKey:curClient.key, tx:someTrans)
@@ -757,7 +796,8 @@ struct WireguardDatabase {
 						// this is hte first handshake for this user
 						try clientHandshakeCursor.setEntry(value:curClient.value, forKey:curClient.key)
 						try clientInvalidationCursor.setEntry(value:curClient.value.addingTimeInterval(handshakeInvalidationTimeInterval), forKey:curClient.key)
-						
+						let clientEndpoint = endpoints[curClient.key]!
+						try clientEndpointCursor.setEntry(value:clientEndpoint, forKey:curClient.key)
 						// remove the webserve config if it exists since we now have proof that the client got the key
 						do {
 							try webserve__clientPub_configData.deleteEntry(key:curClient.key, tx:someTrans)
@@ -787,12 +827,13 @@ struct WireguardDatabase {
 		}
 	}
 	
-	fileprivate func processHandshakes(_ handshakes:[String:Date], zeros:Set<String>) throws -> Set<String> {
+	/*fileprivate func processHandshakes(_ handshakes:[String:Date], zeros:Set<String>) throws -> Set<String> {
 		//new readwrite
 		return try env.transact(readOnly:false) { someTrans in
 			
 			let clientAddressCursor = try clientPub_ipv6.cursor(tx:someTrans)
 			let clientHandshakeCursor = try clientPub_handshakeDate.cursor(tx:someTrans)
+			let clientEndpointCursor = try clientPub_endpointAddress.cursor(tx:someTrans)
 			
 			let noHandshakeInterval = try self.metadata.getEntry(type:TimeInterval.self, forKey:Metadatas.wg_noHandshakeInvalidationInterval.rawValue, tx:someTrans)!
 			let handshakeInterval = try self.metadata.getEntry(type:TimeInterval.self, forKey:Metadatas.wg_handshakeInvalidationInterval.rawValue, tx:someTrans)!
@@ -811,6 +852,9 @@ struct WireguardDatabase {
 						if (existingHandshake < curClient.value) {
 							// update the handshake date because there is a newer date than what is stored in the database
 							try clientHandshakeCursor.setEntry(value:curClient.value, forKey:curClient.key)
+							let endpointAddress = endpoints[curClient.key]!
+							try clientEndpointCursor.setEntry(value:endpointAddress, forKey:curClient.key)
+							
 						} else {
 							// handshake has not been updated, so check and see if it has crossed the drop threshold for clients that have successfully made a handshake
 							if (existingHandshake.addingTimeInterval(handshakeInterval).timeIntervalSinceNow < 0) {
@@ -821,6 +865,8 @@ struct WireguardDatabase {
 					} catch LMDBError.notFound {
 						// assign a handshake value if it cannot be found in the database
 						try clientHandshakeCursor.setEntry(value:curClient.value, forKey:curClient.key)
+						let endpointAddress = endpoints[curClient.key]!
+						try clientEndpointCursor.setEntry(value:endpointAddress, forKey:curClient.key)
 						
 						// remove a webserve config entry for this user if one exists
 						do {
@@ -874,5 +920,5 @@ struct WireguardDatabase {
 			}
 			return removeKeys
 		}
-	}
+	}*/
 }

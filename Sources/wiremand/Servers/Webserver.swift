@@ -285,7 +285,7 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
             let keyPromise = request.eventLoop.makePromise(of:HBResponse.self)
             keyPromise.completeWithTask({ [wgdb = wgDatabase] in
                 // we will make the keys on behalf of the client
-                let newKeys = try await WireguardExecutor.generate()
+				let newKeys = try await WireguardExecutor.generateClient()
 				
 				let (wg_dns_name, wg_port, wg_internal_network, serverV4, pubKey, interfaceName) = try wgdb.getWireguardConfigMetas()
 				

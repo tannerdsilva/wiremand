@@ -7,6 +7,7 @@ import QuickLMDB
 import Logging
 import SignalStack
 import SwiftSMTP
+import SwiftDate
 
 extension NetworkV6 {
 	func maskingAddress() -> NetworkV6 {
@@ -30,6 +31,14 @@ struct WiremanD {
 
 	static func main() async throws {
 		await AsyncGroup {
+			#if DEBUG
+			$0.command("ipdb-test",
+				Argument<Int>("accessKey")
+			) { pidArg in
+				let asPid = pid_t(exactly:pidArg)!
+				print("\(kill(asPid, 0))")
+			}
+			#endif
 			$0.command("install",
 			   Option<String>("interfaceName", default:"wg2930"),
 			   Option<String>("user", default:"wiremand"),
@@ -57,23 +66,35 @@ struct WiremanD {
 				// ask for the public endpoint
 				var endpoint:String? = nil
 				repeat {
-					print("public endpoint dns name: ", terminator:"")
+					print("external endpoint dns name: ", terminator:"")
 					endpoint = readLine()
 				} while (endpoint == nil || endpoint!.count == 0)
 
+				let (resExtV4, resExtV6) = try await DigExecutor.resolveAddresses(for:endpoint!)
+				
+				guard resExtV4 != nil else {
+					Self.appLogger.error("there is no A record", metadata:["dns_name":"\(endpoint!)"])
+					exit(11)
+				}
+				
+				guard resExtV6 != nil else {
+					Self.appLogger.error("there is no AAAA record", metadata:["dns_name":"\(endpoint!)"])
+					exit(12)
+				}
+				
 				// ask for the client ipv6 scope
 				var ipv6Scope:NetworkV6? = nil
 				repeat {
-					print("vpn ipv6 block (cidr where address is servers primary internal address): ", terminator:"")
+					print("vpn internal ipv6 block (cidr where address is servers primary internal address): ", terminator:"")
 					if let asString = readLine(), let asNetwork = NetworkV6(cidr:asString) {
 						ipv6Scope = asNetwork
 					}
 				} while ipv6Scope == nil
 				
-				// ask for the client ipv6 scope
+				// ask for the client ipv4 scope
 				var ipv4Scope:NetworkV4? = nil
 				repeat {
-					print("vpn ipv4 block (cidr where address is servers primary internal address): ", terminator:"")
+					print("vpn internal ipv4 block (cidr where address is servers primary internal address): ", terminator:"")
 					if let asString = readLine(), let asNetwork = NetworkV4(cidr:asString) {
 						ipv4Scope = asNetwork
 					}
@@ -99,7 +120,7 @@ struct WiremanD {
 				appLogger.info("generating wireguard keys...")
 				
 				// set up the wireguard interface
-				let newKeys = try await WireguardExecutor.generate()
+				let newKeys = try await WireguardExecutor.generateClient()
 				
 				appLogger.info("writing wireguard configuration...")
 				
@@ -203,6 +224,12 @@ struct WiremanD {
 				
 				// install the executable in the system
 				let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
+				appLogger.info("applying effective CAP_KILL capabilities to executable")
+				let setCapResult = try await Command(bash:"sudo setcap CAP_KILL+ep '\(exePath.path)'").runSync()
+				guard setCapResult.succeeded == true else {
+					appLogger.critical("unable to set effective CAP_KILL capabilities to executable", metadata:["path":"\(exePath.path)", "exitCode":"\(setCapResult.exitCode)"])
+					exit(15)
+				}
 				let exeData = try Data(contentsOf:exePath)
 				let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
 				try exeFD.writeAll(exeData)
@@ -269,7 +296,7 @@ struct WiremanD {
 	 
 				let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
 				let daemonDBEnv = try! DaemonDB.create(directory:homeDir, publicHTTPPort: UInt16(httpPort), notify:Email.Contact(name:adminName!, emailAddress:adminEmail!))
-				try WireguardDatabase.createDatabase(environment:daemonDBEnv, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_serverPublicListenPort: UInt16(wgPort), serverIPv6Block: ipv6Scope!, serverIPv4Block:ipv4Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
+				try WireguardDatabase.createDatabase(environment:daemonDBEnv, wg_primaryInterfaceName:interfaceName, wg_serverPublicDomainName:endpoint!, wg_resolvedServerPublicIPv4:resExtV4!, wg_resolvedServerPublicIPv6:resExtV6!, wg_serverPublicListenPort:UInt16(wgPort), serverIPv6Block: ipv6Scope!, serverIPv4Block:ipv4Scope!, publicKey:newKeys.publicKey, defaultSubnetMask:112)
 				
 				let ownIt = try await Command(bash:"chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/").runSync()
 				guard ownIt.succeeded == true else {
@@ -293,6 +320,14 @@ struct WiremanD {
 				guard getCurrentUser() == "root" else {
 					fatalError("this function must be run as the root user")
 				}
+				let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
+				appLogger.info("initiating system update of wiremand process", metadata:["oldPath":"/opt/wiremand", "updateWith":"\(exePath.path)"])
+				let setCapResult = try await Command(bash:"sudo setcap CAP_KILL+ep '\(exePath.path)'").runSync()
+				guard setCapResult.succeeded == true else {
+					appLogger.critical("unable to set effective CAP_KILL capabilities to executable")
+					exit(3)
+				}
+				appLogger.info("applied effective CAP_KILL capabilities to executable")
 				appLogger.info("stopping wiremand service")
 				let stopResult = try await Command(bash:"systemctl stop wiremand.service").runSync()
 				guard stopResult.succeeded == true else {
@@ -301,7 +336,6 @@ struct WiremanD {
 				}
 				appLogger.info("installing executable into /opt")
 				// install the executable in the system
-				let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
 				let exeData = try Data(contentsOf:exePath)
 				let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
 				try exeFD.writeAll(exeData)
@@ -839,7 +873,7 @@ struct WiremanD {
 				}
 				
 				// we will make the keys on behalf of the client
-				let newKeys = try await WireguardExecutor.generate()
+				let newKeys = try await WireguardExecutor.generateClient()
 				
 				var usePublicKey:String? = pk
 				let usePSK:String = newKeys.presharedKey
@@ -916,6 +950,7 @@ struct WiremanD {
 			$0.command("run") {
 				enum Error:Swift.Error {
 					case handshakeCheckError
+					case endpointCheckError
 				}
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this function must be run as the wiremand user")
@@ -931,6 +966,8 @@ struct WiremanD {
 				})
 				let interfaceName = try daemonDB.wireguardDatabase.primaryInterfaceName()
 				let tcpPortBind = try daemonDB.wireguardDatabase.getServerInternalNetwork().address.string
+				
+				// schedule the handshake checker
 				try daemonDB.launchSchedule(.latestWireguardHandshakesCheck, interval:10, { [wgdb = daemonDB.wireguardDatabase, logger = appLogger] in
 					do {
 						// run the shell command to check for the handshakes associated with the various public keys
@@ -960,8 +997,65 @@ struct WiremanD {
 							}
 						}
 						
+						// run the shell command to check for the endpoints of each client
+						var endpoints = [String:String]()
+						let checkEndpoints = try await Command(bash:"sudo wg show \(interfaceName) endpoints").runSync()
+						guard checkEndpoints.succeeded == true else {
+							Self.appLogger.error("was not able to check wireguard client endpoints")
+							throw Error.endpointCheckError
+						}
+						
+						for curEndpointLine in checkEndpoints.stdout {
+							guard let lineString = String(data:curEndpointLine, encoding:.utf8), let tabSepIndex = lineString.firstIndex(of:"\t"), lineString.endIndex > tabSepIndex else {
+								Self.appLogger.error("invalid line data - no tab break found")
+								throw Error.endpointCheckError
+							}
+							
+							let pubKeySectComplete = String(lineString[lineString.startIndex..<tabSepIndex])
+							let addrSectComplete = lineString[lineString.index(after:tabSepIndex)..<lineString.endIndex]
+								
+							guard let portSepIndex = addrSectComplete.lastIndex(of:":"), portSepIndex < addrSectComplete.endIndex else {
+								Self.appLogger.error("invalid line data returned in endpoint check")
+								throw Error.endpointCheckError
+							}
+							let addrSect = String(addrSectComplete[addrSectComplete.startIndex..<portSepIndex])
+							let portSect = String(addrSectComplete[addrSectComplete.index(after:portSepIndex)..<addrSectComplete.endIndex])
+							
+							guard addrSect.count > 0 && portSect.count > 0 else {
+								Self.appLogger.error("unable to parse data line. zero counts were identified", metadata:["addrSect_count": "\(addrSect.count)", "portSect_count": "\(portSect.count)"])
+								throw Error.endpointCheckError
+							}
+							
+							guard let _ = UInt16(portSect) else {
+								Self.appLogger.error("unable to parse endpoint port", metadata:["port_string": "'\(portSect)'", "string_count": "\(portSect.count)"])
+								throw Error.endpointCheckError
+							}
+							
+							// determine if ipv6
+							if (addrSect.first == "[" && addrSect.last == "]" && addrSect.contains(":") == true) {
+								// ipv6
+								let asStr = String(addrSect[addrSect.index(after:addrSect.startIndex)..<addrSect.index(before:addrSect.endIndex)])
+								guard let asV6 = AddressV6(asStr) else {
+									Self.appLogger.error("unable to parse IPv6 address from wireguard endpoints output", metadata:["ip": "\(asStr)"])
+									throw Error.endpointCheckError
+								}
+								
+								endpoints[pubKeySectComplete] = asV6.string
+							} else if addrSect.contains(".") == true {
+								// ipv4
+								guard let asV4 = AddressV4(addrSect) else {
+									Self.appLogger.error("unable to parse IPv4 address from wireguard endpoints output", metadata:["ip": "\(addrSect)"])
+									throw Error.endpointCheckError
+								}
+								
+								endpoints[pubKeySectComplete] = asV4.string
+							} else {
+								throw Error.endpointCheckError
+							}
+						}
+						
 						// save the handshake data to the database
-						let removeDatabase = try wgdb.processHandshakes(handshakes, all:Set(handshakes.keys).union(zeros))
+						let removeDatabase = try wgdb.processHandshakes(handshakes, endpoints:endpoints, all:Set(handshakes.keys).union(zeros))
 						for curRemove in removeDatabase {
 							try? await WireguardExecutor.uninstall(publicKey:curRemove, interfaceName:interfaceName)
 						}
@@ -972,6 +1066,8 @@ struct WiremanD {
 						logger.error("handshake check error", metadata:["error": "\(error)"])
 					}
 				})
+				
+				// schedule the ssl renewal
 				try daemonDB.launchSchedule(.certbotRenewalCheck, interval:172800) { [logger = appLogger] in
 					do {
 						try await CertbotExecute.renewCertificates()
@@ -980,6 +1076,7 @@ struct WiremanD {
 						logger.error("ssl certificates could not be renewed", metadata:["error": "\(error)"])
 					}
 				}
+				
 				var allPorts = [UInt16:TCPServer]()
 				try! await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort, _ in
 					let newServer = try TCPServer(host:tcpPortBind, port:newPort, db:daemonDB.printerDatabase)

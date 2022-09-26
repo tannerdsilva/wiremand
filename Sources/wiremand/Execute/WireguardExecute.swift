@@ -14,7 +14,7 @@ struct WireguardExecutor {
 		let presharedKey:String 
 	}
 	
-	static func generate() async throws -> VPNKey {
+	static func generateClient() async throws -> VPNKey {
 		let makePriKey = try await Command(bash:"wg genkey").runSync()
 		guard makePriKey.succeeded == true, let privateKey = makePriKey.stdout.compactMap({ String(data:$0, encoding:.utf8) }).first else {
 			throw Error.wireguardCmdError

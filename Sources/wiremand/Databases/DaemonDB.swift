@@ -73,6 +73,7 @@ actor DaemonDB {
 	
     let wireguardDatabase:WireguardDatabase
 	let printerDatabase:PrintDB
+	let ipdb:IPDatabase
 	
     init(directory:URL, running:Bool = true) throws {
 		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir, .noSync, .noReadAhead], mapSize:75000000000, maxDBs:128)
@@ -105,6 +106,7 @@ actor DaemonDB {
 		self.notifyDB = dbs[4]
         self.wireguardDatabase = try WireguardDatabase(environment:makeEnv)
 		self.printerDatabase = try PrintDB(environment:makeEnv, directory:directory)
+		self.ipdb = try IPDatabase.init(base:directory)
     }
     enum Schedule:String {
         case latestWireguardHandshakesCheck = "_wg_latestHandshakesCheck"
