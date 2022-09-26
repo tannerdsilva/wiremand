@@ -4,7 +4,7 @@ import Foundation
 import Logging
 import AsyncHTTPClient
 import NIO
-import System
+import SystemPackage
 
 class IPDatabase {
 	enum ResolveStatus {
