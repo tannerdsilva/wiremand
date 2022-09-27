@@ -502,9 +502,12 @@ struct WireguardDatabase {
 		
 		if (noHandshakeInvalidation != nil) {
 			try self.clientPub_invalidDate.setEntry(value:noHandshakeInvalidation!, forKey:publicKey, flags:[.noOverwrite], tx:tx)
+			WiremanD.appLogger.info("new client invalidation date explicitly provided", metadata:["date":"\(noHandshakeInvalidation!)"])
 		} else {
 			let defaultInvalidation = try self.metadata.getEntry(type:TimeInterval.self, forKey:Metadatas.wg_noHandshakeInvalidationInterval.rawValue, tx:tx)!
-			try self.clientPub_invalidDate.setEntry(value:Date().addingTimeInterval(defaultInvalidation), forKey:publicKey, flags: [.noOverwrite], tx:tx)
+			let targetDate = Date().addingTimeInterval(defaultInvalidation)
+			try self.clientPub_invalidDate.setEntry(value:targetDate, forKey:publicKey, flags:[.noOverwrite], tx:tx)
+			WiremanD.appLogger.info("new client invalidation date defined as a default value", metadata:["time_interval":"\(defaultInvalidation)", "target_date":"\(targetDate)"])
 		}
 		
 		try self.subnetName_clientPub.setEntry(value:publicKey, forKey:subnet, flags:[.noDupData], tx:tx)
@@ -609,12 +612,17 @@ struct WireguardDatabase {
 		let clientHandshakeCursor = try self.clientPub_handshakeDate.cursor(tx:tx)
 		let clientEndpointCursor = try self.clientPub_endpointAddress.cursor(tx:tx)
 		let clientInvalidationCursor = try self.clientPub_invalidDate.cursor(tx:tx)
+		let server_pubKey = try self.metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:tx)
 		if (subnet == nil) {
 			// all clients are requested
+			WiremanD.appLogger.trace("listing all clients", metadata:["server_pub_key":"\(serverPublicKey)"])
 			for curClient in clientAddressCursor {
-				let getName = String(try clientNameCursor.getEntry(.set, key:curClient.key).value)!
-				let getSubnet = String(try clientSubnetCursor.getEntry(.set, key:curClient.key).value)!
+				let getName = String(try! clientNameCursor.getEntry(.set, key:curClient.key).value)!
+				
+				let getSubnet = String(try! clientSubnetCursor.getEntry(.set, key:curClient.key).value)!
 				let publicKey = String(curClient.key)!
+				WiremanD.appLogger.trace("current client selected", metadata:["name":"\(getName)", "public_key":"\(publicKey)"])
+				
 				if serverPublicKey != publicKey {
 					let address = AddressV6(curClient.value)!
 					let addrv4:AddressV4?
@@ -635,7 +643,7 @@ struct WireguardDatabase {
 					} catch LMDBError.notFound {
 						endpoint = nil
 					}
-					let invalidationDate = Date(try clientInvalidationCursor.getEntry(.set, key:publicKey).value)!
+					let invalidationDate = Date(try! clientInvalidationCursor.getEntry(.set, key:publicKey).value)!
 					buildClients.update(with:ClientInfo(publicKey:publicKey, address:address, addressV4:addrv4, name:getName, subnetName:getSubnet, lastHandshake:lastHandshake, endpoint:endpoint, invalidationDate:invalidationDate))
 				}
 			}
@@ -776,8 +784,15 @@ struct WireguardDatabase {
 		}
 	}
 	
-	func processHandshakes(_ handshakes:[String:Date], endpoints:[String:String], all:Set<String>) throws -> Set<String> {
+	
+	enum ProcessedHandshakeAction {
+		case removeClient(String)
+		case resolveIP(String)
+	}
+	
+	func processHandshakes(_ handshakes:[String:Date], endpoints:[String:String], all:Set<String>) throws -> [ProcessedHandshakeAction] {
 		return try env.transact(readOnly:false) { someTrans in
+			var returnActions = [ProcessedHandshakeAction]()
 			let clientHandshakeCursor = try clientPub_handshakeDate.cursor(tx:someTrans)
 			let clientInvalidationCursor = try clientPub_invalidDate.cursor(tx:someTrans)
 			let clientEndpointCursor = try clientPub_endpointAddress.cursor(tx:someTrans)
@@ -802,6 +817,7 @@ struct WireguardDatabase {
 							try clientInvalidationCursor.setEntry(value:curClient.value.addingTimeInterval(handshakeInvalidationTimeInterval), forKey:curClient.key)
 							let clientEndpoint = endpoints[curClient.key]!
 							try clientEndpointCursor.setEntry(value:clientEndpoint, forKey:curClient.key)
+							returnActions.append(.resolveIP(clientEndpoint))
 						} else if invalidationDate.timeIntervalSinceNow < 0 {
 							// if the client has reached their invalidation period
 							try _clientRemove(publicKey:curClient.key, tx:someTrans)
@@ -812,6 +828,7 @@ struct WireguardDatabase {
 						try clientInvalidationCursor.setEntry(value:curClient.value.addingTimeInterval(handshakeInvalidationTimeInterval), forKey:curClient.key)
 						let clientEndpoint = endpoints[curClient.key]!
 						try clientEndpointCursor.setEntry(value:clientEndpoint, forKey:curClient.key)
+						returnActions.append(.resolveIP(clientEndpoint))
 						// remove the webserve config if it exists since we now have proof that the client got the key
 						do {
 							try webserve__clientPub_configData.deleteEntry(key:curClient.key, tx:someTrans)
@@ -821,6 +838,7 @@ struct WireguardDatabase {
 					
 					// the client is not in the database so it needs to be removed
 					removeKeys.update(with:curClient.key)
+					returnActions.append(.removeClient(curClient.key))
 				}
 			}
 			
@@ -834,10 +852,11 @@ struct WireguardDatabase {
 					}
 				} catch LMDBError.notFound {
 					removeKeys.update(with:curNonhandshakenClient)
+					returnActions.append(.removeClient(curNonhandshakenClient))
 				}
 			}
 			
-			return removeKeys
+			return returnActions
 		}
 	}
 	

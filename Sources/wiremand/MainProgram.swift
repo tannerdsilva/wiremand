@@ -181,7 +181,7 @@ struct WiremanD {
 				}
 								
 				appLogger.info("reconfiguring systemd-resolved...")
-				let fp:FilePermissions = [.ownerReadWriteExecute, .groupRead, .otherRead]
+				let fp:FilePermissions = [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute]
 				mkdir("/etc/systemd/resolved.conf.d", fp.rawValue)
 				let dnsmasqOverride = try FileDescriptor.open("/etc/systemd/resolved.conf.d/disableStub.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 				try dnsmasqOverride.closeAfter {
@@ -316,7 +316,7 @@ struct WiremanD {
 					fatalError("unable to change ownership of /var/lib/\(installUserName)/ directory")
 				}
 				
-				appLogger.info("acquiring SSL certificates for \(endpoint!)")
+				appLogger.info("acquiring SSL certificates", metadata:["endpoint":"\(endpoint!)"])
 				
 				try await CertbotExecute.acquireSSL(domain:endpoint!.lowercased(), email:adminEmail!)
 				try NginxExecutor.install(domain:endpoint!.lowercased())
@@ -964,6 +964,7 @@ struct WiremanD {
 				enum Error:Swift.Error {
 					case handshakeCheckError
 					case endpointCheckError
+					case databaseActionError
 				}
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this function must be run as the wiremand user")
@@ -1068,11 +1069,32 @@ struct WiremanD {
 						}
 						
 						// save the handshake data to the database
-						let removeDatabase = try wgdb.processHandshakes(handshakes, endpoints:endpoints, all:Set(handshakes.keys).union(zeros))
-						for curRemove in removeDatabase {
-							try? await WireguardExecutor.uninstall(publicKey:curRemove, interfaceName:interfaceName)
+						let takeActions = try wgdb.processHandshakes(handshakes, endpoints:endpoints, all:Set(handshakes.keys).union(zeros))
+						var rmI = 0
+						for curAction in takeActions {
+							switch curAction {
+								case let .removeClient(pubKey):
+									try? await WireguardExecutor.uninstall(publicKey:pubKey, interfaceName:interfaceName)
+									rmI += 1
+								case let .resolveIP(ipAddr):
+									switch ipAddr.contains(":") {
+										case true:
+											guard let asAddr = AddressV6(ipAddr) else {
+												Self.appLogger.error("unable to parse ipv6 address from database action", metadata:["ip_str":"\(ipAddr)"])
+												throw Error.databaseActionError
+											}
+											try daemonDB.ipdb.installAddress(ipv6:asAddr)
+										case false:
+											guard let asAddr = AddressV4(ipAddr) else {
+												Self.appLogger.error("unable to parse ipv4 address from database action", metadata:["ip_str":"\(ipAddr)"])
+												throw Error.databaseActionError
+											}
+											try daemonDB.ipdb.installAddress(ipv4:asAddr)
+									}
+							}
 						}
-						if (removeDatabase.count > 0) {
+						
+						if (rmI > 0) {
 							try? await WireguardExecutor.saveConfiguration(interfaceName:interfaceName)
 						}
 					} catch let error {

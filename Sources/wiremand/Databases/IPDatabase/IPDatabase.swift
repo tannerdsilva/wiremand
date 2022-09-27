@@ -418,9 +418,9 @@ class IPDatabase {
 		// determine what kind of access we have to the memorymap
 		let accessVal = access(base.path, R_OK | W_OK | X_OK)
 		if accessVal != 0 {
-			Self.logger.error("access check error on database path", metadata:["exitCode": "\(accessVal)", "errno": "\(errno)", "path": "\(makeEnvPath.path)"])
+			Self.logger.error("access check error on database path", metadata:["exitCode": "\(accessVal)", "errno": "\(errno)", "path": "\(makeEnvPath.path)", "w_ok": "\(accessVal & W_OK)", "r_ok": "\(accessVal & R_OK)", "x_ok": "\(accessVal & X_OK)"])
 		} else {
-			Self.logger.info("access check for database passed")
+			Self.logger.debug("access check for database passed")
 		}
 		let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
 			let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
@@ -445,6 +445,16 @@ class IPDatabase {
 			
 			let ipH_ipS = try makeEnv.openDatabase(named:Databases.ipHash_ipString.rawValue, flags:[.create], tx:someTrans)
 			
+			
+			#if DEBUG
+			let apiKey:String?
+			do {
+				apiKey = try meta.getEntry(type:String.self, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans)
+			} catch LMDBError.notFound {
+				apiKey = nil
+			}
+			Self.logger.debug("instance created", metadata:["base_path":"\(base.path)", "ipstack_api_key":"\(apiKey)"])
+			#endif
 			return [meta, rPID_pIP, pIP_rPID, d_pIP, pIP_d, ipH_dat, ipH_date, date_ipH, resFD_ipH, ipH_resFD, ipH_resFM, ipH_ipS]
 		}
 		self.env = makeEnv
@@ -503,7 +513,7 @@ class IPDatabase {
 		let shouldSync = try env.transact(readOnly:false) { someTrans -> Bool in
 			do {
 				let resolveStatus = try self.getResolveStatus(ipString:ipv6.string, tx:someTrans)
-				Self.logger.debug("installing an address that is alrady accounted for. no action taken.", metadata:["ip": "\(ipv6.string)", "status": "\(String(describing:resolveStatus))"])
+				Self.logger.debug("installing an address that is already accounted for. no action taken.", metadata:["ip": "\(ipv6.string)", "status": "\(String(describing:resolveStatus))"])
 				return false
 			} catch LMDBError.notFound {
 				Self.logger.debug("installing address in database", metadata:["ip": "\(ipv6.string)"])
