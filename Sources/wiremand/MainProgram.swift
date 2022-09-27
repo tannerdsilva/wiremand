@@ -1030,7 +1030,7 @@ struct WiremanD {
 								let pubKeySectComplete = String(lineString[lineString.startIndex..<tabSepIndex])
 								let addrSectComplete = lineString[lineString.index(after:tabSepIndex)..<lineString.endIndex]
 								
-								Self.appLogger.info("parsed endpoint data line", metadata:["pubKey":"\(pubKeySectComplete)", "addr":"\(addrSectComplete)"])
+								Self.appLogger.trace("parsed endpoint data line", metadata:["pubKey":"\(pubKeySectComplete)", "addr":"\(addrSectComplete)"])
 								
 								guard let portSepIndex = addrSectComplete.lastIndex(of:":"), portSepIndex < addrSectComplete.endIndex else {
 									Self.appLogger.trace("client does not have an endpoint", metadata:["pubKey":"\(pubKeySectComplete)"])

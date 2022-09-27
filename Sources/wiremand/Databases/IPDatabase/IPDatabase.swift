@@ -445,16 +445,21 @@ class IPDatabase {
 			
 			let ipH_ipS = try makeEnv.openDatabase(named:Databases.ipHash_ipString.rawValue, flags:[.create], tx:someTrans)
 			
-			
 			#if DEBUG
+			let currentlyResolvingCount:size_t = try pIP_rPID.getStatistics(tx:someTrans).entries
+			let pendingCount:size_t = try pIP_d.getStatistics(tx:someTrans).entries
+			let errorCount:size_t = try ipH_resFM.getStatistics(tx:someTrans).entries
+			let resolvedCount:size_t = try ipH_dat.getStatistics(tx:someTrans).entries
+			
 			let apiKey:String?
 			do {
 				apiKey = try meta.getEntry(type:String.self, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans)
 			} catch LMDBError.notFound {
 				apiKey = nil
 			}
-			Self.logger.debug("instance created", metadata:["base_path":"\(base.path)", "ipstack_api_key":"\(apiKey)"])
+			Self.logger.debug("instance created", metadata:["base_path":"\(base.path)", "ipstack_api_key":"\(String(describing:apiKey))", "cur_resolving":"\(currentlyResolvingCount)", "cur_pending":"\(pendingCount)", "cur_error":"\(errorCount)", "cur_resolved":"\(resolvedCount)"])
 			#endif
+			
 			return [meta, rPID_pIP, pIP_rPID, d_pIP, pIP_d, ipH_dat, ipH_date, date_ipH, resFD_ipH, ipH_resFD, ipH_resFM, ipH_ipS]
 		}
 		self.env = makeEnv
