@@ -54,7 +54,7 @@ struct WiremanD {
 
 				var adminEmail:String? = nil
 				repeat {
-					print(" -> [PROMPT] your email address (to notify of critical events): ", terminator:"")
+					print(" -> [PROMPT](required) your email address (to notify of critical events): ", terminator:"")
 					adminEmail = readLine()
 				} while adminEmail == nil || adminEmail!.count == 0 || adminEmail!.validateEmail() == false
 				
@@ -965,6 +965,7 @@ struct WiremanD {
 					case handshakeCheckError
 					case endpointCheckError
 					case databaseActionError
+					case noEndpointProvided
 				}
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this function must be run as the wiremand user")
@@ -1020,51 +1021,56 @@ struct WiremanD {
 						}
 						
 						for curEndpointLine in checkEndpoints.stdout {
-							guard let lineString = String(data:curEndpointLine, encoding:.utf8), let tabSepIndex = lineString.firstIndex(of:"\t"), lineString.endIndex > tabSepIndex else {
-								Self.appLogger.error("invalid line data - no tab break found")
-								throw Error.endpointCheckError
-							}
-							
-							let pubKeySectComplete = String(lineString[lineString.startIndex..<tabSepIndex])
-							let addrSectComplete = lineString[lineString.index(after:tabSepIndex)..<lineString.endIndex]
-								
-							guard let portSepIndex = addrSectComplete.lastIndex(of:":"), portSepIndex < addrSectComplete.endIndex else {
-								Self.appLogger.error("invalid line data returned in endpoint check")
-								throw Error.endpointCheckError
-							}
-							let addrSect = String(addrSectComplete[addrSectComplete.startIndex..<portSepIndex])
-							let portSect = String(addrSectComplete[addrSectComplete.index(after:portSepIndex)..<addrSectComplete.endIndex])
-							
-							guard addrSect.count > 0 && portSect.count > 0 else {
-								Self.appLogger.error("unable to parse data line. zero counts were identified", metadata:["addrSect_count": "\(addrSect.count)", "portSect_count": "\(portSect.count)"])
-								throw Error.endpointCheckError
-							}
-							
-							guard let _ = UInt16(portSect) else {
-								Self.appLogger.error("unable to parse endpoint port", metadata:["port_string": "'\(portSect)'", "string_count": "\(portSect.count)"])
-								throw Error.endpointCheckError
-							}
-							
-							// determine if ipv6
-							if (addrSect.first == "[" && addrSect.last == "]" && addrSect.contains(":") == true) {
-								// ipv6
-								let asStr = String(addrSect[addrSect.index(after:addrSect.startIndex)..<addrSect.index(before:addrSect.endIndex)])
-								guard let asV6 = AddressV6(asStr) else {
-									Self.appLogger.error("unable to parse IPv6 address from wireguard endpoints output", metadata:["ip": "\(asStr)"])
+							do {
+								guard let lineString = String(data:curEndpointLine, encoding:.utf8), let tabSepIndex = lineString.firstIndex(of:"\t"), lineString.endIndex > tabSepIndex else {
+									Self.appLogger.error("invalid line data - no tab break found")
 									throw Error.endpointCheckError
 								}
 								
-								endpoints[pubKeySectComplete] = asV6.string
-							} else if addrSect.contains(".") == true {
-								// ipv4
-								guard let asV4 = AddressV4(addrSect) else {
-									Self.appLogger.error("unable to parse IPv4 address from wireguard endpoints output", metadata:["ip": "\(addrSect)"])
+								let pubKeySectComplete = String(lineString[lineString.startIndex..<tabSepIndex])
+								let addrSectComplete = lineString[lineString.index(after:tabSepIndex)..<lineString.endIndex]
+								
+								Self.appLogger.info("parsed endpoint data line", metadata:["pubKey":"\(pubKeySectComplete)", "addr":"\(addrSectComplete)"])
+								
+								guard let portSepIndex = addrSectComplete.lastIndex(of:":"), portSepIndex < addrSectComplete.endIndex else {
+									Self.appLogger.trace("client does not have an endpoint", metadata:["pubKey":"\(pubKeySectComplete)"])
+									throw Error.noEndpointProvided
+								}
+								let addrSect = String(addrSectComplete[addrSectComplete.startIndex..<portSepIndex])
+								let portSect = String(addrSectComplete[addrSectComplete.index(after:portSepIndex)..<addrSectComplete.endIndex])
+								
+								guard addrSect.count > 0 && portSect.count > 0 else {
+									Self.appLogger.error("unable to parse data line. zero counts were identified", metadata:["addrSect_count": "\(addrSect.count)", "portSect_count": "\(portSect.count)"])
 									throw Error.endpointCheckError
 								}
 								
-								endpoints[pubKeySectComplete] = asV4.string
-							} else {
-								throw Error.endpointCheckError
+								guard let _ = UInt16(portSect) else {
+									Self.appLogger.error("unable to parse endpoint port", metadata:["port_string": "'\(portSect)'", "string_count": "\(portSect.count)"])
+									throw Error.endpointCheckError
+								}
+								
+								// determine if ipv6
+								if (addrSect.first == "[" && addrSect.last == "]" && addrSect.contains(":") == true) {
+									// ipv6
+									let asStr = String(addrSect[addrSect.index(after:addrSect.startIndex)..<addrSect.index(before:addrSect.endIndex)])
+									guard let asV6 = AddressV6(asStr) else {
+										Self.appLogger.error("unable to parse IPv6 address from wireguard endpoints output", metadata:["ip": "\(asStr)"])
+										throw Error.endpointCheckError
+									}
+									
+									endpoints[pubKeySectComplete] = asV6.string
+								} else if addrSect.contains(".") == true {
+									// ipv4
+									guard let asV4 = AddressV4(addrSect) else {
+										Self.appLogger.error("unable to parse IPv4 address from wireguard endpoints output", metadata:["ip": "\(addrSect)"])
+										throw Error.endpointCheckError
+									}
+									
+									endpoints[pubKeySectComplete] = asV4.string
+								} else {
+									throw Error.endpointCheckError
+								}
+							} catch Error.noEndpointProvided {
 							}
 						}
 						
