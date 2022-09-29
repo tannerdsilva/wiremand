@@ -20,7 +20,7 @@ class IPDatabase {
 	internal static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads:2)
 	fileprivate static func makeLogger() -> Logger {
 		var newLogger = Logger(label:"ipdb")
-		newLogger.logLevel = .debug
+		newLogger.logLevel = .trace
 		return newLogger
 	}
 	internal static let logger = makeLogger()
@@ -349,6 +349,7 @@ class IPDatabase {
 		var currentAddress:String
 		var accessKey:String
 		do {
+			Self.logger.trace("opening initial LMDB transaction for resolver main loop")
 			// open a transaction and verify that our PID is not being used. if not, commit the PID to the database and begin resolving
 			 (currentAddress, accessKey) = try env.transact(readOnly:false) { someTrans -> (String, String) in
 				// verify again that the current PID is not taken in the database. then return the address string that is to be resolved
@@ -366,6 +367,7 @@ class IPDatabase {
 			return
 		}
 		
+		Self.logger.trace("successfully finished initial LMDB transaction", metadata:["address":"\(currentAddress)", "access_key":"\(accessKey)"])
 		var i = 0
 		defer {
 			if (i < 0) {
