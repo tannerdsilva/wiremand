@@ -486,7 +486,7 @@ class IPDatabase {
 			}
 			try? makeEnv.transact(readOnly:false) { someTrans in
 				Self.logger.trace("main transaction opened")
-				try! self.launchResolver(tx:someTrans)
+				try self.launchResolver(tx:someTrans)
 			}
 		}
 	}
