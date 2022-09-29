@@ -482,6 +482,9 @@ class IPDatabase {
 		
 		Task.detached {
 			Self.logger.info("running resolver task with instance initialization...")
+			defer {
+				Self.logger.trace("exiting")
+			}
 			try? makeEnv.transact(readOnly:false) { someTrans in
 				Self.logger.trace("main transaction opened")
 				try self.launchResolver(tx:someTrans)
