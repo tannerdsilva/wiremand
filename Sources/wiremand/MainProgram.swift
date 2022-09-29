@@ -981,7 +981,7 @@ struct WiremanD {
 										print(Colors.dim("\n  - Connected at \(hasEndpoint)"), terminator:"")
 									}
 								} else {
-									print(Colors.dim("\n  - From unknown endpoint"), terminator:"")
+									print(Colors.dim("\n  - At unknown endpoint"), terminator:"")
 								}
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
 								print(Colors.Red("- \(curClient.name)"), terminator:"")
@@ -999,7 +999,7 @@ struct WiremanD {
 										print(Colors.dim("at \(hasEndpoint)"), terminator:"")
 									}
 								} else {
-									print(Colors.dim("from unknown endpoint"), terminator:"")
+									print(Colors.dim("at unknown endpoint"), terminator:"")
 								}
 							}
 						}
