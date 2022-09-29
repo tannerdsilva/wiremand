@@ -327,6 +327,7 @@ class IPDatabase {
 		// fly baby fly
 		Task.detached {
 			do {
+				Self.logger.info("launching resolver...")
 				try await self.resolver_mainLoop()
 			} catch let error {
 				let myPID = getpid()
