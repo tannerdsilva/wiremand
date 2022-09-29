@@ -181,7 +181,7 @@ class IPDatabase {
 					if checkPid != 0 {
 						Self.logger.trace("dead resolver pid found.")
 						try resolvingPID_pendingIP.setEntry(value:curPendingIP, forKey:myPID, flags:[.noOverwrite], tx:someTrans)
-						try resolvingPIDCursor.setEntry(value:myPID, forKey:curPendingIP, flags:[.noOverwrite])
+						try resolvingPIDCursor.setEntry(value:myPID, forKey:curPendingIP)
 						Self.logger.debug("resolver pid assigned to pending ip address", metadata:["ip": "\(curIPString)"])
 						return curIPString
 					} else {
@@ -298,36 +298,31 @@ class IPDatabase {
 	fileprivate func launchResolver(tx parentTrans:Transaction) throws {
 		// check if the access key is initialized before we launch a task
 		Self.logger.trace("attempting to launch resolver. opening readonly subtransaction...")
-		let shouldReturn = try parentTrans.transact(readOnly:true) { someTrans -> Bool in
-			let myPID = getpid();
-			Self.logger.trace("readonly subtransaction successfully opened")
-			defer {
-				Self.logger.trace("returning")
-			}
-			// verify that there is a valid API key in the database that we can use
-			do {
-				let _ = try self.metadata.getEntry(type:String.self, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans)
-			} catch LMDBError.notFound {
-				Self.logger.debug("resolver not launched - missing access key")
-				throw LMDBError.notFound
-			}
-			
-			// verify that this pid is not already resolving something
-			guard try self.resolvingPID_pendingIP.containsEntry(key:myPID, tx:someTrans) == false else {
-				Self.logger.debug("resolver not launched - this pid is already resolving an address.")
-				throw LMDBError.keyExists
-			}
-			
-			guard try self.pendingIP_date.getStatistics(tx:someTrans).entries > 0 else {
-				Self.logger.debug("resolver not launched. there are no pending ip addresses.")
-				return true
-			}
-			return false
+		let myPID = getpid();
+		Self.logger.trace("readonly subtransaction successfully opened")
+		defer {
+			Self.logger.trace("returning")
 		}
-		Self.logger.debug("initial resolver transaction completed.", metadata:["should_return":"\(shouldReturn)"])
-		if shouldReturn {
+		// verify that there is a valid API key in the database that we can use
+		do {
+			let _ = try self.metadata.getEntry(type:String.self, forKey:Metadatas.ipstackAccessKey.rawValue, tx:parentTrans)
+		} catch LMDBError.notFound {
+			Self.logger.debug("resolver not launched - missing access key")
+			throw LMDBError.notFound
+		}
+		
+		// verify that this pid is not already resolving something
+		guard try self.resolvingPID_pendingIP.containsEntry(key:myPID, tx:parentTrans) == false else {
+			Self.logger.debug("resolver not launched - this pid is already resolving an address.")
+			throw LMDBError.keyExists
+		}
+		
+		guard try self.pendingIP_date.getStatistics(tx:parentTrans).entries > 0 else {
+			Self.logger.debug("resolver not launched. there are no pending ip addresses.")
 			return
 		}
+			
+		Self.logger.debug("initial resolver transaction completed.", metadata:["should_return":"false"])
 		
 		// fly baby fly
 		Task.detached {
@@ -491,7 +486,7 @@ class IPDatabase {
 			}
 			try? makeEnv.transact(readOnly:false) { someTrans in
 				Self.logger.trace("main transaction opened")
-				try self.launchResolver(tx:someTrans)
+				try! self.launchResolver(tx:someTrans)
 			}
 		}
 	}
@@ -505,6 +500,12 @@ class IPDatabase {
 	func getResolveStatus(address:AddressV6) throws -> ResolveStatus {
 		return try env.transact(readOnly:true) { someTrans in
 			return try self.getResolveStatus(ipString:address.string, tx:someTrans)
+		}
+	}
+	
+	func getResolveStatus(address:String) throws -> ResolveStatus {
+		return try env.transact(readOnly:true) { someTrans in
+			return try self.getResolveStatus(ipString:address, tx:someTrans)
 		}
 	}
 	

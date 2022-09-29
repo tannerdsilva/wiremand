@@ -940,24 +940,57 @@ struct WiremanD {
 				let daemonDB = try DaemonDB(directory:dbPath, running:false)
 				let allClients = try daemonDB.wireguardDatabase.allClients()
 				let subnetSort = Dictionary(grouping:allClients, by: { $0.subnetName })
+				let nowDate = Date()
 				for subnetToList in subnetSort.sorted(by: { $0.key < $1.key }) {
 					print(Colors.Yellow("\(subnetToList.key)"))
 					let sortedClients = subnetToList.value.sorted(by: { $0.name < $1.name })
 					for curClient in sortedClients {
 						// print the online status
 						if (curClient.lastHandshake == nil) {
-							print(Colors.dim("\t-\t\(curClient.name)"))
+							print(Colors.dim("- \(curClient.name)"))
 						} else {
 							if curClient.lastHandshake!.timeIntervalSinceNow > -150 {
-								print(Colors.Green("\t-\t\(curClient.name)"))
+								print(Colors.Green("- \(curClient.name)"))
+								if let hasEndpoint = curClient.endpoint {
+									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
+										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
+											print(Colors.dim("  - From \(hasCity), \(hasState) at \(hasEndpoint)"))
+										} else if let hasState = resInfo.region?.name {
+											print(Colors.dim("  - From \(hasState) at \(hasEndpoint)"), terminator:"")
+										}
+									} else {
+										print(Colors.dim("  - Connected at \(hasEndpoint)"), terminator:"")
+									}
+								} else {
+									print(Colors.dim("  - From unknown endpoint"))
+								}
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
-								print(Colors.Red("\t-\t\(curClient.name)"))
+								print(Colors.Red("- \(curClient.name)"))
 							} else {
-								print("\t-\t\(curClient.name)")
+								print("- \(curClient.name)")
+								if let hasEndpoint = curClient.endpoint {
+									print(Colors.dim("  - \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
+									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
+										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
+											print(Colors.dim("from \(hasCity), \(hasState) at \(hasEndpoint)"))
+										} else if let hasState = resInfo.region?.name {
+											print(Colors.dim("from \(hasState) at \(hasEndpoint)"), terminator:"")
+										}
+									} else {
+										print(Colors.dim("\(hasEndpoint)"), terminator:"")
+									}
+								} else {
+									print(Colors.dim("from unknown endpoint"))
+								}
 							}
 						}
 					}
 				}
+			}
+			
+						
+			$0.command("ipdbtest") {
+				
 			}
 						
 			$0.command("run") {

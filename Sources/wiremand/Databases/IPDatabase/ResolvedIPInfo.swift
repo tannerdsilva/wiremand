@@ -56,9 +56,9 @@ extension IPDatabase {
 		let city:String?
 		let zip:String?
 		let isp:String
-		let threatLevel:String
 		
 		init(apiResponse:[String:Any]) throws {
+			WiremanD.appLogger.info("initializing resolved IP structure", metadata:["api_resp":"\(String(describing:apiResponse))"])
 			self.continent = try? ContinentInfo(apiResponse:apiResponse)
 			self.country = try? CountryInfo(apiResponse:apiResponse)
 			self.region = try? RegionInfo(apiResponse:apiResponse)
@@ -68,10 +68,10 @@ extension IPDatabase {
 				throw Error.missingISPInfo
 			}
 			self.isp = hasISP
-			guard let hasSecurity = apiResponse["security"] as? [String:Any], let hasThreatLevel = hasSecurity["threat_level"] as? String else {
-				throw Error.missingThreatInfo
-			}
-			self.threatLevel = hasThreatLevel
+//			guard let hasSecurity = apiResponse["security"] as? [String:Any], let hasThreatLevel = hasSecurity["threat_level"] as? String else {
+//				throw Error.missingThreatInfo
+//			}
+//			self.threatLevel = hasThreatLevel
 			
 		}
 
@@ -81,7 +81,7 @@ extension IPDatabase {
 				var buildURL = URLComponents()
 				buildURL.scheme = "https"
 				buildURL.host = "api.ipstack.com"
-				buildURL.path = "\(addressString)"
+				buildURL.path = "/\(addressString)"
 				buildURL.queryItems = [URLQueryItem(name:"access_key", value:accessKey)]
 				let clientRequest:HTTPClient.Request
 				do {
@@ -106,7 +106,7 @@ extension IPDatabase {
 					}
 					do {
 						let resolvedIPInfo = try ResolvedIPInfo(apiResponse:jsonSerialization)
-						logger.info("successfully resolved IPv4 metadata", metadata:["address": "\(addressString)", "threat_level":"\(resolvedIPInfo.threatLevel)", "duration":"\(launchtime.timeIntervalSinceNow)"])
+						logger.info("successfully resolved IPv4 metadata", metadata:["address": "\(addressString)", "duration":"\(launchtime.timeIntervalSinceNow)"])
 						myCont.resume(returning:resolvedIPInfo)
 					} catch let error {
 						logger.error("unable to resolve IPv4 metadata. incomplete API response.", metadata:["error": "\(error)"])

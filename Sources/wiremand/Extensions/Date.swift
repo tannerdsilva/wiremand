@@ -1,27 +1,26 @@
 import Foundation
 
 extension Date {
-	func relativeTimeString() -> String {
-		let nowTI = self.timeIntervalSinceNow
-		if (nowTI < 0) {
-			if (abs(nowTI) < 60) {
-				return "\(floor(abs(nowTI))) seconds ago"
-			} else if (abs(nowTI) < 3600) {
-				return "\(floor(abs(nowTI / 60))) minute(s) ago"
-			} else if (abs(nowTI) < 86400) {
-				return "\(floor(abs(nowTI / 3600))) hour(s) ago"
-			} else {
-				return "\(floor(abs(nowTI / 86400))) day(s) ago"
+	func relativeTimeString(to nowTime:Date = Date()) -> String {
+		var time = self.timeIntervalSince(nowTime)
+		if (time > 0) {
+			switch time {
+			case 0..<3599:
+				return ("In \(Int(time/60)) Minutes")
+			case 3599..<86399:
+				return time <= 7200 ? ("In 1 Hour"): ("In \(Int(time/3600)) Hours")
+			default:
+				return time <= 172800 ? ("In 1 Day"): ("In \(Int(time/86400)) Days")
 			}
 		} else {
-			if (abs(nowTI) < 60) {
-				return "In \(floor(abs(nowTI))) seconds"
-			} else if (abs(nowTI) < 3600) {
-				return "In \(floor(abs(nowTI / 60))) minute(s)"
-			} else if (abs(nowTI) < 86400) {
-				return "In \(floor(abs(nowTI / 3600))) hour(s)"
-			} else {
-				return "In \(floor(abs(nowTI / 86400))) day(s)"
+			time = abs(time)
+			switch time {
+			case 0..<3599:
+				return ("\(Int(time/60)) Minutes Ago")
+			case 3599..<86399:
+				return time <= 7200 ? ("1 Hour Ago"): ("\(Int(time/3600)) Hours Ago")
+			default:
+				return time <= 172800 ? ("1 Day Ago"): ("\(Int(time/86400)) Days Ago")
 			}
 		}
 	}
