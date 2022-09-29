@@ -999,7 +999,7 @@ struct WiremanD {
 										print(Colors.dim("at \(hasEndpoint)"), terminator:"")
 									}
 								} else {
-									print(Colors.dim("from unknown endpoint"))
+									print(Colors.dim("from unknown endpoint"), terminator:"")
 								}
 							}
 						}
