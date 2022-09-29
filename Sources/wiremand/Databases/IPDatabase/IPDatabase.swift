@@ -320,6 +320,7 @@ class IPDatabase {
 			}
 			return false
 		}
+		Self.logger.debug("initial resolver transaction completed.", metadata:["should_return":"\(shouldReturn)"])
 		if shouldReturn {
 			return
 		}
@@ -478,6 +479,7 @@ class IPDatabase {
 		self.ipHash_ipString = dbs[11]
 		
 		Task.detached {
+			Self.logger.info("running resolver task with instance initialization...")
 			try? makeEnv.transact(readOnly:false) { someTrans in
 				try self.launchResolver(tx:someTrans)
 			}
