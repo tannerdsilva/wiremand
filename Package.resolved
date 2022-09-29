@@ -11,6 +11,15 @@
         }
       },
       {
+        "package": "async-http-client",
+        "repositoryURL": "https://github.com/swift-server/async-http-client.git",
+        "state": {
+          "branch": null,
+          "revision": "fc510a39cff61b849bf5cdff17eb2bd6d0777b49",
+          "version": "1.11.5"
+        }
+      },
+      {
         "package": "BigInt",
         "repositoryURL": "https://github.com/attaswift/BigInt.git",
         "state": {
@@ -60,8 +69,8 @@
         "repositoryURL": "https://github.com/tannerdsilva/QuickLMDB.git",
         "state": {
           "branch": null,
-          "revision": "c716086ee16e8a36fe15e58f1911255578176c29",
-          "version": "1.0.0"
+          "revision": "ee6329614cdb1b29ac484828bfff55a2730e1192",
+          "version": "1.0.2"
         }
       },
       {
@@ -188,6 +197,15 @@
           "branch": null,
           "revision": "836bc4557b74fe6d2660218d56e3ce96aff76574",
           "version": "1.1.1"
+        }
+      },
+      {
+        "package": "SwiftDate",
+        "repositoryURL": "https://github.com/tannerdsilva/SwiftDate.git",
+        "state": {
+          "branch": "master",
+          "revision": "ef1ee3c670f2fca251fc6dd24912dc8c30b17194",
+          "version": null
         }
       },
       {
