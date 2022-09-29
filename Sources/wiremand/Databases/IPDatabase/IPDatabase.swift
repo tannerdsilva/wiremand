@@ -297,9 +297,13 @@ class IPDatabase {
 	// launches a resolver for the current running PID
 	fileprivate func launchResolver(tx parentTrans:Transaction) throws {
 		// check if the access key is initialized before we launch a task
+		Self.logger.trace("attempting to launch resolver. opening readonly subtransaction...")
 		let shouldReturn = try parentTrans.transact(readOnly:true) { someTrans -> Bool in
 			let myPID = getpid();
-			
+			Self.logger.trace("readonly subtransaction successfully opened")
+			defer {
+				Self.logger.trace("returning")
+			}
 			// verify that there is a valid API key in the database that we can use
 			do {
 				let _ = try self.metadata.getEntry(type:String.self, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans)
