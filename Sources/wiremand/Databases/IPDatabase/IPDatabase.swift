@@ -483,6 +483,7 @@ class IPDatabase {
 		Task.detached {
 			Self.logger.info("running resolver task with instance initialization...")
 			try? makeEnv.transact(readOnly:false) { someTrans in
+				Self.logger.trace("main transaction opened")
 				try self.launchResolver(tx:someTrans)
 			}
 		}
