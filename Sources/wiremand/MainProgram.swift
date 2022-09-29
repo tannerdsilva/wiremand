@@ -399,6 +399,25 @@ struct WiremanD {
 				try daemonDB.addNotifyUser(name:adminName!, email: adminEmail!)
 				try await CertbotExecute.updateNotifyUsers(daemon: daemonDB)
 			}
+			
+			$0.command("set_ipstack_api",
+				Argument<String>("api key", description:"The API key to enable IPStack tracing with")
+			) { apiKey in
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this program must be run as `wiremand` user")
+				}
+				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				try daemonDB.ipdb.setIPStackKey(apiKey)
+			}
+			
+			$0.command("get_ipstack_api") {
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this program must be run as `wiremand` user")
+				}
+				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				let apiKey = try daemonDB.ipdb.getIPStackKey()
+				print("\(apiKey)")
+			}
 
 			$0.command("notify_remove",
 				Option<String?>("email", default:nil, description:"The email of the user that is to removed from system critical notifications.")

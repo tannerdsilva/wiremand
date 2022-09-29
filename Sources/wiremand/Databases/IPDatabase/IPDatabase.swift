@@ -491,6 +491,18 @@ class IPDatabase {
 		}
 	}
 	
+	func getIPStackKey() throws -> String {
+		try env.transact(readOnly:true) { someTrans in
+			try self.metadata.getEntry(type:String.self, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans)!
+		}
+	}
+		
+	func setIPStackKey(_ apiKey:String) throws { 
+		try env.transact(readOnly:false) { someTrans in
+			try self.metadata.setEntry(value:apiKey, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans) 
+		}
+	}
+	
 	func getResolveStatus(address:AddressV4) throws -> ResolveStatus {
 		return try env.transact(readOnly:true) { someTrans in
 			return try self.getResolveStatus(ipString:address.string, tx:someTrans)
