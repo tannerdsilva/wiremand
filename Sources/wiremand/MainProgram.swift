@@ -27,18 +27,15 @@ struct WiremanD {
 		let domainData = domain.lowercased().data(using:.utf8)!
 		return try Blake2bHasher.hash(data:domainData, length:64).base64EncodedString()
 	}
+	static func initializeProcess() {
+		umask(000)
+		Self.appLogger.trace("process umask cleared", metadata:["mode":"000"])
+	}
 	static var appLogger = Logger(label:"wiremand")
 
 	static func main() async throws {
+		initializeProcess()
 		await AsyncGroup {
-			#if DEBUG
-			$0.command("ipdb-test",
-				Argument<Int>("accessKey")
-			) { pidArg in
-				let asPid = pid_t(exactly:pidArg)!
-				print("\(kill(asPid, 0))")
-			}
-			#endif
 			$0.command("install",
 			   Option<String>("interfaceName", default:"wg2930"),
 			   Option<String>("user", default:"wiremand"),
@@ -362,6 +359,25 @@ struct WiremanD {
 				appLogger.info("wiremand successfully updated")
 			}
 			
+			$0.command("set_ipstack_api",
+				Argument<String>("api key", description:"The API key to enable IPStack tracing with")
+			) { apiKey in
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this program must be run as `wiremand` user")
+				}
+				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				try daemonDB.ipdb.setIPStackKey(apiKey)
+			}
+			
+			$0.command("get_ipstack_api") {
+				guard getCurrentUser() == "wiremand" else {
+					fatalError("this program must be run as `wiremand` user")
+				}
+				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				let apiKey = try daemonDB.ipdb.getIPStackKey()
+				print("\(apiKey)")
+			}
+
 			$0.command("notify_add",
 			   Option<String?>("name", default:nil, description:"The name of the user that is to be notified of system critical events."),
 			   Option<String?>("email", default:nil, description:"The email of the user that is to be notified of system critical events.")
@@ -400,25 +416,6 @@ struct WiremanD {
 				try await CertbotExecute.updateNotifyUsers(daemon: daemonDB)
 			}
 			
-			$0.command("set_ipstack_api",
-				Argument<String>("api key", description:"The API key to enable IPStack tracing with")
-			) { apiKey in
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this program must be run as `wiremand` user")
-				}
-				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
-				try daemonDB.ipdb.setIPStackKey(apiKey)
-			}
-			
-			$0.command("get_ipstack_api") {
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this program must be run as `wiremand` user")
-				}
-				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
-				let apiKey = try daemonDB.ipdb.getIPStackKey()
-				print("\(apiKey)")
-			}
-
 			$0.command("notify_remove",
 				Option<String?>("email", default:nil, description:"The email of the user that is to removed from system critical notifications.")
 			) { removeEmail in
@@ -478,9 +475,9 @@ struct WiremanD {
 				let (newSubnet, newSK) = try daemonDB.wireguardDatabase.subnetMake(name:domainName.lowercased())
 				let domainHash = try WiremanD.hash(domain:domainName)
 				print("[OK] - created domain \(domainName)")
-				print("\t->sk: \(newSK)")
-				print("\t->dk: \(domainHash)")
-				print("\t->subnet: \(newSubnet.cidrString)")
+				print("\t-> sk: \(newSK)")
+				print("\t-> dk: \(domainHash)")
+				print("\t-> subnet: \(newSubnet.cidrString)")
 			}
 			
 			$0.command("domain_list") {
@@ -964,9 +961,13 @@ struct WiremanD {
 					print(Colors.Yellow("\(subnetToList.key)"))
 					let sortedClients = subnetToList.value.sorted(by: { $0.name < $1.name })
 					for curClient in sortedClients {
+						defer {
+							print("\n", terminator:"")
+						}
+						
 						// print the online status
 						if (curClient.lastHandshake == nil) {
-							print(Colors.dim("- \(curClient.name)"), terminator:"")
+							print(Colors.cyan("- \(curClient.name)"), terminator:"")
 						} else {
 							if curClient.lastHandshake!.timeIntervalSinceNow > -150 {
 								print(Colors.Green("- \(curClient.name)"), terminator:"")
@@ -986,8 +987,7 @@ struct WiremanD {
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
 								print(Colors.Red("- \(curClient.name)"), terminator:"")
 							} else {
-								print("- \(curClient.name)", terminator:"")
-								print(Colors.dim("\n  - \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
+								print("- \(curClient.name)\t(\(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()))", terminator:"")
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
 										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
@@ -1003,13 +1003,24 @@ struct WiremanD {
 								}
 							}
 						}
-						print("\n", terminator:"")
 					}
 				}
 			}
 			
 						
 			$0.command("ipdbtest") {
+				
+//				guard let wmdGid = getgrnam("wiremand") else {
+//					fatalError("no wiremand group found")
+//				}
+//				var i = 0;
+//				while let curMem = wmdGid.pointee.gr_mem[i]  {
+//					let curMemName = String(cString:curMem)
+//
+//				}
+				
+				let database = try IPDatabase(base:URL(fileURLWithPath:"/Users/tannerdsilva/Desktop"))
+				
 				
 			}
 						

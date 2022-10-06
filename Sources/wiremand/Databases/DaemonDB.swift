@@ -3,6 +3,7 @@ import Foundation
 import CLMDB
 import NIO
 import SwiftSMTP
+import SystemPackage
 
 extension Task:MDB_convertible {
     public init?(_ value: MDB_val) {
@@ -76,11 +77,39 @@ actor DaemonDB {
 	let ipdb:IPDatabase
 	
     init(directory:URL, running:Bool = true) throws {
-		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir, .noSync, .noReadAhead], mapSize:75000000000, maxDBs:128)
-		try makeEnv.readerCheck()
+		// define the paths of the database
+		let makeEnvPath = directory.appendingPathComponent("daemon-dbi")
+		let makeEnvLockPath = directory.appendingPathComponent("daemon-dbi-lock")
+		
+		let ro:Bool
+		var mdb_flags:Environment.Flags = [.noSync, .noSubDir, .noReadAhead]
+		
+		//validate the file exists
+		if (access(makeEnvPath.path, F_OK) == 0) {
+			guard access(makeEnvPath.path, R_OK | X_OK) == 0 else {
+				throw LMDBError.other(returnCode:EACCES)
+			}
+			if access(makeEnvPath.path, W_OK) != 0 {
+				ro = true
+				mdb_flags.update(with:.readOnly)
+			} else {
+				ro = false
+			}
+		} else {
+			ro = false
+			do {
+				try FileDescriptor.open(makeEnvLockPath.path, .writeOnly, options:[.create], permissions:[.ownerReadWriteExecute, .groupReadWriteExecute, .otherReadWriteExecute], retryOnInterrupt:true).close()
+				try FileDescriptor.open(makeEnvPath.path, .writeOnly, options:[.create], permissions:[.ownerReadWriteExecute, .groupReadWriteExecute, .otherReadExecute], retryOnInterrupt:true).close()
+			} catch let error {
+				//log something
+				throw error
+			}
+		}
+		let makeEnv = try Environment(path:makeEnvPath.path, flags:[.noSubDir, .noSync, .noReadAhead], mapSize:75000000000, maxDBs:128)
+		
 		let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
-            let metadataDB = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[], tx:someTrans)
-            let scheduledTasks = try makeEnv.openDatabase(named:Databases.scheduleTasks.rawValue, flags:[], tx:someTrans)
+            let metadataDB = try makeEnv.openDatabase(named:Databases.metadata.rawValue, tx:someTrans)
+            let scheduledTasks = try makeEnv.openDatabase(named:Databases.scheduleTasks.rawValue, tx:someTrans)
             let scheduleIntervalDB = try makeEnv.openDatabase(named:Databases.scheduleInterval.rawValue, flags:[], tx:someTrans)
             let scheduleLastFire = try makeEnv.openDatabase(named:Databases.scheduleLastFireDate.rawValue, flags:[], tx:someTrans)
 			let notifyDB = try makeEnv.openDatabase(named:Databases.notifyUsers.rawValue, flags:[], tx:someTrans)

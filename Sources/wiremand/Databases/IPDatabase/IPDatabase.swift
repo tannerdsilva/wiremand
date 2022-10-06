@@ -16,11 +16,16 @@ class IPDatabase {
 		case resolverLaunchError
 		case pendingRemovalError
 		case ipStackNotConfigured
+		case accessError
 	}
 	internal static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads:2)
 	fileprivate static func makeLogger() -> Logger {
 		var newLogger = Logger(label:"ipdb")
-		newLogger.logLevel = .trace
+		#if DEBUG
+			newLogger.logLevel = .trace
+		#else
+			newLogger.logLevel = .info
+		#endif
 		return newLogger
 	}
 	internal static let logger = makeLogger()
@@ -134,7 +139,7 @@ class IPDatabase {
 		try parentTrans.transact(readOnly:false) { someTrans in
 			try self.date_pendingIP.setEntry(value:address, forKey:makeDate, flags:[.noOverwrite], tx:someTrans)
 			try self.pendingIP_date.setEntry(value:makeDate, forKey:address, flags:[.noOverwrite], tx:someTrans)
-			Self.logger.debug("pending IP (string) installed", metadata:["address": "\(address)"])
+			Self.logger.debug("pending IP (string) installed", metadata:["address_string": "\(address)"])
 		}
 	}
 	
@@ -327,7 +332,7 @@ class IPDatabase {
 		// fly baby fly
 		Task.detached {
 			do {
-				Self.logger.info("launching resolver...")
+				Self.logger.debug("launching resolver...")
 				try await self.resolver_mainLoop()
 			} catch let error {
 				let myPID = getpid()
@@ -413,81 +418,119 @@ class IPDatabase {
 	}
 	
 	init(base:URL, apiKey:String? = nil) throws {
+		//validate that the base exists. the base must exist before anyting is done
 		let makeEnvPath = base.appendingPathComponent("ip-db", isDirectory:false)
-		
-		let makeEnv = try Environment(path:makeEnvPath.path, flags:[.noSync, .noSubDir], mapSize:4000000000, maxDBs:16, mode:[.ownerReadWriteExecute, .groupReadWriteExecute, .otherReadExecute])
-		Self.logger.trace("lmdb environment created")
+		let makeEnvLockPath = base.appendingPathComponent("ip-db-lock", isDirectory:false)
 		
 		// determine what kind of access we have to the memorymap
-		let accessVal = access(base.path, R_OK | W_OK | X_OK)
-		if accessVal != 0 {
-			Self.logger.error("access check error on database path", metadata:["exitCode": "\(accessVal)", "errno": "\(errno)", "path": "\(makeEnvPath.path)", "w_ok": "\(accessVal & W_OK)", "r_ok": "\(accessVal & R_OK)", "x_ok": "\(accessVal & X_OK)"])
+		let ro:Bool
+		var mdb_flags:Environment.Flags = [.noSync, .noSubDir, .noReadAhead]
+		if access(makeEnvPath.path, F_OK) == 0 {
+			// validate the file exists
+			guard access(makeEnvPath.path, R_OK | X_OK) == 0 else {
+				Self.logger.error("access error, cannot read and execute database", metadata:["path":"\(makeEnvPath.path)"])
+				throw LMDBError.other(returnCode:EACCES)
+			}
+			if access(makeEnvPath.path, W_OK) != 0 {
+				ro = true
+				mdb_flags.update(with:.readOnly)
+				Self.logger.trace("no write permissions detected. readonly mode enabled.")
+			} else {
+				ro = false
+				Self.logger.trace("write permissions present. read/write mode enabled.")
+			}
 		} else {
-			Self.logger.debug("access check for database passed")
-		}
-		let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
-			let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
-			
-			if apiKey != nil {
-				try meta.setEntry(value:apiKey!, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans)
-			}
-			
-			let rPID_pIP = try makeEnv.openDatabase(named:Databases.resolvingPID_pendingIP.rawValue, flags:[.create], tx:someTrans)
-			let pIP_rPID = try makeEnv.openDatabase(named:Databases.pendingIP_resolvingPID.rawValue, flags:[.create], tx:someTrans)
-			
-			let d_pIP = try makeEnv.openDatabase(named:Databases.date_pendingIP.rawValue, flags:[.create], tx:someTrans)
-			let pIP_d = try makeEnv.openDatabase(named:Databases.pendingIP_date.rawValue, flags:[.create], tx:someTrans)
-			
-			let ipH_dat = try makeEnv.openDatabase(named:Databases.ipHash_resolvedData.rawValue, flags:[.create], tx:someTrans)
-			let ipH_date = try makeEnv.openDatabase(named:Databases.ipHash_resolveSuccessDate.rawValue, flags:[.create], tx:someTrans)
-			let date_ipH = try makeEnv.openDatabase(named:Databases.resolveSuccessDate_ipHash.rawValue, flags:[.create], tx:someTrans)
-			
-			let resFD_ipH = try makeEnv.openDatabase(named:Databases.resolveFailDate_ipHash.rawValue, flags:[.create], tx:someTrans)
-			let ipH_resFD = try makeEnv.openDatabase(named:Databases.ipHash_resolveFailDate.rawValue, flags:[.create], tx:someTrans)
-			let ipH_resFM = try makeEnv.openDatabase(named:Databases.ipHash_resolveFailMessage.rawValue, flags:[.create], tx:someTrans)
-			
-			let ipH_ipS = try makeEnv.openDatabase(named:Databases.ipHash_ipString.rawValue, flags:[.create], tx:someTrans)
-			
-			#if DEBUG
-			let currentlyResolvingCount:size_t = try pIP_rPID.getStatistics(tx:someTrans).entries
-			let pendingCount:size_t = try pIP_d.getStatistics(tx:someTrans).entries
-			let errorCount:size_t = try ipH_resFM.getStatistics(tx:someTrans).entries
-			let resolvedCount:size_t = try ipH_dat.getStatistics(tx:someTrans).entries
-			
-			let apiKey:String?
+			// force rw mode if the file does not exist
+			ro = false
 			do {
-				apiKey = try meta.getEntry(type:String.self, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans)
-			} catch LMDBError.notFound {
-				apiKey = nil
+				try FileDescriptor.open(makeEnvLockPath.path, .writeOnly, options:[.create], permissions: [.ownerReadWriteExecute, .groupReadWriteExecute, .otherReadWriteExecute], retryOnInterrupt:true).close()
+				try FileDescriptor.open(makeEnvPath.path, .writeOnly, options:[.create], permissions: [.ownerReadWriteExecute, .groupReadWriteExecute, .otherReadExecute], retryOnInterrupt:true).close()
+				Self.logger.trace("created lock file with unrestricted access", metadata:["path": "'\(makeEnvLockPath.path)'"])
+			} catch let error {
+				Self.logger.error("error creating unrestricted lock file", metadata:["error":"'\(String(describing:error))'", "path": "'\(makeEnvLockPath.path)'"])
+				throw error
 			}
-			Self.logger.debug("instance created", metadata:["base_path":"\(base.path)", "ipstack_api_key":"\(String(describing:apiKey))", "cur_resolving":"\(currentlyResolvingCount)", "cur_pending":"\(pendingCount)", "cur_error":"\(errorCount)", "cur_resolved":"\(resolvedCount)"])
-			#endif
-			
-			return [meta, rPID_pIP, pIP_rPID, d_pIP, pIP_d, ipH_dat, ipH_date, date_ipH, resFD_ipH, ipH_resFD, ipH_resFM, ipH_ipS]
 		}
-		self.env = makeEnv
-		self.metadata = dbs[0]
-		self.resolvingPID_pendingIP = dbs[1]
-		self.pendingIP_resolvingPID = dbs[2]
-		self.date_pendingIP = dbs[3]
-		self.pendingIP_date = dbs[4]
-		self.ipHash_resolvedData = dbs[5]
-		self.ipHash_resolveSuccessDate = dbs[6]
-		self.resolveSuccessDate_ipHash = dbs[7]
-		self.resolveFailDate_ipHash = dbs[8]
-		self.ipHash_resolveFailDate = dbs[9]
-		self.ipHash_resolveFailMessage = dbs[10]
-		self.ipHash_ipString = dbs[11]
 		
-		Task.detached {
-			Self.logger.info("running resolver task with instance initialization...")
-			defer {
-				Self.logger.trace("exiting")
+		let makeEnv:Environment
+		do {
+			makeEnv = try Environment(path:makeEnvPath.path, flags:mdb_flags, mapSize:4000000000, maxDBs:16, mode:[.ownerReadWriteExecute, .groupReadWriteExecute, .otherReadExecute])
+		} catch let error as LMDBError {
+			Self.logger.error("unable to create lmdb environment", metadata:["error": "\(error.description)", "path":"\(base.path)", "readonly": "\(ro)"])
+			throw error 
+		}
+		
+		Self.logger.trace("lmdb environment initialized")
+		
+		do {
+			let dbs = try makeEnv.transact(readOnly:ro) { someTrans -> [Database] in
+				let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
+				
+				if apiKey != nil {
+					try meta.setEntry(value:apiKey!, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans)
+				}
+				
+				let rPID_pIP = try makeEnv.openDatabase(named:Databases.resolvingPID_pendingIP.rawValue, flags:[.create], tx:someTrans)
+				let pIP_rPID = try makeEnv.openDatabase(named:Databases.pendingIP_resolvingPID.rawValue, flags:[.create], tx:someTrans)
+				
+				let d_pIP = try makeEnv.openDatabase(named:Databases.date_pendingIP.rawValue, flags:[.create], tx:someTrans)
+				let pIP_d = try makeEnv.openDatabase(named:Databases.pendingIP_date.rawValue, flags:[.create], tx:someTrans)
+				
+				let ipH_dat = try makeEnv.openDatabase(named:Databases.ipHash_resolvedData.rawValue, flags:[.create], tx:someTrans)
+				let ipH_date = try makeEnv.openDatabase(named:Databases.ipHash_resolveSuccessDate.rawValue, flags:[.create], tx:someTrans)
+				let date_ipH = try makeEnv.openDatabase(named:Databases.resolveSuccessDate_ipHash.rawValue, flags:[.create], tx:someTrans)
+				
+				let resFD_ipH = try makeEnv.openDatabase(named:Databases.resolveFailDate_ipHash.rawValue, flags:[.create], tx:someTrans)
+				let ipH_resFD = try makeEnv.openDatabase(named:Databases.ipHash_resolveFailDate.rawValue, flags:[.create], tx:someTrans)
+				let ipH_resFM = try makeEnv.openDatabase(named:Databases.ipHash_resolveFailMessage.rawValue, flags:[.create], tx:someTrans)
+				
+				let ipH_ipS = try makeEnv.openDatabase(named:Databases.ipHash_ipString.rawValue, flags:[.create], tx:someTrans)
+				
+				#if DEBUG
+				let currentlyResolvingCount:size_t = try pIP_rPID.getStatistics(tx:someTrans).entries
+				let pendingCount:size_t = try pIP_d.getStatistics(tx:someTrans).entries
+				let errorCount:size_t = try ipH_resFM.getStatistics(tx:someTrans).entries
+				let resolvedCount:size_t = try ipH_dat.getStatistics(tx:someTrans).entries
+				
+				let apiKey:String?
+				do {
+					apiKey = try meta.getEntry(type:String.self, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans)
+				} catch LMDBError.notFound {
+					apiKey = nil
+				}
+				Self.logger.debug("instance created", metadata:["base_path":"\(base.path)", "ipstack_api_key":"\(String(describing:apiKey))", "cur_resolving":"\(currentlyResolvingCount)", "cur_pending":"\(pendingCount)", "cur_error":"\(errorCount)", "cur_resolved":"\(resolvedCount)", "readonly":"\(ro)"])
+				#endif
+				
+				return [meta, rPID_pIP, pIP_rPID, d_pIP, pIP_d, ipH_dat, ipH_date, date_ipH, resFD_ipH, ipH_resFD, ipH_resFM, ipH_ipS]
 			}
-			try? makeEnv.transact(readOnly:false) { someTrans in
-				Self.logger.trace("main transaction opened")
-				try self.launchResolver(tx:someTrans)
+			self.env = makeEnv
+			self.metadata = dbs[0]
+			self.resolvingPID_pendingIP = dbs[1]
+			self.pendingIP_resolvingPID = dbs[2]
+			self.date_pendingIP = dbs[3]
+			self.pendingIP_date = dbs[4]
+			self.ipHash_resolvedData = dbs[5]
+			self.ipHash_resolveSuccessDate = dbs[6]
+			self.resolveSuccessDate_ipHash = dbs[7]
+			self.resolveFailDate_ipHash = dbs[8]
+			self.ipHash_resolveFailDate = dbs[9]
+			self.ipHash_resolveFailMessage = dbs[10]
+			self.ipHash_ipString = dbs[11]
+			
+			if ro == false {
+				Task.detached {
+					Self.logger.debug("running resolver task with instance initialization...")
+					try? makeEnv.transact(readOnly:false) { someTrans in
+						try self.launchResolver(tx:someTrans)
+					}
+				}
+			} else {
+				Self.logger.debug("resolver not being launched - readonly mode enabled.")
 			}
+			
+		} catch let error {
+			Self.logger.error("failed to create instance", metadata:["error": "\(String(describing:error))", "path":"\(makeEnvPath.path)"])
+			throw error
 		}
 	}
 	
