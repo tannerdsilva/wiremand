@@ -433,6 +433,23 @@ actor PrintDB {
 		}
 	}
 	
+	// trims any print jobs that are too old
+	nonisolated fileprivate func _deleteOldPrintJobs(mac:String, tx:Transaction) throws {
+		let macPrintCursor = try mac_printJobDate.cursor(tx:tx)
+		let macData = Data(mac.utf8)
+		for (_, curDateVal) in try macPrintCursor.makeDupIterator(key:mac) {
+			let asDate = Date(curDateVal)!
+			// if the job is older than 12 hours, delete the job
+			if (asDate.timeIntervalSinceNow < -43200) {
+				let combinedData = macData + Data(curDateVal)!
+				let jobHashData = try Blake2bHasher.hash(data:combinedData, length:16)
+				try _deleteJob(hash:jobHashData, tx:tx)
+			} else {
+				return
+			}
+		}
+	}
+	
 	// returns the oldest job token for a given mac address
 	nonisolated fileprivate func _oldestJobHash(mac:String, tx:Transaction) throws -> Data {
 		let macPrintCursor = try mac_printJobDate.cursor(tx:tx)
@@ -563,10 +580,11 @@ actor PrintDB {
 			try _documentSighting(mac:mac, ua:ua, serial:serial, status:status, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
 			do {
 				try _authenticationCheck(mac:mac, serial:serial, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
-			} catch let error where error is AuthorizationError {
+			} catch let error as AuthorizationError {
 				try someTrans.commit()
 				throw error
 			}
+			try _deleteOldPrintJobs(mac:mac, tx:someTrans)
 			do {
 				return try _oldestJobHash(mac:mac, tx:someTrans)
 			} catch LMDBError.notFound {
@@ -581,7 +599,7 @@ actor PrintDB {
 			try _documentSighting(mac:mac, ua:ua, serial:serial, status:nil, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
 			do {
 				try _authenticationCheck(mac:mac, serial:serial, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
-			} catch let error where error is AuthorizationError {
+			} catch let error as AuthorizationError {
 				try someTrans.commit()
 				throw error
 			}
@@ -596,7 +614,7 @@ actor PrintDB {
 			try _documentSighting(mac:mac, ua:ua, serial:serial, status:nil, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
 			do {
 				try _authenticationCheck(mac:mac, serial:serial, remoteAddress:remoteAddress, date:date, domain:domain, auth:auth, tx:someTrans)
-			} catch let error where error is AuthorizationError {
+			} catch let error as AuthorizationError {
 				try someTrans.commit()
 				throw error
 			}
