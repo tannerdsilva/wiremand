@@ -4,6 +4,7 @@ import CLMDB
 import NIO
 import SwiftSMTP
 import SystemPackage
+import Logging
 
 extension Task:MDB_convertible {
     public init?(_ value: MDB_val) {
@@ -28,9 +29,21 @@ extension Task:MDB_convertible {
     }
 }
 
-actor DaemonDB {
+class DaemonDB {
+	fileprivate static func makeLogger() -> Logger {
+		var newLogger = Logger(label:"ipdb")
+		#if DEBUG
+			newLogger.logLevel = .trace
+		#else
+			newLogger.logLevel = .info
+		#endif
+		return newLogger
+	}
+	internal static let logger = makeLogger()
+	
 	static func create(directory:URL, publicHTTPPort:UInt16, notify:Email.Contact) throws -> Environment {
 		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir], mapSize:75000000000, maxDBs:128, mode: [.ownerReadWriteExecute])
+		logger.info("lmdb environment successfully created")
         try makeEnv.transact(readOnly:false) { someTrans in
             let metadata = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
             _ = try makeEnv.openDatabase(named:Databases.scheduleTasks.rawValue, flags:[.create], tx:someTrans)
@@ -114,17 +127,18 @@ actor DaemonDB {
             let scheduleLastFire = try makeEnv.openDatabase(named:Databases.scheduleLastFireDate.rawValue, flags:[], tx:someTrans)
 			let notifyDB = try makeEnv.openDatabase(named:Databases.notifyUsers.rawValue, flags:[], tx:someTrans)
 			
-            if running {
+            
                 do {
                     let lastPid = try metadataDB.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
                     let checkPid = kill(lastPid, 0)
-                    guard checkPid != 0 else {
-                        throw Error.daemonAlreadyRunning
-                    }
+					if running {
+						guard checkPid != 0 else {
+							throw Error.daemonAlreadyRunning
+						}
+					}
                 } catch LMDBError.notFound {}
                 try metadataDB.setEntry(value:getpid(), forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)
                 try scheduledTasks.deleteAllEntries(tx:someTrans)
-            }
             return [metadataDB, scheduledTasks, scheduleIntervalDB, scheduleLastFire, notifyDB]
         }
         self.env = makeEnv
