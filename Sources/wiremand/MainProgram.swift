@@ -21,6 +21,7 @@ struct WiremanD {
 		return String(validatingUTF8:getpwuid(geteuid()).pointee.pw_name) ?? ""
 	}
 	static func getCurrentDatabasePath() -> URL {
+		
 		return URL(fileURLWithPath:String(cString:getpwuid(getuid())!.pointee.pw_dir))
 	}
 	static func hash(domain:String) throws -> String {
@@ -1009,19 +1010,10 @@ struct WiremanD {
 			
 						
 			$0.command("ipdbtest") {
+				let path = URL(fileURLWithPath:String(cString:getpwnam("wiremand").pointee.pw_dir))
+				let ddb = try DaemonDB(directory:path, running:false)
 				
-//				guard let wmdGid = getgrnam("wiremand") else {
-//					fatalError("no wiremand group found")
-//				}
-//				var i = 0;
-//				while let curMem = wmdGid.pointee.gr_mem[i]  {
-//					let curMemName = String(cString:curMem)
-//
-//				}
-				
-				let database = try IPDatabase(base:URL(fileURLWithPath:"/Users/tannerdsilva/Desktop"))
-				
-				
+				print("done")
 			}
 						
 			$0.command("run") {
