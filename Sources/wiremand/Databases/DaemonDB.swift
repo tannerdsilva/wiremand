@@ -142,9 +142,10 @@ class DaemonDB {
                 try metadataDB.setEntry(value:getpid(), forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)
                 try scheduledTasks.deleteAllEntries(tx:someTrans)
 			}
+			Self.logger.trace("instance initialized successfully", metadata:["readonly": "\(ro)", "this_pid_running": "\(running)"])
             return [metadataDB, scheduledTasks, scheduleIntervalDB, scheduleLastFire, notifyDB]
         }
-		Self.logger.trace("instance initialized successfully", metadata:["readonly": "\(ro)", "running": "\(running)"])
+		
         self.env = makeEnv
         self.metadata = dbs[0]
         self.scheduledTasks = dbs[1]
