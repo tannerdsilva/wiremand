@@ -100,13 +100,16 @@ class DaemonDB {
 		//validate the file exists
 		if (access(makeEnvPath.path, F_OK) == 0) {
 			guard access(makeEnvPath.path, R_OK | X_OK) == 0 else {
+				Self.logger.error("lmdb file exists but is not readable or executable")
 				throw LMDBError.other(returnCode:EACCES)
 			}
 			if access(makeEnvPath.path, W_OK) != 0 {
 				ro = true
 				mdb_flags.update(with:.readOnly)
+				Self.logger.trace("lmdb file not writable. readonly mode enabled.")
 			} else {
 				ro = false
+				Self.logger.trace("lmdb file writable. readwrite mode enabled")
 			}
 		} else {
 			ro = false
@@ -118,29 +121,30 @@ class DaemonDB {
 				throw error
 			}
 		}
-		let makeEnv = try Environment(path:makeEnvPath.path, flags:[.noSubDir, .noSync, .noReadAhead], mapSize:75000000000, maxDBs:128)
+		let makeEnv = try Environment(path:makeEnvPath.path, flags:mdb_flags, mapSize:75000000000, maxDBs:128)
 		
-		let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
+		let dbs = try makeEnv.transact(readOnly:ro) { someTrans -> [Database] in
             let metadataDB = try makeEnv.openDatabase(named:Databases.metadata.rawValue, tx:someTrans)
             let scheduledTasks = try makeEnv.openDatabase(named:Databases.scheduleTasks.rawValue, tx:someTrans)
-            let scheduleIntervalDB = try makeEnv.openDatabase(named:Databases.scheduleInterval.rawValue, flags:[], tx:someTrans)
-            let scheduleLastFire = try makeEnv.openDatabase(named:Databases.scheduleLastFireDate.rawValue, flags:[], tx:someTrans)
-			let notifyDB = try makeEnv.openDatabase(named:Databases.notifyUsers.rawValue, flags:[], tx:someTrans)
-			
-            
-                do {
-                    let lastPid = try metadataDB.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
-                    let checkPid = kill(lastPid, 0)
-					if running {
-						guard checkPid != 0 else {
-							throw Error.daemonAlreadyRunning
-						}
+            let scheduleIntervalDB = try makeEnv.openDatabase(named:Databases.scheduleInterval.rawValue, tx:someTrans)
+            let scheduleLastFire = try makeEnv.openDatabase(named:Databases.scheduleLastFireDate.rawValue, tx:someTrans)
+			let notifyDB = try makeEnv.openDatabase(named:Databases.notifyUsers.rawValue, tx:someTrans)
+			do {
+				let lastPid = try metadataDB.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
+				let checkPid = kill(lastPid, 0)
+				if running {
+					guard checkPid != 0 else {
+						throw Error.daemonAlreadyRunning
 					}
-                } catch LMDBError.notFound {}
+				}
+			} catch LMDBError.notFound {}
+			if (running == true) {
                 try metadataDB.setEntry(value:getpid(), forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)
                 try scheduledTasks.deleteAllEntries(tx:someTrans)
+			}
             return [metadataDB, scheduledTasks, scheduleIntervalDB, scheduleLastFire, notifyDB]
         }
+		Self.logger.trace("instance initialized successfully", metadata:["readonly": "\(ro)", "running": "\(running)"])
         self.env = makeEnv
         self.metadata = dbs[0]
         self.scheduledTasks = dbs[1]
@@ -148,7 +152,7 @@ class DaemonDB {
         self.scheduleLastFire = dbs[3]
 		self.notifyDB = dbs[4]
         self.wireguardDatabase = try WireguardDatabase(environment:makeEnv)
-		self.printerDatabase = try PrintDB(environment:makeEnv, directory:directory)
+		self.printerDatabase = try PrintDB(environment:makeEnv, directory:directory, readOnly:ro)
 		self.ipdb = try IPDatabase.init(base:directory)
     }
     enum Schedule:String {

@@ -331,55 +331,52 @@ actor PrintDB {
 		let un:String
 		let pw:String
 	}
-	init(environment:Environment, directory:URL) throws {
+	init(environment:Environment, directory:URL, readOnly:Bool) throws {
         let makeEnv = environment
-        let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
-            let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
-            let p_m = try makeEnv.openDatabase(named:Databases.tcpPortNumber_mac.rawValue, flags:[.create], tx:someTrans)
-            let m_p = try makeEnv.openDatabase(named:Databases.mac_tcpPortNumber.rawValue, flags:[.create], tx:someTrans)
-            let mac_un = try makeEnv.openDatabase(named:Databases.mac_un.rawValue, flags:[.create], tx:someTrans)
-			let mac_pw = try makeEnv.openDatabase(named:Databases.mac_pw.rawValue, flags:[.create], tx:someTrans)
-			let mac_sub = try makeEnv.openDatabase(named:Databases.mac_subnetName.rawValue, flags:[.create], tx:someTrans)
-			let mac_cutMode:Database
-			do {
-				mac_cutMode = try makeEnv.openDatabase(named:Databases.mac_cutMode.rawValue, flags:[], tx:someTrans)
-			} catch LMDBError.notFound {
-				mac_cutMode = try makeEnv.openDatabase(named:Databases.mac_cutMode.rawValue, flags:[.create], tx:someTrans)
-				let macCursor = try mac_sub.cursor(tx:someTrans)
-				for curMac in macCursor {
-					try mac_cutMode.setEntry(value:CutMode.full.rawValue, forKey:String(curMac.key)!, tx:someTrans)
-				}
+        let dbs = try makeEnv.transact(readOnly:readOnly) { someTrans -> [Database] in
+			let flags:Database.Flags
+			if (readOnly == false) {
+				flags = []
+			} else {
+				flags = [.create]
 			}
+            let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:flags, tx:someTrans)
+            let p_m = try makeEnv.openDatabase(named:Databases.tcpPortNumber_mac.rawValue, flags:flags, tx:someTrans)
+            let m_p = try makeEnv.openDatabase(named:Databases.mac_tcpPortNumber.rawValue, flags:flags, tx:someTrans)
+            let mac_un = try makeEnv.openDatabase(named:Databases.mac_un.rawValue, flags:flags, tx:someTrans)
+			let mac_pw = try makeEnv.openDatabase(named:Databases.mac_pw.rawValue, flags:flags, tx:someTrans)
+			let mac_sub = try makeEnv.openDatabase(named:Databases.mac_subnetName.rawValue, flags:flags, tx:someTrans)
+			let mac_cutMode = try makeEnv.openDatabase(named:Databases.mac_cutMode.rawValue, flags:flags, tx:someTrans)
 			
-            let mac_printDate = try makeEnv.openDatabase(named:Databases.mac_printJobDate.rawValue, flags:[.create, .dupSort], tx:someTrans)
-            let macPrintHash_jobData = try makeEnv.openDatabase(named:Databases.macPrintJobHash_printJobData.rawValue, flags:[.create], tx:someTrans)
+			let mac_printDate = try makeEnv.openDatabase(named:Databases.mac_printJobDate.rawValue, flags:flags.union([.dupSort]), tx:someTrans)
+            let macPrintHash_jobData = try makeEnv.openDatabase(named:Databases.macPrintJobHash_printJobData.rawValue, flags:flags, tx:someTrans)
             
-            let mac_authDate = try makeEnv.openDatabase(named:Databases.mac_lastAuthenticated.rawValue, flags:[.create], tx:someTrans)
-			let mac_remoteAddress = try makeEnv.openDatabase(named:Databases.mac_remoteAddress.rawValue, flags:[.create], tx:someTrans)
-			let mac_serial = try makeEnv.openDatabase(named:Databases.mac_serial.rawValue, flags:[.create], tx:someTrans)
+            let mac_authDate = try makeEnv.openDatabase(named:Databases.mac_lastAuthenticated.rawValue, flags:flags, tx:someTrans)
+			let mac_remoteAddress = try makeEnv.openDatabase(named:Databases.mac_remoteAddress.rawValue, flags:flags, tx:someTrans)
+			let mac_serial = try makeEnv.openDatabase(named:Databases.mac_serial.rawValue, flags:flags, tx:someTrans)
 
-            let mac_lastSeen = try makeEnv.openDatabase(named:Databases.mac_lastSeen.rawValue, flags:[.create], tx:someTrans)
-            let mac_status = try makeEnv.openDatabase(named:Databases.mac_status.rawValue, flags:[.create], tx:someTrans)
-            let mac_ua = try makeEnv.openDatabase(named:Databases.mac_userAgent.rawValue, flags:[.create], tx:someTrans)
-			let mac_cd = try makeEnv.openDatabase(named:Databases.mac_callingDomain.rawValue, flags:[.create], tx:someTrans)
-			let mac_lastUN = try makeEnv.openDatabase(named:Databases.mac_lastUN.rawValue, flags:[.create], tx:someTrans)
-			let mac_lastPW = try makeEnv.openDatabase(named:Databases.mac_lastPW.rawValue, flags:[.create], tx:someTrans)
-			let mac_lastAuthAtt = try makeEnv.openDatabase(named:Databases.mac_lastAuthAttempt.rawValue, flags:[.create], tx:someTrans)
+            let mac_lastSeen = try makeEnv.openDatabase(named:Databases.mac_lastSeen.rawValue, flags:flags, tx:someTrans)
+            let mac_status = try makeEnv.openDatabase(named:Databases.mac_status.rawValue, flags:flags, tx:someTrans)
+            let mac_ua = try makeEnv.openDatabase(named:Databases.mac_userAgent.rawValue, flags:flags, tx:someTrans)
+			let mac_cd = try makeEnv.openDatabase(named:Databases.mac_callingDomain.rawValue, flags:flags, tx:someTrans)
+			let mac_lastUN = try makeEnv.openDatabase(named:Databases.mac_lastUN.rawValue, flags:flags, tx:someTrans)
+			let mac_lastPW = try makeEnv.openDatabase(named:Databases.mac_lastPW.rawValue, flags:flags, tx:someTrans)
+			let mac_lastAuthAtt = try makeEnv.openDatabase(named:Databases.mac_lastAuthAttempt.rawValue, flags:flags, tx:someTrans)
 			
 			// assign initial values
-			do {
-				_ = try meta.getEntry(type:UInt16.self, forKey:Metadatas.startPort.rawValue, tx:someTrans)
-				_ = try meta.getEntry(type:UInt16.self, forKey:Metadatas.endPort.rawValue, tx:someTrans)
-			} catch LMDBError.notFound {
+			if (readOnly == false) {
 				do {
-					_ = try meta.setEntry(value:UInt16(9100), forKey:Metadatas.startPort.rawValue, flags:[.noOverwrite], tx:someTrans)
-					_ = try meta.setEntry(value:UInt16(9300), forKey:Metadatas.endPort.rawValue, flags:[.noOverwrite], tx:someTrans)
-				} catch LMDBError.keyExists {}
+					_ = try meta.getEntry(type:UInt16.self, forKey:Metadatas.startPort.rawValue, tx:someTrans)
+					_ = try meta.getEntry(type:UInt16.self, forKey:Metadatas.endPort.rawValue, tx:someTrans)
+				} catch LMDBError.notFound {
+					do {
+						_ = try meta.setEntry(value:UInt16(9100), forKey:Metadatas.startPort.rawValue, flags:[.noOverwrite], tx:someTrans)
+						_ = try meta.setEntry(value:UInt16(9300), forKey:Metadatas.endPort.rawValue, flags:[.noOverwrite], tx:someTrans)
+					} catch LMDBError.keyExists {}
+				}
 			}
-			
 			return [meta, p_m, m_p, mac_un, mac_pw, mac_sub, mac_cutMode, mac_printDate, macPrintHash_jobData, mac_authDate, mac_remoteAddress, mac_serial, mac_lastSeen, mac_status, mac_ua, mac_cd, mac_lastUN, mac_lastPW, mac_lastAuthAtt]
         }
-		try makeEnv.sync(force:true)
 		self.env = makeEnv
         self.metadata = dbs[0]
         self.port_mac = dbs[1]
