@@ -21,8 +21,7 @@ struct WiremanD {
 		return String(validatingUTF8:getpwuid(geteuid()).pointee.pw_name) ?? ""
 	}
 	static func getCurrentDatabasePath() -> URL {
-		
-		return URL(fileURLWithPath:String(cString:getpwuid(getuid())!.pointee.pw_dir))
+		return URL(fileURLWithPath:String(cString:getpwnam("wiremand").pointee.pw_dir))
 	}
 	static func hash(domain:String) throws -> String {
 		let domainData = domain.lowercased().data(using:.utf8)!
@@ -957,10 +956,10 @@ struct WiremanD {
 			}
 			
 			$0.command("client_list") {
-				guard getCurrentUser() == "wiremand" else {
-					appLogger.critical("this function must be run as the wiremand user")
-					exit(11)
-				}
+//				guard getCurrentUser() == "wiremand" else {
+//					appLogger.critical("this function must be run as the wiremand user")
+//					exit(11)
+//				}
 				let dbPath = getCurrentDatabasePath()
 				let daemonDB = try DaemonDB(directory:dbPath, running:false)
 				let allClients = try daemonDB.wireguardDatabase.allClients()
