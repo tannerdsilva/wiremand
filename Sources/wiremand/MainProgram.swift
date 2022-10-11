@@ -970,13 +970,9 @@ struct WiremanD {
 					print(Colors.Yellow("\(subnetToList.key)"))
 					let sortedClients = subnetToList.value.sorted(by: { $0.name < $1.name })
 					for curClient in sortedClients {
-						defer {
-							print("\n", terminator:"")
-						}
-						
 						// print the online status
 						if (curClient.lastHandshake == nil) {
-							print(Colors.cyan("- \(curClient.name)"), terminator:"")
+							print(Colors.dim("- \(curClient.name)"), terminator:"")
 						} else {
 							if curClient.lastHandshake!.timeIntervalSinceNow > -150 {
 								print(Colors.Green("- \(curClient.name)"), terminator:"")
@@ -996,7 +992,8 @@ struct WiremanD {
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
 								print(Colors.Red("- \(curClient.name)"), terminator:"")
 							} else {
-								print("- \(curClient.name)\t(\(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()))", terminator:"")
+								print("- \(curClient.name)", terminator:"")
+								print(Colors.dim("\n  - \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
 										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
@@ -1012,6 +1009,7 @@ struct WiremanD {
 								}
 							}
 						}
+						print("\n", terminator:"")
 					}
 				}
 			}
