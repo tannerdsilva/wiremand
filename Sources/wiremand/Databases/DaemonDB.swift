@@ -14,13 +14,6 @@ extension Task:MDB_convertible {
         self = value.mv_data.bindMemory(to:Self.self, capacity:1).pointee
     }
     
-    public init?(noCopy value: MDB_val) {
-        guard MemoryLayout<Self>.stride == value.mv_size else {
-            return nil
-        }
-        self = value.mv_data.bindMemory(to:Self.self, capacity:1).pointee
-    }
-    
     public func asMDB_val<R>(_ valFunc: (inout MDB_val) throws -> R) rethrows -> R {
         return try withUnsafePointer(to:self, { unsafePointer in
             var newVal = MDB_val(mv_size:MemoryLayout<Self>.stride, mv_data:UnsafeMutableRawPointer(mutating:unsafePointer))
@@ -42,7 +35,19 @@ class DaemonDB {
 	internal static let logger = makeLogger()
 	
 	static func create(directory:URL, publicHTTPPort:UInt16, notify:Email.Contact) throws -> Environment {
-		let makeEnv = try Environment(path:directory.appendingPathComponent("daemon-dbi").path, flags:[.noSubDir], mapSize:75000000000, maxDBs:128, mode: [.ownerReadWriteExecute])
+		let makeEnvPath = directory.appendingPathComponent("daemon-dbi")
+		let makeEnvLockPath = directory.appendingPathComponent("daemon-dbi-lock")
+		
+		//verify that the files do not already exist
+		if access(makeEnvPath.path, F_OK) == 0 {
+			try FileManager.default.removeItem(at:makeEnvPath)
+			try FileDescriptor.open(makeEnvPath.path, .writeOnly, options:[.create], permissions:[.ownerReadWriteExecute, .groupReadWriteExecute, .otherRead, .otherExecute]).close()
+		}
+		if access(makeEnvLockPath.path, F_OK) == 0 {
+			try FileManager.default.removeItem(at:makeEnvLockPath)
+			try FileDescriptor.open(makeEnvLockPath.path, .writeOnly, options:[.create], permissions:[.ownerReadWriteExecute, .groupReadWriteExecute, .otherReadWriteExecute]).close()
+		}
+		let makeEnv = try Environment(path:makeEnvPath.path, flags:[.noSubDir], mapSize:75000000000, maxDBs:128, mode: [.ownerReadWriteExecute, .groupReadWriteExecute])
 		logger.info("lmdb environment successfully created")
         try makeEnv.transact(readOnly:false) { someTrans in
             let metadata = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
@@ -116,13 +121,6 @@ class DaemonDB {
 			}
 		} else {
 			ro = false
-			do {
-				try FileDescriptor.open(makeEnvLockPath.path, .writeOnly, options:[.create], permissions:[.ownerReadWriteExecute, .groupReadWriteExecute, .otherReadWriteExecute], retryOnInterrupt:true).close()
-				try FileDescriptor.open(makeEnvPath.path, .writeOnly, options:[.create], permissions:[.ownerReadWriteExecute, .groupReadWriteExecute, .otherReadExecute], retryOnInterrupt:true).close()
-			} catch let error {
-				//log something
-				throw error
-			}
 		}
 		let makeEnv = try Environment(path:makeEnvPath.path, flags:mdb_flags, mapSize:75000000000, maxDBs:128)
 		

@@ -310,9 +310,14 @@ struct WiremanD {
 				
 				let ownIt = try await Command(bash:"chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/").runSync()
 				guard ownIt.succeeded == true else {
-					fatalError("unable to change ownership of /var/lib/\(installUserName)/ directory")
+					appLogger.critical("unable to change ownership of /var/lib/\(installUserName)/ directory")
+					exit(10)
 				}
-				
+				let modIt = try await Command(bash:"chmod 775 /var/lib/wiremand").runSync()
+				guard modIt.succeeded == true else {
+					appLogger.critical("unable to modify access bits (chmod) /var/lib/wiremand/ directory")
+					exit(10)
+				}
 				appLogger.info("acquiring SSL certificates", metadata:["endpoint":"\(endpoint!)"])
 				
 				try await CertbotExecute.acquireSSL(domain:endpoint!.lowercased(), email:adminEmail!)
@@ -956,10 +961,6 @@ struct WiremanD {
 			}
 			
 			$0.command("client_list") {
-//				guard getCurrentUser() == "wiremand" else {
-//					appLogger.critical("this function must be run as the wiremand user")
-//					exit(11)
-//				}
 				let dbPath = getCurrentDatabasePath()
 				let daemonDB = try DaemonDB(directory:dbPath, running:false)
 				let allClients = try daemonDB.wireguardDatabase.allClients()
@@ -1019,7 +1020,9 @@ struct WiremanD {
 			$0.command("ipdbtest") {
 				let path = URL(fileURLWithPath:String(cString:getpwnam("wiremand").pointee.pw_dir))
 				let ddb = try DaemonDB(directory:path, running:false)
-				
+				let gid = getgrnam("wiremand").pointee.gr_gid
+				let setResult = setgid(gid)
+				Self.appLogger.info("setgid result", metadata:["code":"\(setResult)"])
 				print("done")
 			}
 						
