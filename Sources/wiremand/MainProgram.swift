@@ -1020,7 +1020,7 @@ struct WiremanD {
 				let ddb = try DaemonDB(directory:path, running:false)
 				let gid = getgrnam("wiremand").pointee.gr_gid
 				let setResult = setgid(gid)
-				Self.appLogger.info("setgid result", metadata:["code":"\(setResult)"])
+				Self.appLogger.info("setgid result", metadata:["code":"\(setResult)", "gid":"\(gid)"])
 				print("done")
 			}
 						
