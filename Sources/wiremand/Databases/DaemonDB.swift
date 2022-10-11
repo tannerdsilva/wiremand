@@ -78,6 +78,9 @@ class DaemonDB {
     
 	let loopGroup = MultiThreadedEventLoopGroup(numberOfThreads:System.coreCount)
 	
+	fileprivate let readOnly:Bool
+	fileprivate let running:Bool
+	
     let env:Environment
     let metadata:Database
     let scheduledTasks:Database
@@ -162,6 +165,8 @@ class DaemonDB {
 		}
 		self.printerDatabase = makePrintDB
 		self.ipdb = try IPDatabase.init(base:directory)
+		self.readOnly = ro
+		self.running = running
     }
     enum Schedule:String {
         case latestWireguardHandshakesCheck = "_wg_latestHandshakesCheck"
@@ -271,16 +276,18 @@ class DaemonDB {
 	}
     
     deinit {
-        try! env.transact(readOnly:false) { someTrans in
-            let curPID = getpid()
-            do {
-                let checkPid = try metadata.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
-                if curPID == checkPid {
-                    try metadata.deleteEntry(key:checkPid, tx:someTrans)
-                    try scheduledTasks.deleteAllEntries(tx:someTrans)
-                }
-            } catch LMDBError.notFound {}
-        }
-		try! env.sync(force:true)
+		if (running == true && readOnly == false) {
+			try! env.transact(readOnly:false) { someTrans in
+				let curPID = getpid()
+				do {
+					let checkPid = try metadata.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
+					if curPID == checkPid {
+						try metadata.deleteEntry(key:checkPid, tx:someTrans)
+						try scheduledTasks.deleteAllEntries(tx:someTrans)
+					}
+				} catch LMDBError.notFound {}
+			}
+			try! env.sync(force:true)
+		}
     }
 }
