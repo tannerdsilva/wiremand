@@ -31,7 +31,7 @@ extension Task:MDB_convertible {
 
 class DaemonDB {
 	fileprivate static func makeLogger() -> Logger {
-		var newLogger = Logger(label:"ipdb")
+		var newLogger = Logger(label:"daemon-db")
 		#if DEBUG
 			newLogger.logLevel = .trace
 		#else
@@ -86,7 +86,7 @@ class DaemonDB {
 	let notifyDB:Database
 	
     let wireguardDatabase:WireguardDatabase
-	let printerDatabase:PrintDB
+	let printerDatabase:PrintDB?
 	let ipdb:IPDatabase
 	
     init(directory:URL, running:Bool = true) throws {
@@ -153,7 +153,14 @@ class DaemonDB {
         self.scheduleLastFire = dbs[3]
 		self.notifyDB = dbs[4]
         self.wireguardDatabase = try WireguardDatabase(environment:makeEnv)
-		self.printerDatabase = try PrintDB(environment:makeEnv, directory:directory, readOnly:ro)
+		let makePrintDB:PrintDB?
+		do {
+			makePrintDB = try PrintDB(environment:makeEnv, directory:directory, readOnly:ro)
+		} catch LMDBError.notFound {
+			Self.logger.debug("print db not enabled")
+			makePrintDB = nil
+		}
+		self.printerDatabase = makePrintDB
 		self.ipdb = try IPDatabase.init(base:directory)
     }
     enum Schedule:String {

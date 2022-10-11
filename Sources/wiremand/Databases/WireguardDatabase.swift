@@ -2,8 +2,20 @@ import QuickLMDB
 import AddressKit
 import Foundation
 import SystemPackage
+import Logging
 
 struct WireguardDatabase {
+	fileprivate static func makeLogger() -> Logger {
+		var newLogger = Logger(label:"wgdb")
+		#if DEBUG
+			newLogger.logLevel = .trace
+		#else
+			newLogger.logLevel = .info
+		#endif
+		return newLogger
+	}
+	internal static let logger = makeLogger()
+	
 	static let latestDBVersion = 0
 	enum Error:Swift.Error {
 		case immutableClient
@@ -287,6 +299,7 @@ struct WireguardDatabase {
 		self.subnetName_clientPub = dbs[14]
 		self.subnetName_clientNameHash = dbs[15]
 		self.webserve__clientPub_configData = dbs[16]
+		Self.logger.trace("instance initialized successfully")
 	}
 	
 	// subnet info container

@@ -591,7 +591,9 @@ struct WiremanD {
 				}
 				let dbPath = getCurrentDatabasePath()
 				let daemonDB = try DaemonDB(directory:dbPath, running:false)
-				
+				guard let pdb = daemonDB.printerDatabase else {
+					fatalError("the printer functionality is not enabled")
+				}
 				// ask for the subnet if needed
 				var useSubnet:String? = subnet
 				if (useSubnet == nil || useSubnet!.count == 0) {
@@ -612,7 +614,7 @@ struct WiremanD {
 				var useMac:String? = mac
 				if (useMac == nil || useMac!.count == 0) {
 					print("Please enter a MAC address for the new printer:")
-					let allAuthorized = Dictionary(grouping:try daemonDB.printerDatabase.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
+					let allAuthorized = Dictionary(grouping:try pdb.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
 					for curSub in allAuthorized {
 						print(Colors.Yellow("- \(curSub.key)"))
 						for curMac in curSub.value {
@@ -624,7 +626,7 @@ struct WiremanD {
 						useMac = readLine()
 					} while useMac == nil || useMac!.count == 0
 				}
-				let printerMetadata = try daemonDB.printerDatabase.authorizeMacAddress(mac:useMac!.lowercased(), subnet:useSubnet!)
+				let printerMetadata = try pdb.authorizeMacAddress(mac:useMac!.lowercased(), subnet:useSubnet!)
 				print(Colors.Green("[OK] - Printer assigned to \(useSubnet!)"))
 				print(Colors.Yellow("\tPrinter username: - \(printerMetadata.username)"))
 				print(Colors.Yellow("\tPrinter password: - \(printerMetadata.password)"))
@@ -642,11 +644,13 @@ struct WiremanD {
 				}
 				let dbPath = getCurrentDatabasePath()
 				let daemonDB = try DaemonDB(directory:dbPath, running:false)
-				
+				guard let pdb = daemonDB.printerDatabase else {
+					fatalError("the printer functionality is not enabled")
+				}
 				var useMac:String? = mac
 				if (useMac == nil || useMac!.count == 0) {
 					print("Please enter a MAC address to revoke:")
-					let allAuthorized = Dictionary(grouping:try daemonDB.printerDatabase.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
+					let allAuthorized = Dictionary(grouping:try pdb.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
 					for curSub in allAuthorized.sorted(by: { $0.key < $1.key }) {
 						print(Colors.Yellow("- \(curSub.key)"))
 						for curMac in curSub.value {
@@ -659,7 +663,7 @@ struct WiremanD {
 					} while useMac == nil || useMac!.count == 0
 				}
 				
-				try daemonDB.printerDatabase.deauthorizeMacAddress(mac:useMac!)
+				try pdb.deauthorizeMacAddress(mac:useMac!)
 				try daemonDB.reloadRunningDaemon()
 			}
 			
@@ -669,13 +673,15 @@ struct WiremanD {
 				}
 				let dbPath = getCurrentDatabasePath()
 				let daemonDB = try DaemonDB(directory:dbPath, running:false)
-				
-				let allAuthorized = Dictionary(grouping:try daemonDB.printerDatabase.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
+				guard let pdb = daemonDB.printerDatabase else {
+					fatalError("the printer functionality is not enabled")
+				}
+				let allAuthorized = Dictionary(grouping:try pdb.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
 				for curSub in allAuthorized.sorted(by: { $0.key < $1.key }) {
 					print(Colors.Yellow("- \(curSub.key)"))
 					for curMac in curSub.value {
 						print(Colors.dim("\t-\t\(curMac.mac)"))
-						let statusInfo = try daemonDB.printerDatabase.getPrinterStatus(mac:curMac.mac)
+						let statusInfo = try pdb.getPrinterStatus(mac:curMac.mac)
 						print("\t-> Last Connected: \(statusInfo.lastSeen)")
 						print("\t-> Status: \(statusInfo.status)")
 						print("\t-> \(statusInfo.jobs.count) Pending Jobs: \(statusInfo.jobs.sorted(by: { $0 < $1 }))")
@@ -692,11 +698,13 @@ struct WiremanD {
 				}
 				let dbPath = getCurrentDatabasePath()
 				let daemonDB = try DaemonDB(directory:dbPath, running:false)
-				
+				guard let pdb = daemonDB.printerDatabase else {
+					fatalError("the printer functionality is not enabled")
+				}
 				var useMac:String? = mac
 				if (useMac == nil || useMac!.count == 0) {
 					print("Please enter a MAC address to edit:")
-					let allAuthorized = Dictionary(grouping:try daemonDB.printerDatabase.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
+					let allAuthorized = Dictionary(grouping:try pdb.getAuthorizedPrinterInfo(), by: { $0.subnet }).compactMapValues({ $0.sorted(by: { $0.mac < $1.mac }) })
 					for curSub in allAuthorized.sorted(by: { $0.key < $1.key }) {
 						print(Colors.Yellow("- \(curSub.key)"))
 						for curMac in curSub.value {
@@ -720,7 +728,7 @@ struct WiremanD {
 					appLogger.critical("Invalid cut mode specified")
 					exit(5)
 				}
-				try daemonDB.printerDatabase.assignCutMode(mac:useMac!, mode:cutMode)
+				try pdb.assignCutMode(mac:useMac!, mode:cutMode)
 				try daemonDB.reloadRunningDaemon()
 			}
 			
@@ -1030,9 +1038,11 @@ struct WiremanD {
 				let dbPath = getCurrentDatabasePath()
 				let daemonDB = try DaemonDB(directory:dbPath, running:true)
 				await SignalStack.global.add(signal: SIGHUP, { _ in
-					Task.detached {
-						appLogger.info("port sync triggered")
-						try await daemonDB.printerDatabase.portSync()
+					if let hasPDB = daemonDB.printerDatabase {
+						Task.detached { [hasPDB] in
+							appLogger.info("port sync triggered")
+							try await hasPDB.portSync()
+						}
 					}
 				})
 				let interfaceName = try daemonDB.wireguardDatabase.primaryInterfaceName()
@@ -1175,13 +1185,13 @@ struct WiremanD {
 				}
 				
 				var allPorts = [UInt16:TCPServer]()
-				try! await daemonDB.printerDatabase.assignPortHandlers(opener: { newPort, _ in
-					let newServer = try TCPServer(host:tcpPortBind, port:newPort, db:daemonDB.printerDatabase)
+				try! await daemonDB.printerDatabase!.assignPortHandlers(opener: { newPort, _ in
+					let newServer = try TCPServer(host:tcpPortBind, port:newPort, db:daemonDB.printerDatabase!)
 					allPorts[newPort] = newServer
 				}, closer: { oldPort in
 					allPorts[oldPort] = nil
 				})
-				let webserver = try PublicHTTPWebServer(daemonDB:daemonDB, pp:daemonDB.printerDatabase, port:daemonDB.getPublicHTTPPort())
+				let webserver = try PublicHTTPWebServer(daemonDB:daemonDB, pp:daemonDB.printerDatabase!, port:daemonDB.getPublicHTTPPort())
 				try webserver.run()
 				webserver.wait()
 			}
