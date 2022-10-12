@@ -1023,10 +1023,10 @@ struct WiremanD {
 				let path = URL(fileURLWithPath:String(cString:getpwnam("wiremand").pointee.pw_dir))
 				let ddb = try DaemonDB(directory:path, running:false)
 				let gid = getgrnam("wiremand").pointee.gr_gid
-				let getGroupsResult = try await Command(bash:"id -a").runSync()
-				let asString = String(data:getGroupsResult.stdout[0], encoding:.utf8)!
-				Self.appLogger.info("id info \(asString)")
-				let setResult = setgid(gid)
+//				let getGroupsResult = try await Command(bash:"id -a").runSync()
+//				let asString = String(data:getGroupsResult.stdout[0], encoding:.utf8)!
+//				Self.appLogger.info("id info \(asString)")
+				let setResult = setegid(gid)
 				if (setResult != 0) {
 					Self.appLogger.error("setgid failed", metadata:["code": "\(setResult)", "gid":"\(gid)", "errno":"\(errno)"])
 				} else {
