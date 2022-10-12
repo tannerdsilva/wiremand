@@ -961,6 +961,7 @@ struct WiremanD {
 			}
 			
 			$0.command("client_list") {
+				let start = Date()
 				let dbPath = getCurrentDatabasePath()
 				let daemonDB = try DaemonDB(directory:dbPath, running:false)
 				let allClients = try daemonDB.wireguardDatabase.allClients()
@@ -1012,6 +1013,9 @@ struct WiremanD {
 						print("\n", terminator:"")
 					}
 				}
+				
+				let time = start.timeIntervalSinceNow
+				print(Colors.dim(" * listed \(subnetSort.count) clients in \(time.truncatingRemainder(dividingBy:0.00001)) seconds * "))
 			}
 			
 						
@@ -1019,8 +1023,15 @@ struct WiremanD {
 				let path = URL(fileURLWithPath:String(cString:getpwnam("wiremand").pointee.pw_dir))
 				let ddb = try DaemonDB(directory:path, running:false)
 				let gid = getgrnam("wiremand").pointee.gr_gid
+				let getGroupsResult = try await Command(bash:"id -a").runSync()
+				let asString = String(data:getGroupsResult.stdout[0], encoding:.utf8)!
+				Self.appLogger.info("id info \(asString)")
 				let setResult = setgid(gid)
-				Self.appLogger.info("setgid result", metadata:["code":"\(setResult)", "gid":"\(gid)"])
+				if (setResult != 0) {
+					Self.appLogger.error("setgid failed", metadata:["code": "\(setResult)", "gid":"\(gid)", "errno":"\(errno)"])
+				} else {
+					Self.appLogger.info("setgid succeeded", metadata:["code":"\(setResult)", "gid":"\(gid)"])
+				}
 				print("done")
 			}
 						
