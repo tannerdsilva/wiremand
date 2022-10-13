@@ -302,12 +302,8 @@ class IPDatabase {
 	// launches a resolver for the current running PID
 	fileprivate func launchResolver(tx parentTrans:Transaction) throws {
 		// check if the access key is initialized before we launch a task
-		Self.logger.trace("attempting to launch resolver. opening readonly subtransaction...")
 		let myPID = getpid();
-		Self.logger.trace("readonly subtransaction successfully opened")
-		defer {
-			Self.logger.trace("returning")
-		}
+		
 		// verify that there is a valid API key in the database that we can use
 		do {
 			let _ = try self.metadata.getEntry(type:String.self, forKey:Metadatas.ipstackAccessKey.rawValue, tx:parentTrans)
@@ -326,13 +322,12 @@ class IPDatabase {
 			Self.logger.debug("resolver not launched. there are no pending ip addresses.")
 			return
 		}
-			
-		Self.logger.debug("initial resolver transaction completed.", metadata:["should_return":"false"])
 		
+		Self.logger.trace("launching resolver Task...")
 		// fly baby fly
 		Task.detached {
 			do {
-				Self.logger.debug("launching resolver...")
+				Self.logger.trace("resolver Task launched.")
 				try await self.resolver_mainLoop()
 			} catch let error {
 				let myPID = getpid()
@@ -347,17 +342,22 @@ class IPDatabase {
 		let myPID = getpid()
 		let client = HTTPClient(eventLoopGroupProvider:.shared(IPDatabase.eventLoop))
 		defer {
-			try? client.syncShutdown()
+			do {
+				try client.syncShutdown()
+				Self.logger.trace("successfully shut down HTTP client")
+			} catch let error {
+				Self.logger.error("failed to shut down HTTP client", metadata:["error":"\(error)"])
+			}
 		}
 		
 		var currentAddress:String
 		var accessKey:String
 		do {
-			Self.logger.trace("opening initial LMDB transaction for resolver main loop")
 			// open a transaction and verify that our PID is not being used. if not, commit the PID to the database and begin resolving
 			 (currentAddress, accessKey) = try env.transact(readOnly:false) { someTrans -> (String, String) in
 				// verify again that the current PID is not taken in the database. then return the address string that is to be resolved
 				guard try self.resolvingPID_pendingIP.containsEntry(key:myPID, tx:someTrans) == false else {
+					Self.logger.error("aborting resolver Task...this process's pid was already found in the database", metadata:["pid":"\(myPID)"])
 					throw LMDBError.keyExists
 				}
 
@@ -518,19 +518,22 @@ class IPDatabase {
 			self.ipHash_ipString = dbs[11]
 			
 			if ro == false {
-				Task.detached {
-					Self.logger.debug("running resolver task with instance initialization...")
-					try? makeEnv.transact(readOnly:false) { someTrans in
-						try self.launchResolver(tx:someTrans)
-					}
+				Task.detached { [self] in
+					try self.refreshAndMaintain()
 				}
-			} else {
-				Self.logger.debug("resolver not being launched - readonly mode enabled.")
 			}
 			
 		} catch let error {
 			Self.logger.error("failed to create instance", metadata:["error": "\(String(describing:error))", "path":"\(makeEnvPath.path)"])
 			throw error
+		}
+	}
+	
+	func refreshAndMaintain() throws {
+		Self.logger.debug("running database maintenance")
+		try env.transact(readOnly:false) { someTrans in
+			try self.rotateStaleRecords(tx:someTrans)
+			try? self.launchResolver(tx:someTrans)
 		}
 	}
 	
@@ -542,7 +545,8 @@ class IPDatabase {
 		
 	func setIPStackKey(_ apiKey:String) throws { 
 		try env.transact(readOnly:false) { someTrans in
-			try self.metadata.setEntry(value:apiKey, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans) 
+			try self.metadata.setEntry(value:apiKey, forKey:Metadatas.ipstackAccessKey.rawValue, tx:someTrans)
+			try self.rotateStaleRecords(tx:someTrans)
 		}
 	}
 	
