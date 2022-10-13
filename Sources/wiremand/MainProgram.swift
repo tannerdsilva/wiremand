@@ -38,11 +38,11 @@ struct WiremanD {
 		await AsyncGroup {
 			$0.command("install",
 			   Option<String>("interfaceName", default:"wg2930"),
-			   Option<String>("user", default:"wiremand"),
 			   Option<Int>("wg_port", default:29300),
 			   Option<Int>("public_httpPort", default:8080),
 			   VariadicOption<String>("email", default:[], description: "administrator email that should receive vital notifications about the system", validator:nil)
-			) { interfaceName, installUserName, wgPort, httpPort, emailOptions in
+			) { interfaceName, wgPort, httpPort, emailOptions in
+				let installUserName = "wiremand"
 				appLogger.logLevel = .trace
 				guard getCurrentUser() == "root" else {
 					appLogger.critical("You need to be root to install wiremand.")
@@ -367,20 +367,25 @@ struct WiremanD {
 			$0.command("set_ipstack_api",
 				Argument<String>("api key", description:"The API key to enable IPStack tracing with")
 			) { apiKey in
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this program must be run as `wiremand` user")
+				let daemonDB = try DaemonDB(running:false)
+				do {
+					try daemonDB.ipdb.setIPStackKey(apiKey)
+				} catch let error {
+					Self.appLogger.error("failed to assign ipstack key", metadata:["error":"\(error)"])
 				}
-				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
-				try daemonDB.ipdb.setIPStackKey(apiKey)
 			}
 			
 			$0.command("get_ipstack_api") {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this program must be run as `wiremand` user")
 				}
-				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
-				let apiKey = try daemonDB.ipdb.getIPStackKey()
-				print("\(apiKey)")
+				let daemonDB = try DaemonDB(running:false)
+				do {
+					let apiKey = try daemonDB.ipdb.getIPStackKey()
+					print("\(apiKey)")
+				} catch LMDBError.notFound {
+					print(" * no key found * ")
+				}
 			}
 
 			$0.command("notify_add",
@@ -390,7 +395,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this program must be run as `wiremand` user")
 				}
-				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				let daemonDB = try DaemonDB(running:false)
 				
 				// list existing admins
 				let admins = try daemonDB.getNotifyUsers().sorted(by: { $0.name ?? "" < $1.name ?? "" })
@@ -427,7 +432,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this program must be run as `wiremand` user")
 				}
-				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				let daemonDB = try DaemonDB(running:false)
 				
 				// list the existing admins
 				let admins = try daemonDB.getNotifyUsers().sorted(by: { $0.name ?? "" < $1.name ?? "" })
@@ -459,7 +464,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this program must be run as `wiremand` user")
 				}
-				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				let daemonDB = try DaemonDB(running:false)
 				let admins = try daemonDB.getNotifyUsers().sorted(by: { $0.name ?? "" < $1.name ?? "" })
 				print(Colors.Cyan("There are \(admins.count) admins that are being notified of system-critical events."))
 				for curNotify in admins {
@@ -473,7 +478,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this program must be run as `wiremand` user")
 				}
-				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				let daemonDB = try DaemonDB(running:false)
 				try await CertbotExecute.acquireSSL(domain: domainName.lowercased(), daemon:daemonDB)
 				try NginxExecutor.install(domain: domainName.lowercased())
 				try await NginxExecutor.reload()
@@ -489,7 +494,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this program must be run as `wiremand` user")
 				}
-				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				let daemonDB = try DaemonDB(running:false)
 				let wgDB = daemonDB.wireguardDatabase
 				let allDomains = try wgDB.allSubnets()
 				for curDomain in allDomains {
@@ -507,8 +512,7 @@ struct WiremanD {
 			   guard getCurrentUser() == "wiremand" else {
 				   fatalError("this function must be run as the `wiremand` user")
 			   }
-			   let dbPath = getCurrentDatabasePath()
-			   let daemonDB = try DaemonDB(directory:dbPath, running:false)
+			   let daemonDB = try DaemonDB(running:false)
 			   
 			   var useSubnet:String? = subnet
 			   if (useSubnet == nil || useSubnet!.count == 0) {
@@ -577,7 +581,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this program must be run as `wiremand` user")
 				}
-				let daemonDB = try DaemonDB(directory:getCurrentDatabasePath(), running:false)
+				let daemonDB = try DaemonDB(running:false)
 				try! daemonDB.wireguardDatabase.subnetRemove(name:domainStr.lowercased())
 				try! DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
 				try! await DNSmasqExecutor.reload()
@@ -593,8 +597,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this function must be run as the wiremand user")
 				}
-				let dbPath = getCurrentDatabasePath()
-				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				let daemonDB = try DaemonDB(running:false)
 				guard let pdb = daemonDB.printerDatabase else {
 					fatalError("the printer functionality is not enabled")
 				}
@@ -646,8 +649,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this function must be run as the wiremand user")
 				}
-				let dbPath = getCurrentDatabasePath()
-				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				let daemonDB = try DaemonDB(running:false)
 				guard let pdb = daemonDB.printerDatabase else {
 					fatalError("the printer functionality is not enabled")
 				}
@@ -675,8 +677,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this function must be run as the wiremand user")
 				}
-				let dbPath = getCurrentDatabasePath()
-				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				let daemonDB = try DaemonDB(running:false)
 				guard let pdb = daemonDB.printerDatabase else {
 					fatalError("the printer functionality is not enabled")
 				}
@@ -700,8 +701,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this function must be run as the wiremand user")
 				}
-				let dbPath = getCurrentDatabasePath()
-				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				let daemonDB = try DaemonDB(running:false)
 				guard let pdb = daemonDB.printerDatabase else {
 					fatalError("the printer functionality is not enabled")
 				}
@@ -743,8 +743,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this function must be run as the `wiremand` user")
 				}
-				let dbPath = getCurrentDatabasePath()
-				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				let daemonDB = try DaemonDB(running:false)
 				
 				var useSubnet:String? = subnet
 				if (useSubnet == nil || useSubnet!.count == 0) {
@@ -805,8 +804,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this function must be run as the `wiremand` user")
 				}
-				let dbPath = getCurrentDatabasePath()
-				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				let daemonDB = try DaemonDB(running:false)
 				
 				var useSubnet:String? = subnet
 				if (useSubnet == nil || useSubnet!.count == 0) {
@@ -865,8 +863,7 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this function must be run as the wiremand user")
 				}
-				let dbPath = getCurrentDatabasePath()
-				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				let daemonDB = try DaemonDB(running:false)
 				
 				var useSubnet:String? = subnetName
 				if (useSubnet == nil || useSubnet!.count == 0) {
@@ -962,8 +959,7 @@ struct WiremanD {
 			
 			$0.command("client_list") {
 				let start = Date()
-				let dbPath = getCurrentDatabasePath()
-				let daemonDB = try DaemonDB(directory:dbPath, running:false)
+				let daemonDB = try DaemonDB(running:false)
 				let allClients = try daemonDB.wireguardDatabase.allClients()
 				let subnetSort = Dictionary(grouping:allClients, by: { $0.subnetName })
 				let nowDate = Date()
@@ -1015,26 +1011,12 @@ struct WiremanD {
 				}
 				
 				let time = start.timeIntervalSinceNow
-				print(Colors.dim(" * listed \(subnetSort.count) clients in \(time.truncatingRemainder(dividingBy:0.00001)) seconds * "))
-			}
+				let timeString = String(format:"%.5f", time)
 			
-						
-			$0.command("ipdbtest") {
-				let path = URL(fileURLWithPath:String(cString:getpwnam("wiremand").pointee.pw_dir))
-				let ddb = try DaemonDB(directory:path, running:false)
-				let gid = getgrnam("wiremand").pointee.gr_gid
-//				let getGroupsResult = try await Command(bash:"id -a").runSync()
-//				let asString = String(data:getGroupsResult.stdout[0], encoding:.utf8)!
-//				Self.appLogger.info("id info \(asString)")
-				let setResult = setegid(gid)
-				if (setResult != 0) {
-					Self.appLogger.error("setgid failed", metadata:["code": "\(setResult)", "gid":"\(gid)", "errno":"\(errno)"])
-				} else {
-					Self.appLogger.info("setgid succeeded", metadata:["code":"\(setResult)", "gid":"\(gid)"])
-				}
-				print("done")
+				print(Colors.dim(" - - - - - - - - - - - - - - - - "))
+				print(Colors.dim(" * listed \(subnetSort.count) clients in \(timeString) seconds * "))
 			}
-						
+				
 			$0.command("run") {
 				enum Error:Swift.Error {
 					case handshakeCheckError
@@ -1046,8 +1028,7 @@ struct WiremanD {
 					fatalError("this function must be run as the wiremand user")
 				}
 				appLogger.logLevel = .info
-				let dbPath = getCurrentDatabasePath()
-				let daemonDB = try DaemonDB(directory:dbPath, running:true)
+				let daemonDB = try DaemonDB(running:true)
 				await SignalStack.global.add(signal: SIGHUP, { _ in
 					if let hasPDB = daemonDB.printerDatabase {
 						Task.detached { [hasPDB] in

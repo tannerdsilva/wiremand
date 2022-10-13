@@ -71,6 +71,8 @@ class DaemonDB {
     enum Error:Swift.Error {
         case daemonAlreadyRunning
         case pidExclusivityNotClaimed
+		case databaseNotCreated
+		case databaseNotReadable
     }
     enum Metadatas:String {
         case daemonRunningPID = "_daemonRunningPID" //pid_t
@@ -97,32 +99,37 @@ class DaemonDB {
 	let printerDatabase:PrintDB?
 	let ipdb:IPDatabase
 	
-    init(directory:URL, running:Bool = true) throws {
+    init(running:Bool = true) throws {
+		let directory = URL(fileURLWithPath:"/var/lib/wiremand", isDirectory:true)
+		
 		// define the paths of the database
 		let makeEnvPath = directory.appendingPathComponent("daemon-dbi")
-		let makeEnvLockPath = directory.appendingPathComponent("daemon-dbi-lock")
-		
+
 		let ro:Bool
 		var mdb_flags:Environment.Flags = [.noSync, .noSubDir, .noReadAhead]
 		
 		//validate the file exists
-		if (access(makeEnvPath.path, F_OK) == 0) {
-			guard access(makeEnvPath.path, R_OK | X_OK) == 0 else {
-				Self.logger.error("lmdb file exists but is not readable or executable")
-				throw LMDBError.other(returnCode:EACCES)
-			}
+		if (access(makeEnvPath.path, F_OK | R_OK | X_OK) == 0) {
 			if access(makeEnvPath.path, W_OK) != 0 {
 				ro = true
 				mdb_flags.update(with:.readOnly)
-				Self.logger.trace("lmdb file not writable. readonly mode enabled.")
+				Self.logger.trace("readonly mode enabled.")
 			} else {
 				ro = false
-				Self.logger.trace("lmdb file writable. readwrite mode enabled")
+				Self.logger.trace("read/write mode enabled.")
 			}
 		} else {
-			ro = false
+			throw Error.databaseNotCreated
 		}
-		let makeEnv = try Environment(path:makeEnvPath.path, flags:mdb_flags, mapSize:75000000000, maxDBs:128)
+		
+		let makeEnv:Environment
+		do {
+			makeEnv = try Environment(path:makeEnvPath.path, flags:mdb_flags, mapSize:5000000000, maxDBs:128)
+			Self.logger.trace("lmdb environment initialized.")
+		} catch let error {
+			Self.logger.error("unable to initialize lmdb environment.", metadata:["error":"\(error)"])
+			throw error
+		}
 		
 		let dbs = try makeEnv.transact(readOnly:ro) { someTrans -> [Database] in
             let metadataDB = try makeEnv.openDatabase(named:Databases.metadata.rawValue, tx:someTrans)
@@ -130,20 +137,20 @@ class DaemonDB {
             let scheduleIntervalDB = try makeEnv.openDatabase(named:Databases.scheduleInterval.rawValue, tx:someTrans)
             let scheduleLastFire = try makeEnv.openDatabase(named:Databases.scheduleLastFireDate.rawValue, tx:someTrans)
 			let notifyDB = try makeEnv.openDatabase(named:Databases.notifyUsers.rawValue, tx:someTrans)
-			do {
-				let lastPid = try metadataDB.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
-				let checkPid = kill(lastPid, 0)
-				if running {
+			if running {
+				do {
+					let lastPid = try metadataDB.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
+					let checkPid = kill(lastPid, 0)
 					guard checkPid != 0 else {
+						Self.logger.error("running mode enabled but daemon process already running", metadata:["this_pid":"\(getpid())", "running_pid":"\(lastPid)"])
 						throw Error.daemonAlreadyRunning
 					}
-				}
-			} catch LMDBError.notFound {}
-			if (running == true) {
-                try metadataDB.setEntry(value:getpid(), forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)
-                try scheduledTasks.deleteAllEntries(tx:someTrans)
+				} catch LMDBError.notFound {}
+				Self.logger.trace("running mode enabled. committing PID in database.", metadata:["this_pid":"\(getpid())"])
+				try metadataDB.setEntry(value:getpid(), forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)
+				try scheduledTasks.deleteAllEntries(tx:someTrans)
 			}
-			Self.logger.trace("instance initialized successfully", metadata:["readonly": "\(ro)", "this_pid_running": "\(running)"])
+			Self.logger.debug("instance initialized successfully.", metadata:["readonly": "\(ro)", "this_running_pid": "\(running)"])
             return [metadataDB, scheduledTasks, scheduleIntervalDB, scheduleLastFire, notifyDB]
         }
 		
