@@ -85,8 +85,8 @@ class DaemonDB {
     
 	let loopGroup = MultiThreadedEventLoopGroup(numberOfThreads:System.coreCount)
 	
-	fileprivate let readOnly:Bool
-	fileprivate let running:Bool
+	let readOnly:Bool
+	let running:Bool
 	
     let env:Environment
     let metadata:Database
