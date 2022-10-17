@@ -299,7 +299,7 @@ struct WireguardDatabase {
 		self.subnetName_clientPub = dbs[14]
 		self.subnetName_clientNameHash = dbs[15]
 		self.webserve__clientPub_configData = dbs[16]
-		Self.logger.trace("instance initialized successfully")
+		Self.logger.debug("instance initialized successfully.")
 	}
 	
 	// subnet info container
