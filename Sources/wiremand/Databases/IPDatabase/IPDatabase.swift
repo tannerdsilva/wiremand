@@ -498,7 +498,7 @@ class IPDatabase {
 				} catch LMDBError.notFound {
 					apiKey = nil
 				}
-				Self.logger.debug("instance created", metadata:["base_path":"\(base.path)", "ipstack_api_key":"\(String(describing:apiKey))", "cur_resolving":"\(currentlyResolvingCount)", "cur_pending":"\(pendingCount)", "cur_error":"\(errorCount)", "cur_resolved":"\(resolvedCount)", "readonly":"\(ro)"])
+				Self.logger.debug("instance initialized successfully.", metadata:["base_path":"\(base.path)", "ipstack_api_key":"\(String(describing:apiKey))", "cur_resolving":"\(currentlyResolvingCount)", "cur_pending":"\(pendingCount)", "cur_error":"\(errorCount)", "cur_resolved":"\(resolvedCount)", "readonly":"\(ro)"])
 				#endif
 				
 				return [meta, rPID_pIP, pIP_rPID, d_pIP, pIP_d, ipH_dat, ipH_date, date_ipH, resFD_ipH, ipH_resFD, ipH_resFM, ipH_ipS]
