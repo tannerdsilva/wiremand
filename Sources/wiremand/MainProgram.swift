@@ -32,7 +32,6 @@ struct WiremanD {
 		Self.appLogger.trace("process umask cleared", metadata:["mode":"000"])
 		#if DEBUG
 		appLogger.logLevel = .trace
-		Self.appLogger.info("DEBUG build - enabling trace log level")
 		#else
 		appLogger.logLevel = .info
 		#endif
@@ -344,7 +343,8 @@ struct WiremanD {
 			
 			$0.command("update") {
 				guard getCurrentUser() == "root" else {
-					fatalError("this function must be run as the root user")
+					appLogger.critical("update command must be run as 'root' user.")
+					exit(5)
 				}
 				let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
 				appLogger.info("initiating system update of wiremand process", metadata:["oldPath":"/opt/wiremand", "updateWith":"\(exePath.path)"])
@@ -973,10 +973,12 @@ struct WiremanD {
 				let allClients = try daemonDB.wireguardDatabase.allClients()
 				let subnetSort = Dictionary(grouping:allClients, by: { $0.subnetName })
 				let nowDate = Date()
+				var cliCount:UInt64 = 0
 				for subnetToList in subnetSort.sorted(by: { $0.key < $1.key }) {
 					print(Colors.Yellow("\(subnetToList.key)"))
 					let sortedClients = subnetToList.value.sorted(by: { $0.name < $1.name })
 					for curClient in sortedClients {
+						cliCount += 1;
 						// print the online status
 						if (curClient.lastHandshake == nil) {
 							print(Colors.dim("- \(curClient.name)"), terminator:"")
@@ -1024,7 +1026,7 @@ struct WiremanD {
 				let timeString = String(format:"%.5f", time)
 			
 				print(Colors.dim(" - - - - - - - - - - - - - - - - "))
-				print(Colors.dim(" * listed \(subnetSort.count) clients in \(timeString) seconds * "))
+				print(Colors.dim(" * listed \(cliCount) clients in \(timeString) seconds * "))
 			}
 				
 			$0.command("run") {
