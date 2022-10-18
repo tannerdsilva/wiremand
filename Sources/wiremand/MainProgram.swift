@@ -1023,7 +1023,7 @@ struct WiremanD {
 				}
 				
 				let time = start.timeIntervalSinceNow
-				let timeString = String(format:"%.5f", time)
+				let timeString = String(format:"%.4f", time)
 			
 				print(Colors.dim(" - - - - - - - - - - - - - - - - "))
 				print(Colors.dim(" * listed \(cliCount) clients in \(timeString) seconds * "))
