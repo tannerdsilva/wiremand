@@ -30,8 +30,19 @@ struct WiremanD {
 	static func initializeProcess() {
 		umask(000)
 		Self.appLogger.trace("process umask cleared", metadata:["mode":"000"])
+		#if DEBUG
+		appLogger.logLevel = .trace
+		Self.appLogger.info("DEBUG build - enabling trace log level")
+		#else
+		appLogger.logLevel = .info
+		#endif
 	}
 	static var appLogger = Logger(label:"wiremand")
+	
+	static func permissionsExit() -> Never {
+		appLogger.critical("this function requires the current user to have read/write permissions")
+		exit(69)
+	}
 
 	static func main() async throws {
 		initializeProcess()
@@ -368,6 +379,9 @@ struct WiremanD {
 				Argument<String>("api key", description:"The API key to enable IPStack tracing with")
 			) { apiKey in
 				let daemonDB = try DaemonDB(running:false)
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				do {
 					try daemonDB.ipdb.setIPStackKey(apiKey)
 				} catch let error {
@@ -376,10 +390,11 @@ struct WiremanD {
 			}
 			
 			$0.command("get_ipstack_api") {
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this program must be run as `wiremand` user")
-				}
 				let daemonDB = try DaemonDB(running:false)
+				guard daemonDB.readOnly == false else {
+					appLogger.info("must have read/write permissions to view ipstack api key")
+					exit(1)
+				}
 				do {
 					let apiKey = try daemonDB.ipdb.getIPStackKey()
 					print("\(apiKey)")
@@ -392,10 +407,10 @@ struct WiremanD {
 			   Option<String?>("name", default:nil, description:"The name of the user that is to be notified of system critical events."),
 			   Option<String?>("email", default:nil, description:"The email of the user that is to be notified of system critical events.")
 			) { userName, userEmail in
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this program must be run as `wiremand` user")
-				}
 				let daemonDB = try DaemonDB(running:false)
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				
 				// list existing admins
 				let admins = try daemonDB.getNotifyUsers().sorted(by: { $0.name ?? "" < $1.name ?? "" })
@@ -429,11 +444,10 @@ struct WiremanD {
 			$0.command("notify_remove",
 				Option<String?>("email", default:nil, description:"The email of the user that is to removed from system critical notifications.")
 			) { removeEmail in
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this program must be run as `wiremand` user")
-				}
 				let daemonDB = try DaemonDB(running:false)
-				
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				// list the existing admins
 				let admins = try daemonDB.getNotifyUsers().sorted(by: { $0.name ?? "" < $1.name ?? "" })
 				print(Colors.Cyan("There are \(admins.count) admins that are being notified of system-critical events."))
@@ -461,10 +475,10 @@ struct WiremanD {
 			}
 			
 			$0.command("notify_list") {
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this program must be run as `wiremand` user")
-				}
 				let daemonDB = try DaemonDB(running:false)
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				let admins = try daemonDB.getNotifyUsers().sorted(by: { $0.name ?? "" < $1.name ?? "" })
 				print(Colors.Cyan("There are \(admins.count) admins that are being notified of system-critical events."))
 				for curNotify in admins {
@@ -475,10 +489,10 @@ struct WiremanD {
 			$0.command("domain_make",
 				Argument<String>("domain", description:"the domain to add to the system")
 			) { domainName in
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this program must be run as `wiremand` user")
-				}
 				let daemonDB = try DaemonDB(running:false)
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				try await CertbotExecute.acquireSSL(domain: domainName.lowercased(), daemon:daemonDB)
 				try NginxExecutor.install(domain: domainName.lowercased())
 				try await NginxExecutor.reload()
@@ -491,10 +505,10 @@ struct WiremanD {
 			}
 			
 			$0.command("domain_list") {
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this program must be run as `wiremand` user")
-				}
 				let daemonDB = try DaemonDB(running:false)
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				let wgDB = daemonDB.wireguardDatabase
 				let allDomains = try wgDB.allSubnets()
 				for curDomain in allDomains {
@@ -509,11 +523,10 @@ struct WiremanD {
 			   Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
 			  Option<String?>("name", default:nil, description:"the name of the client that the key will be created for")
 		   ) { subnet, name in
-			   guard getCurrentUser() == "wiremand" else {
-				   fatalError("this function must be run as the `wiremand` user")
-			   }
 			   let daemonDB = try DaemonDB(running:false)
-			   
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 			   var useSubnet:String? = subnet
 			   if (useSubnet == nil || useSubnet!.count == 0) {
 
@@ -578,10 +591,10 @@ struct WiremanD {
 			$0.command("domain_revoke",
 				Argument<String>("domain", description:"the domain to remove from the system")
 			) { domainStr in
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this program must be run as `wiremand` user")
-				}
 				let daemonDB = try DaemonDB(running:false)
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				try! daemonDB.wireguardDatabase.subnetRemove(name:domainStr.lowercased())
 				try! DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
 				try! await DNSmasqExecutor.reload()
@@ -594,10 +607,10 @@ struct WiremanD {
 			   Option<String?>("mac", default:nil, description:"the mac address of the printer to authorized"),
 			   Option<String?>("subnet", default:nil, description:"the subnet name that the printer will be assigned to")
 			) { mac, subnet in
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this function must be run as the wiremand user")
-				}
 				let daemonDB = try DaemonDB(running:false)
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				guard let pdb = daemonDB.printerDatabase else {
 					fatalError("the printer functionality is not enabled")
 				}
@@ -650,6 +663,9 @@ struct WiremanD {
 					fatalError("this function must be run as the wiremand user")
 				}
 				let daemonDB = try DaemonDB(running:false)
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				guard let pdb = daemonDB.printerDatabase else {
 					fatalError("the printer functionality is not enabled")
 				}
@@ -674,9 +690,6 @@ struct WiremanD {
 			}
 			
 			$0.command("printer_list") {
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this function must be run as the wiremand user")
-				}
 				let daemonDB = try DaemonDB(running:false)
 				guard let pdb = daemonDB.printerDatabase else {
 					fatalError("the printer functionality is not enabled")
@@ -698,10 +711,10 @@ struct WiremanD {
 			   Option<String?>("mac", default:nil, description:"the mac address of the printer to edit the cut mode"),
 				Option<String?>("cut", default:nil, description:"the cut mode to assign to the printer. may be 'full', 'partial', or 'none'")
 			) { mac, cut in
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this function must be run as the wiremand user")
-				}
 				let daemonDB = try DaemonDB(running:false)
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				guard let pdb = daemonDB.printerDatabase else {
 					fatalError("the printer functionality is not enabled")
 				}
@@ -740,11 +753,10 @@ struct WiremanD {
 				Option<String?>("subnet", default:nil, description:"the name of the subnet that the client belongs to"),
 				Option<String?>("name", default:nil, description:"the name of the client that the key will be created for")
 			) { subnet, name in
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this function must be run as the `wiremand` user")
-				}
 				let daemonDB = try DaemonDB(running:false)
-				
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				var useSubnet:String? = subnet
 				if (useSubnet == nil || useSubnet!.count == 0) {
 
@@ -801,11 +813,10 @@ struct WiremanD {
 			   Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
 			   Option<String?>("name", default:nil, description:"the name of the client that the key will be created for")
 			) { subnet, name in
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this function must be run as the `wiremand` user")
-				}
 				let daemonDB = try DaemonDB(running:false)
-				
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				var useSubnet:String? = subnet
 				if (useSubnet == nil || useSubnet!.count == 0) {
 
@@ -860,11 +871,10 @@ struct WiremanD {
 				Flag("noDNS", default:false, description:"do not include DNS information in the configuration"),
 				Flag("ipv4", default:false, description:"assign this client an ipv4 address as well as an ipv6 address")
 			) { subnetName, clientName, pk, noDNS, withIPv4 in
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this function must be run as the wiremand user")
-				}
 				let daemonDB = try DaemonDB(running:false)
-				
+				guard daemonDB.readOnly == false else {
+					permissionsExit()
+				}
 				var useSubnet:String? = subnetName
 				if (useSubnet == nil || useSubnet!.count == 0) {
 
@@ -1027,7 +1037,6 @@ struct WiremanD {
 				guard getCurrentUser() == "wiremand" else {
 					fatalError("this function must be run as the wiremand user")
 				}
-				appLogger.logLevel = .info
 				let daemonDB = try DaemonDB(running:true)
 				await SignalStack.global.add(signal: SIGHUP, { _ in
 					if let hasPDB = daemonDB.printerDatabase {
