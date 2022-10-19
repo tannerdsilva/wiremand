@@ -2,8 +2,20 @@ import QuickLMDB
 import AddressKit
 import Foundation
 import SystemPackage
+import Logging
 
 struct WireguardDatabase {
+	fileprivate static func makeLogger() -> Logger {
+		var newLogger = Logger(label:"wgdb")
+		#if DEBUG
+			newLogger.logLevel = .trace
+		#else
+			newLogger.logLevel = .info
+		#endif
+		return newLogger
+	}
+	internal static let logger = makeLogger()
+	
 	static let latestDBVersion = 0
 	enum Error:Swift.Error {
 		case immutableClient
@@ -246,61 +258,26 @@ struct WireguardDatabase {
 	
 	init(environment:Environment) throws {
 		let makeEnv = environment
-		let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
+		let dbs = try makeEnv.transact(readOnly:true) { someTrans -> [Database] in
 			// open all the databases
-			let metadata = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[], tx:someTrans)
+			let metadata = try makeEnv.openDatabase(named:Databases.metadata.rawValue, tx:someTrans)
 			
-			let clientPub_ipv4 = try makeEnv.openDatabase(named:Databases.clientPub_ipv4.rawValue, flags:[], tx:someTrans)
-			let ipv4_clientPub = try makeEnv.openDatabase(named:Databases.ipv4_clientPub.rawValue, flags:[], tx:someTrans)
-			let clientPub_ipv6 = try makeEnv.openDatabase(named:Databases.clientPub_ipv6.rawValue, flags:[], tx:someTrans)
-			let ipv6_clientPub = try makeEnv.openDatabase(named:Databases.ipv6_clientPub.rawValue, flags:[], tx:someTrans)
-			let clientPub_clientName = try makeEnv.openDatabase(named:Databases.clientPub_clientName.rawValue, flags:[], tx:someTrans)
-			let clientPub_createdOn = try makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, flags:[], tx:someTrans)
-			let clientPub_subnetName = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, flags:[], tx:someTrans)
-			let clientPub_handshakeDate = try makeEnv.openDatabase(named:Databases.clientPub_handshakeDate.rawValue, flags:[], tx:someTrans)
-			let clientPub_endpointAddress = try makeEnv.openDatabase(named:Databases.clientPub_endpointAddress.rawValue, flags:[.create], tx:someTrans)
-			let clientPub_invalidDate = try makeEnv.openDatabase(named:Databases.clientPub_invalidDate.rawValue, flags:[], tx:someTrans)
-			let subnetName_networkV6 = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, flags:[], tx:someTrans)
-			let networkV6_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, flags:[], tx:someTrans)
-			let subnetName_securityKey = try makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, flags:[], tx:someTrans)
+			let clientPub_ipv4 = try makeEnv.openDatabase(named:Databases.clientPub_ipv4.rawValue, tx:someTrans)
+			let ipv4_clientPub = try makeEnv.openDatabase(named:Databases.ipv4_clientPub.rawValue, tx:someTrans)
+			let clientPub_ipv6 = try makeEnv.openDatabase(named:Databases.clientPub_ipv6.rawValue, tx:someTrans)
+			let ipv6_clientPub = try makeEnv.openDatabase(named:Databases.ipv6_clientPub.rawValue, tx:someTrans)
+			let clientPub_clientName = try makeEnv.openDatabase(named:Databases.clientPub_clientName.rawValue, tx:someTrans)
+			let clientPub_createdOn = try makeEnv.openDatabase(named:Databases.clientPub_createdOn.rawValue, tx:someTrans)
+			let clientPub_subnetName = try makeEnv.openDatabase(named:Databases.clientPub_subnetName.rawValue, tx:someTrans)
+			let clientPub_handshakeDate = try makeEnv.openDatabase(named:Databases.clientPub_handshakeDate.rawValue, tx:someTrans)
+			let clientPub_endpointAddress = try makeEnv.openDatabase(named:Databases.clientPub_endpointAddress.rawValue, tx:someTrans)
+			let clientPub_invalidDate = try makeEnv.openDatabase(named:Databases.clientPub_invalidDate.rawValue, tx:someTrans)
+			let subnetName_networkV6 = try makeEnv.openDatabase(named:Databases.subnetName_networkV6.rawValue, tx:someTrans)
+			let networkV6_subnetName = try makeEnv.openDatabase(named:Databases.networkV6_subnetName.rawValue, tx:someTrans)
+			let subnetName_securityKey = try makeEnv.openDatabase(named:Databases.subnetHash_securityKey.rawValue, tx:someTrans)
 			let subnetName_clientPub = try makeEnv.openDatabase(named:Databases.subnetName_clientPub.rawValue, flags:[.dupSort], tx:someTrans)
 			let subnetName_clientNameHash = try makeEnv.openDatabase(named:Databases.subnetName_clientNameHash.rawValue, flags:[.dupSort], tx:someTrans)
-			let ws_clientPub_configData = try makeEnv.openDatabase(named:Databases.webServe__clientPub_configData.rawValue, flags:[], tx:someTrans)
-			
-			do {
-				let _ = try metadata.getEntry(type:UInt64.self, forKey:Metadatas.wg_database_version.rawValue, tx:someTrans)!
-			} catch LMDBError.notFound {
-				let initialVersion:UInt64 = 0
-				try metadata.setEntry(value:initialVersion, forKey:Metadatas.wg_database_version.rawValue, flags:[.noOverwrite], tx:someTrans)
-				try metadata.setEntry(value:3600, forKey:Metadatas.wg_noHandshakeInvalidationInterval.rawValue, tx:someTrans)
-			}
-			
-			do {
-				let getIPv4 = try metadata.getEntry(type:AddressV4.self, forKey:Metadatas.wg_serverPublicIPv4Address.rawValue, tx:someTrans)!
-				let getIPv6 = try metadata.getEntry(type:AddressV6.self, forKey:Metadatas.wg_serverPublicIPv6Address.rawValue, tx:someTrans)!
-				WiremanD.appLogger.debug("ip addresses already resolved in database", metadata:["ipv4": "\(getIPv4.string)", "ipv6": "\(getIPv6.string)"])
-			} catch LMDBError.notFound {
-				let getDNSName = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTrans)!
-				WiremanD.appLogger.debug("dns name not resolved in database. launching resolver task...")
-				Task.detached { [dnsName = getDNSName, env = makeEnv] in
-					let (ipv4, ipv6) = try await DigExecutor.resolveAddresses(for:dnsName)
-					guard ipv6 != nil else {
-						WiremanD.appLogger.error("there is no AAAA record", metadata:["dns_name":"\(dnsName)"])
-						throw DigExecutor.Error.noAddressesFound
-					}
-					
-					guard ipv4 != nil else {
-						WiremanD.appLogger.error("there is no A record", metadata:["dns_name" :"\(dnsName)"])
-						throw DigExecutor.Error.noAddressesFound
-					}
-					
-					try env.transact(readOnly:false) { someTrans in
-						try metadata.setEntry(value:ipv4!, forKey:Metadatas.wg_serverPublicIPv4Address.rawValue, tx:someTrans)
-						try metadata.setEntry(value:ipv6!, forKey:Metadatas.wg_serverPublicIPv6Address.rawValue, tx:someTrans)
-					}
-					WiremanD.appLogger.debug("successfully upgraded dns with resolved IP addresses")
-				}
-			}
+			let ws_clientPub_configData = try makeEnv.openDatabase(named:Databases.webServe__clientPub_configData.rawValue, tx:someTrans)
 			
 			return [metadata, clientPub_ipv4, ipv4_clientPub, clientPub_ipv6, ipv6_clientPub, clientPub_clientName, clientPub_createdOn, clientPub_subnetName, clientPub_handshakeDate, clientPub_endpointAddress, clientPub_invalidDate, subnetName_networkV6, networkV6_subnetName, subnetName_securityKey, subnetName_clientPub, subnetName_clientNameHash, ws_clientPub_configData]
 		}
@@ -322,6 +299,7 @@ struct WireguardDatabase {
 		self.subnetName_clientPub = dbs[14]
 		self.subnetName_clientNameHash = dbs[15]
 		self.webserve__clientPub_configData = dbs[16]
+		Self.logger.debug("instance initialized successfully.")
 	}
 	
 	// subnet info container
@@ -612,7 +590,6 @@ struct WireguardDatabase {
 		let clientHandshakeCursor = try self.clientPub_handshakeDate.cursor(tx:tx)
 		let clientEndpointCursor = try self.clientPub_endpointAddress.cursor(tx:tx)
 		let clientInvalidationCursor = try self.clientPub_invalidDate.cursor(tx:tx)
-		let server_pubKey = try self.metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:tx)
 		if (subnet == nil) {
 			// all clients are requested
 			WiremanD.appLogger.trace("listing all clients", metadata:["server_pub_key":"\(serverPublicKey)"])

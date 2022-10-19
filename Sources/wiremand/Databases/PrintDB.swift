@@ -8,109 +8,6 @@ actor PrintDB {
 		case partial = "partial"
 		case none = "none"
 	}
-    actor Logger {
-        struct Event {
-            let date:Date
-            let mac:String
-            let eventMessage:String
-            let additionalData:[String:String]
-        }
-        enum Databases:String {
-            case date_uid = "date_uid"               // Date:String
-            case uid_eventData = "uid_eventData"     // String:[String:String]
-            case uid_mac = "uid_mac"                 // String:String
-            case uid_message = "uid_message"         // String:String
-        }
-		let envPath:URL
-		var lastMapResize:Date
-		
-        let env:Environment
-        let date_uid:Database
-        let uid_eventData:Database
-        let uid_mac:Database
-        let uid_message:Database
-        
-        let syncTask:Task<Void, Swift.Error>
-        
-        init(directory:URL) throws {
-			let envPath = directory.appendingPathComponent("printerlogs-dbi")
-			let getSize:size_t = size_t((envPath.getFileSize() ?? 10000000000) + 5000000000)
-			let makeEnv = try Environment(path:envPath.path, flags:[.noSubDir, .noSync], mapSize: getSize)
-            let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
-                let date_uid:Database = try makeEnv.openDatabase(named:Databases.date_uid.rawValue, flags:[.create], tx:someTrans)
-                let uid_eventData = try makeEnv.openDatabase(named:Databases.uid_eventData.rawValue, flags:[.create], tx:someTrans)
-                let uid_mac = try makeEnv.openDatabase(named:Databases.uid_mac.rawValue, flags:[.create], tx:someTrans)
-                let uid_message = try makeEnv.openDatabase(named:Databases.uid_message.rawValue, flags:[.create], tx:someTrans)
-                return [date_uid, uid_eventData, uid_mac, uid_message]
-            }
-			self.envPath = envPath
-            self.env = makeEnv
-            self.date_uid = dbs[0]
-            self.uid_eventData = dbs[1]
-            self.uid_mac = dbs[2]
-            self.uid_message = dbs[3]
-            self.syncTask = Task.detached(operation: { [getEnv = makeEnv] in
-                while Task.isCancelled == false {
-                    try await Task.sleep(nanoseconds:1000000000 * 5)
-                    try getEnv.sync(force:true)
-                }
-            })
-			self.lastMapResize = Date()
-        }
-		
-        func document(event:Event) throws {
-			if lastMapResize.timeIntervalSinceNow < -86400 {
-				let getSize:size_t = size_t((envPath.getFileSize() ?? 10000000000) + 5000000000)
-				try env.setMapSize(getSize)
-				lastMapResize = Date()
-			}
-			try env.transact(readOnly:false) { someTrans in
-				// generate a unique id
-				var newUID = UUID().uuidString
-				while try uid_eventData.containsEntry(key:newUID, tx:someTrans) == true {
-					newUID = UUID().uuidString
-				}
-				
-				// write it
-				try date_uid.setEntry(value:newUID, forKey:event.date, flags:[.noOverwrite], tx:someTrans)
-				try uid_eventData.setEntry(value:event.additionalData, forKey:newUID, flags:[.noOverwrite], tx:someTrans)
-				try uid_mac.setEntry(value:event.mac, forKey:newUID, flags:[.noOverwrite], tx:someTrans)
-				try uid_message.setEntry(value:event.eventMessage, forKey:newUID, flags:[.noOverwrite], tx:someTrans)
-			}
-        }
-        
-        nonisolated func getEvents(until pastDate:Date, mac:String? = nil) throws -> [Event] {
-            try env.transact(readOnly:true) { someTrans in
-                let timelineCursor = try date_uid.cursor(tx:someTrans)
-                let eventDataCursor = try uid_eventData.cursor(tx:someTrans)
-                let macCursor = try uid_mac.cursor(tx:someTrans)
-                let messageCursor = try uid_message.cursor(tx:someTrans)
-                var buildEvents = [Event]()
-                do {
-                    var operation = Cursor.Operation.last
-                    var getDate:Date
-                    repeat {
-                        let item = try timelineCursor.getEntry(operation)
-                        getDate = Date(item.key)!
-                        switch operation {
-                        case .last:
-                            operation = .previous
-                        default:
-                            break;
-                        }
-                        let macVal = String(try macCursor.getEntry(.set, key:item.value).value)!
-                        let eventDataVal = Dictionary<String, String>(try eventDataCursor.getEntry(.set, key:item.value).value)!
-                        let eventMessageVal = String(try messageCursor.getEntry(.set, key:item.value).value)!
-                        if (mac == nil || mac! == macVal) {
-                            buildEvents.append(Event(date:getDate, mac:macVal, eventMessage:eventMessageVal, additionalData:eventDataVal))
-                        }
-                    } while getDate > pastDate
-                    
-                } catch LMDBError.notFound {}
-                return buildEvents
-            }
-        }
-    }
 
 	enum Metadatas:String {
         case startPort = "initPort"     //UInt16
@@ -324,62 +221,57 @@ actor PrintDB {
 			openedPort.remove(port)
 		}
 	}
-
-    let logger:Logger
 	
 	struct AuthData {
 		let un:String
 		let pw:String
 	}
-	init(environment:Environment, directory:URL) throws {
+	init(environment:Environment, directory:URL, readOnly:Bool) throws {
         let makeEnv = environment
-        let dbs = try makeEnv.transact(readOnly:false) { someTrans -> [Database] in
-            let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
-            let p_m = try makeEnv.openDatabase(named:Databases.tcpPortNumber_mac.rawValue, flags:[.create], tx:someTrans)
-            let m_p = try makeEnv.openDatabase(named:Databases.mac_tcpPortNumber.rawValue, flags:[.create], tx:someTrans)
-            let mac_un = try makeEnv.openDatabase(named:Databases.mac_un.rawValue, flags:[.create], tx:someTrans)
-			let mac_pw = try makeEnv.openDatabase(named:Databases.mac_pw.rawValue, flags:[.create], tx:someTrans)
-			let mac_sub = try makeEnv.openDatabase(named:Databases.mac_subnetName.rawValue, flags:[.create], tx:someTrans)
-			let mac_cutMode:Database
-			do {
-				mac_cutMode = try makeEnv.openDatabase(named:Databases.mac_cutMode.rawValue, flags:[], tx:someTrans)
-			} catch LMDBError.notFound {
-				mac_cutMode = try makeEnv.openDatabase(named:Databases.mac_cutMode.rawValue, flags:[.create], tx:someTrans)
-				let macCursor = try mac_sub.cursor(tx:someTrans)
-				for curMac in macCursor {
-					try mac_cutMode.setEntry(value:CutMode.full.rawValue, forKey:String(curMac.key)!, tx:someTrans)
-				}
+        let dbs = try makeEnv.transact(readOnly:readOnly) { someTrans -> [Database] in
+			let flags:Database.Flags
+			if (readOnly == true) {
+				flags = []
+			} else {
+				flags = [.create]
 			}
+            let meta = try makeEnv.openDatabase(named:Databases.metadata.rawValue, flags:flags, tx:someTrans)
+            let p_m = try makeEnv.openDatabase(named:Databases.tcpPortNumber_mac.rawValue, flags:flags, tx:someTrans)
+            let m_p = try makeEnv.openDatabase(named:Databases.mac_tcpPortNumber.rawValue, flags:flags, tx:someTrans)
+            let mac_un = try makeEnv.openDatabase(named:Databases.mac_un.rawValue, flags:flags, tx:someTrans)
+			let mac_pw = try makeEnv.openDatabase(named:Databases.mac_pw.rawValue, flags:flags, tx:someTrans)
+			let mac_sub = try makeEnv.openDatabase(named:Databases.mac_subnetName.rawValue, flags:flags, tx:someTrans)
+			let mac_cutMode = try makeEnv.openDatabase(named:Databases.mac_cutMode.rawValue, flags:flags, tx:someTrans)
 			
-            let mac_printDate = try makeEnv.openDatabase(named:Databases.mac_printJobDate.rawValue, flags:[.create, .dupSort], tx:someTrans)
-            let macPrintHash_jobData = try makeEnv.openDatabase(named:Databases.macPrintJobHash_printJobData.rawValue, flags:[.create], tx:someTrans)
+			let mac_printDate = try makeEnv.openDatabase(named:Databases.mac_printJobDate.rawValue, flags:flags.union([.dupSort]), tx:someTrans)
+            let macPrintHash_jobData = try makeEnv.openDatabase(named:Databases.macPrintJobHash_printJobData.rawValue, flags:flags, tx:someTrans)
             
-            let mac_authDate = try makeEnv.openDatabase(named:Databases.mac_lastAuthenticated.rawValue, flags:[.create], tx:someTrans)
-			let mac_remoteAddress = try makeEnv.openDatabase(named:Databases.mac_remoteAddress.rawValue, flags:[.create], tx:someTrans)
-			let mac_serial = try makeEnv.openDatabase(named:Databases.mac_serial.rawValue, flags:[.create], tx:someTrans)
+            let mac_authDate = try makeEnv.openDatabase(named:Databases.mac_lastAuthenticated.rawValue, flags:flags, tx:someTrans)
+			let mac_remoteAddress = try makeEnv.openDatabase(named:Databases.mac_remoteAddress.rawValue, flags:flags, tx:someTrans)
+			let mac_serial = try makeEnv.openDatabase(named:Databases.mac_serial.rawValue, flags:flags, tx:someTrans)
 
-            let mac_lastSeen = try makeEnv.openDatabase(named:Databases.mac_lastSeen.rawValue, flags:[.create], tx:someTrans)
-            let mac_status = try makeEnv.openDatabase(named:Databases.mac_status.rawValue, flags:[.create], tx:someTrans)
-            let mac_ua = try makeEnv.openDatabase(named:Databases.mac_userAgent.rawValue, flags:[.create], tx:someTrans)
-			let mac_cd = try makeEnv.openDatabase(named:Databases.mac_callingDomain.rawValue, flags:[.create], tx:someTrans)
-			let mac_lastUN = try makeEnv.openDatabase(named:Databases.mac_lastUN.rawValue, flags:[.create], tx:someTrans)
-			let mac_lastPW = try makeEnv.openDatabase(named:Databases.mac_lastPW.rawValue, flags:[.create], tx:someTrans)
-			let mac_lastAuthAtt = try makeEnv.openDatabase(named:Databases.mac_lastAuthAttempt.rawValue, flags:[.create], tx:someTrans)
+            let mac_lastSeen = try makeEnv.openDatabase(named:Databases.mac_lastSeen.rawValue, flags:flags, tx:someTrans)
+            let mac_status = try makeEnv.openDatabase(named:Databases.mac_status.rawValue, flags:flags, tx:someTrans)
+            let mac_ua = try makeEnv.openDatabase(named:Databases.mac_userAgent.rawValue, flags:flags, tx:someTrans)
+			let mac_cd = try makeEnv.openDatabase(named:Databases.mac_callingDomain.rawValue, flags:flags, tx:someTrans)
+			let mac_lastUN = try makeEnv.openDatabase(named:Databases.mac_lastUN.rawValue, flags:flags, tx:someTrans)
+			let mac_lastPW = try makeEnv.openDatabase(named:Databases.mac_lastPW.rawValue, flags:flags, tx:someTrans)
+			let mac_lastAuthAtt = try makeEnv.openDatabase(named:Databases.mac_lastAuthAttempt.rawValue, flags:flags, tx:someTrans)
 			
 			// assign initial values
-			do {
-				_ = try meta.getEntry(type:UInt16.self, forKey:Metadatas.startPort.rawValue, tx:someTrans)
-				_ = try meta.getEntry(type:UInt16.self, forKey:Metadatas.endPort.rawValue, tx:someTrans)
-			} catch LMDBError.notFound {
+			if (readOnly == false) {
 				do {
-					_ = try meta.setEntry(value:UInt16(9100), forKey:Metadatas.startPort.rawValue, flags:[.noOverwrite], tx:someTrans)
-					_ = try meta.setEntry(value:UInt16(9300), forKey:Metadatas.endPort.rawValue, flags:[.noOverwrite], tx:someTrans)
-				} catch LMDBError.keyExists {}
+					_ = try meta.getEntry(type:UInt16.self, forKey:Metadatas.startPort.rawValue, tx:someTrans)
+					_ = try meta.getEntry(type:UInt16.self, forKey:Metadatas.endPort.rawValue, tx:someTrans)
+				} catch LMDBError.notFound {
+					do {
+						_ = try meta.setEntry(value:UInt16(9100), forKey:Metadatas.startPort.rawValue, flags:[.noOverwrite], tx:someTrans)
+						_ = try meta.setEntry(value:UInt16(9300), forKey:Metadatas.endPort.rawValue, flags:[.noOverwrite], tx:someTrans)
+					} catch LMDBError.keyExists {}
+				}
 			}
-			
 			return [meta, p_m, m_p, mac_un, mac_pw, mac_sub, mac_cutMode, mac_printDate, macPrintHash_jobData, mac_authDate, mac_remoteAddress, mac_serial, mac_lastSeen, mac_status, mac_ua, mac_cd, mac_lastUN, mac_lastPW, mac_lastAuthAtt]
         }
-		try makeEnv.sync(force:true)
 		self.env = makeEnv
         self.metadata = dbs[0]
         self.port_mac = dbs[1]
@@ -403,8 +295,6 @@ actor PrintDB {
 		self.mac_lastUN = dbs[16]
 		self.mac_lastPW = dbs[17]
 		self.mac_lastAuthAttempt = dbs[18]
-		
-		self.logger = try Logger(directory:directory)
     }
 	
 	nonisolated internal func getPrinterStatus(mac:String) throws -> PrinterStatus {
