@@ -967,10 +967,22 @@ struct WiremanD {
 				try await DNSmasqExecutor.reload()
 			}
 			
-			$0.command("client_list") {
+			$0.command("client_list",
+				Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
+				Flag("windowsLegacy", default:false, flag:"w")
+			) { subnetString, printWindowsLiteral in
 				let start = Date()
 				let daemonDB = try DaemonDB(running:false)
-				let allClients = try daemonDB.wireguardDatabase.allClients()
+				if daemonDB.readOnly == true {
+					guard subnetString != nil else {
+						Self.appLogger.critical("a subnet must be specified with the --subnet flag")
+						exit(70)
+					}
+				}
+				var allClients = try daemonDB.wireguardDatabase.allClients()
+				if (subnetString != nil) {
+					allClients = allClients.filter({ $0.subnetName.lowercased() == subnetString!.lowercased() })
+				}
 				let subnetSort = Dictionary(grouping:allClients, by: { $0.subnetName })
 				let nowDate = Date()
 				var cliCount:UInt64 = 0
@@ -981,10 +993,15 @@ struct WiremanD {
 						cliCount += 1;
 						// print the online status
 						if (curClient.lastHandshake == nil) {
+							// name
 							print(Colors.dim("- \(curClient.name)"), terminator:"")
 						} else {
+							
 							if curClient.lastHandshake!.timeIntervalSinceNow > -150 {
+								//name
 								print(Colors.Green("- \(curClient.name)"), terminator:"")
+								
+								// endpoint info
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
 										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
@@ -998,10 +1015,15 @@ struct WiremanD {
 								} else {
 									print(Colors.dim("\n  - At unknown endpoint"), terminator:"")
 								}
+								
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
+								// name
 								print(Colors.Red("- \(curClient.name)"), terminator:"")
 							} else {
+								// name
 								print("- \(curClient.name)", terminator:"")
+								
+								// endpoint info
 								print(Colors.dim("\n  - \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
@@ -1017,13 +1039,28 @@ struct WiremanD {
 									print(Colors.dim("at unknown endpoint"), terminator:"")
 								}
 							}
+							
+							print("\n", terminator:"")
+							
+							// print the client address
+							if (printWindowsLiteral == false) {
+								print(Colors.dim("  - \(curClient.address.string)"), terminator:"")
+							} else {
+								let replaceString = curClient.address.string.replacingOccurrences(of:":", with:"-") + ".ipv6-literal.net"
+								print(Colors.dim("  - \(replaceString)"), terminator:"")
+							}
+							if (curClient.addressV4 != nil) {
+								print(Colors.dim(" & \(curClient.addressV4!.string)"))
+							}
+							
+							// print the public key of the client
+							print(Colors.dim("\n  - Public key: \(curClient.publicKey)"))
 						}
-						print("\n", terminator:"")
 					}
 				}
 				
 				let time = start.timeIntervalSinceNow
-				let timeString = String(format:"%.4f", time)
+				let timeString = String(format:"%.4f", abs(time))
 			
 				print(Colors.dim(" - - - - - - - - - - - - - - - - "))
 				print(Colors.dim(" * listed \(cliCount) clients in \(timeString) seconds * "))

@@ -78,7 +78,9 @@ struct WireguardExecutor {
 	
 	static func saveConfiguration(interfaceName:String) async throws {
 		guard try await Command(bash:"sudo wg-quick save \(interfaceName)").runSync().succeeded == true else {
+			WiremanD.appLogger.error("unable to save current wireguard configuration with `wg-quick`")
 			throw Error.wireguardQuickCmdError
 		}
+		WiremanD.appLogger.trace("successfully saved wireguard configuration with `wg-quick`")
 	}
 }
