@@ -659,9 +659,6 @@ struct WiremanD {
 			$0.command("printer_revoke",
 			   Option<String?>("mac", default:nil, description:"the mac address of the printer to authorized")
 			) { mac in
-				guard getCurrentUser() == "wiremand" else {
-					fatalError("this function must be run as the wiremand user")
-				}
 				let daemonDB = try DaemonDB(running:false)
 				guard daemonDB.readOnly == false else {
 					permissionsExit()
@@ -1005,15 +1002,15 @@ struct WiremanD {
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
 										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
-											print(Colors.dim("\n  - From \(hasCity), \(hasState) at \(hasEndpoint)"), terminator:"")
+											print(Colors.dim("\n  - Connected from \(hasCity), \(hasState) at \(hasEndpoint)"), terminator:"")
 										} else if let hasState = resInfo.region?.name {
-											print(Colors.dim("\n  - From \(hasState) at \(hasEndpoint)"), terminator:"")
+											print(Colors.dim("\n  - Connected from \(hasState) at \(hasEndpoint)"), terminator:"")
 										}
 									} else {
 										print(Colors.dim("\n  - Connected at \(hasEndpoint)"), terminator:"")
 									}
 								} else {
-									print(Colors.dim("\n  - At unknown endpoint"), terminator:"")
+									print(Colors.dim("\n  - Connected at unknown endpoint"), terminator:"")
 								}
 								
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
@@ -1047,10 +1044,10 @@ struct WiremanD {
 								print(Colors.dim("  - \(curClient.address.string)"), terminator:"")
 							} else {
 								let replaceString = curClient.address.string.replacingOccurrences(of:":", with:"-") + ".ipv6-literal.net"
-								print(Colors.dim("  - \(replaceString)"), terminator:"")
+								print(Colors.cyan("  - \(replaceString)"), terminator:"")
 							}
 							if (curClient.addressV4 != nil) {
-								print(Colors.dim(" & \(curClient.addressV4!.string)"))
+								print(Colors.dim(" & \(curClient.addressV4!.string)"), terminator:"")
 							}
 							
 							// print the public key of the client
