@@ -29,6 +29,15 @@
         }
       },
       {
+        "package": "Cblake2",
+        "repositoryURL": "https://github.com/tannerdsilva/Cblake2.git",
+        "state": {
+          "branch": null,
+          "revision": "621fdb53d819a84cb84cc289bba768f3b5c526f6",
+          "version": "1.0.0"
+        }
+      },
+      {
         "package": "CLMDB",
         "repositoryURL": "https://github.com/tannerdsilva/CLMDB.git",
         "state": {
@@ -197,6 +206,15 @@
           "branch": null,
           "revision": "836bc4557b74fe6d2660218d56e3ce96aff76574",
           "version": "1.1.1"
+        }
+      },
+      {
+        "package": "SwiftBlake2",
+        "repositoryURL": "https://github.com/tannerdsilva/SwiftBlake2.git",
+        "state": {
+          "branch": null,
+          "revision": "f4ff20b158f5635925f22d14c3887184f332e844",
+          "version": "0.0.3"
         }
       },
       {

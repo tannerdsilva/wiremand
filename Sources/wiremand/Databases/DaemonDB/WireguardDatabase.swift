@@ -3,6 +3,7 @@ import AddressKit
 import Foundation
 import SystemPackage
 import Logging
+import SwiftBlake2
 
 struct WireguardDatabase {
 	fileprivate static func makeLogger() -> Logger {
@@ -20,9 +21,12 @@ struct WireguardDatabase {
 	enum Error:Swift.Error {
 		case immutableClient
 	}
+	fileprivate static func hash(clientName:MDB_val) throws -> Data {
+		return try Blake2bHasher.hash(clientName, outputLength:32)
+	}
 	fileprivate static func hash(clientName:String) throws -> Data {
 		let stringData = Data(clientName.utf8)
-		return try Blake2bHasher.hash(data:stringData, length:32)
+		return try Blake2bHasher.hash(stringData, outputLength:32)
 	}
 	fileprivate static func generateRandomData() throws -> Data {
 		// read 512 bytes of random data from the system
@@ -722,7 +726,7 @@ struct WireguardDatabase {
 	}
 	
 	@discardableResult func puntClientInvalidation(to newInvalidDate:Date? = nil, subnet:String, name:String) throws -> Date {
-		try env.transact(readOnly:false) { someTrans in
+		let returnDate = try env.transact(readOnly:false) { someTrans in
 			let subnetPubsCursor = try self.subnetName_clientPub.cursor(tx:someTrans)
 			let clientNameCursor = try self.clientPub_clientName.cursor(tx:someTrans)
 			
@@ -736,10 +740,12 @@ struct WireguardDatabase {
 			
 			throw LMDBError.notFound
 		}
+		try env.sync()
+		return returnDate
 	}
 	
 	@discardableResult func puntAllClients(subnet:String, to newInvalidDate:Date? = nil) throws -> Date {
-		return try env.transact(readOnly:false) { someTrans in
+		let returnVal = try env.transact(readOnly:false) { someTrans in
 			let subnetPubsCursor = try self.subnetName_clientPub.cursor(tx:someTrans)
 			
 			// search every client in this subnet for a matching name
@@ -753,12 +759,36 @@ struct WireguardDatabase {
 			}
 			return didPunt
 		}
+		try env.sync()
+		return returnVal
 	}
 	
 	@discardableResult func puntClientInvalidation(to newInvalidDate:Date? = nil, publicKey:String) throws -> Date {
-		try env.transact(readOnly:false) { someTrans in
+		let returnVal = try env.transact(readOnly:false) { someTrans in
 			try self._puntClientInvalidation(to:newInvalidDate, publicKey:publicKey, tx:someTrans)
 		}
+		try env.sync()
+		return returnVal
+	}
+	
+	func clientRename(publicKey:String, name:String) throws {
+		try env.transact(readOnly:false) { someTrans in
+			let clientNameCursor = try self.clientPub_clientName.cursor(tx:someTrans)
+			let subnetNameClientNameCursor = try self.subnetName_clientNameHash.cursor(tx:someTrans)
+			
+			// get the current name of the client. this validate that the public key is correct, and also allows us to remove the existing name hash from the subnetName_clientNameHash database
+			let getCurrentName = try clientNameCursor.getEntry(Cursor.Operation.set, key:publicKey).value
+			let hashedName = try Self.hash(clientName:getCurrentName)
+			
+			// replace existing name hash from the database
+			try subnetNameClientNameCursor.getEntry(.set, key:publicKey, value:hashedName)
+			try subnetNameClientNameCursor.deleteEntry()
+			let newNameHash = try Self.hash(clientName:name)
+			try subnetNameClientNameCursor.setEntry(value:newNameHash, forKey:publicKey)
+			
+			try clientNameCursor.setEntry(value:name, forKey:publicKey)
+		}
+		try env.sync()
 	}
 	
 	
