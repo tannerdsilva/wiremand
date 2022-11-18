@@ -722,7 +722,7 @@ struct WireguardDatabase {
 	}
 	
 	@discardableResult func puntClientInvalidation(to newInvalidDate:Date? = nil, subnet:String, name:String) throws -> Date {
-		try env.transact(readOnly:false) { someTrans in
+		let returnDate = try env.transact(readOnly:false) { someTrans in
 			let subnetPubsCursor = try self.subnetName_clientPub.cursor(tx:someTrans)
 			let clientNameCursor = try self.clientPub_clientName.cursor(tx:someTrans)
 			
@@ -736,10 +736,12 @@ struct WireguardDatabase {
 			
 			throw LMDBError.notFound
 		}
+		try env.sync()
+		return returnDate
 	}
 	
 	@discardableResult func puntAllClients(subnet:String, to newInvalidDate:Date? = nil) throws -> Date {
-		return try env.transact(readOnly:false) { someTrans in
+		let returnVal = try env.transact(readOnly:false) { someTrans in
 			let subnetPubsCursor = try self.subnetName_clientPub.cursor(tx:someTrans)
 			
 			// search every client in this subnet for a matching name
@@ -753,12 +755,27 @@ struct WireguardDatabase {
 			}
 			return didPunt
 		}
+		try env.sync()
+		return returnVal
 	}
 	
 	@discardableResult func puntClientInvalidation(to newInvalidDate:Date? = nil, publicKey:String) throws -> Date {
-		try env.transact(readOnly:false) { someTrans in
+		let returnVal = try env.transact(readOnly:false) { someTrans in
 			try self._puntClientInvalidation(to:newInvalidDate, publicKey:publicKey, tx:someTrans)
 		}
+		try env.sync()
+		return returnVal
+	}
+	
+	func clientRename(publicKey:String, name:String) throws {
+		try env.transact(readOnly:false) { someTrans in
+			guard try self.clientPub_clientName.containsEntry(key:publicKey, tx:someTrans) == true else {
+				Self.logger.debug("client rename throwing .notFound - public key does not exist", metadata:["public_key":"\(publicKey)"])
+				throw LMDBError.notFound
+			}
+			try self.clientPub_clientName.setEntry(value:name, forKey:publicKey, tx:someTrans)
+		}
+		try env.sync()
 	}
 	
 	

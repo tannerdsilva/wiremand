@@ -965,8 +965,8 @@ struct WiremanD {
 			}
 			
 			$0.command("client_list",
-				Option<String?>("subnet", default:nil, description:"the name of the subnet to assign the new user to"),
-				Flag("windowsLegacy", default:false, flag:"w")
+				Option<String?>("subnet", default:nil, description:"the name of the subnet that you would like to view the clients of."),
+				Flag("windowsLegacy", default:false, flag:"w", description:"print client IPv6 addresses in as a DNS name that is Windows friendly.")
 			) { subnetString, printWindowsLiteral in
 				let start = Date()
 				let daemonDB = try DaemonDB(running:false)
@@ -1061,6 +1061,14 @@ struct WiremanD {
 			
 				print(Colors.dim(" - - - - - - - - - - - - - - - - "))
 				print(Colors.dim(" * listed \(cliCount) clients in \(timeString) seconds * "))
+			}
+			
+			$0.command("client_rename",
+				Argument<String>("public key", description:"the public key of the client that you would like to rename"),
+				Argument<String>("new name", description:"the new name to assign to the client")
+			) { pubKey, newName in
+				let daemonDB = try DaemonDB(running:false)
+				try daemonDB.wireguardDatabase.clientRename(publicKey:pubKey, name:newName)
 			}
 				
 			$0.command("run") {
