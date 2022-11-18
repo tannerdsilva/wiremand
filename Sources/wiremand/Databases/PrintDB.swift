@@ -1,6 +1,7 @@
 import QuickLMDB
 import Foundation
 import CLMDB
+import SwiftBlake2
 
 actor PrintDB {
 	enum CutMode:String {
@@ -332,7 +333,7 @@ actor PrintDB {
 			// if the job is older than 12 hours, delete the job
 			if (asDate.timeIntervalSinceNow < -43200) {
 				let combinedData = macData + Data(curDateVal)!
-				let jobHashData = try Blake2bHasher.hash(data:combinedData, length:16)
+				let jobHashData = try Blake2bHasher.hash(combinedData, outputLength:16)
 				try _deleteJob(hash:jobHashData, tx:tx)
 			} else {
 				return
@@ -346,7 +347,7 @@ actor PrintDB {
 		_ = try macPrintCursor.getEntry(.set, key:mac)
 		// there are print jobs, now get the oldest job and return it as a job hash
 		let combinedData = Data(mac.utf8) + Data(try macPrintCursor.getEntry(.firstDup).value)!
-		return try Blake2bHasher.hash(data:combinedData, length:16)
+		return try Blake2bHasher.hash(combinedData, outputLength:16)
 	}
 	
 	// installs a new print job for a specified mac address
@@ -358,7 +359,7 @@ actor PrintDB {
 		try date.asMDB_val({ dateVal in
 			try macPrintCursor.setEntry(value:dateVal, forKey:mac, flags:[.noDupData])	
 			let combinedData = Data(mac.utf8) + Data(dateVal)!
-			let jobHash = try Blake2bHasher.hash(data:combinedData, length:16)
+			let jobHash = try Blake2bHasher.hash(combinedData, outputLength:16)
 			try macPrintJobDataCursor.setEntry(value:data, forKey:jobHash)
 		})
 	}
@@ -368,7 +369,7 @@ actor PrintDB {
 		try macPrintHash_printJobData.deleteEntry(key:hash, tx:tx)
 		for curKV in macPrintCursor {
 			let combinedData = Data(curKV.key)! + Data(curKV.value)!
-			let thisHashData = try Blake2bHasher.hash(data:combinedData, length:16)
+			let thisHashData = try Blake2bHasher.hash(combinedData, outputLength:16)
 			if (thisHashData == hash) {
 				try macPrintCursor.deleteEntry()
 				return

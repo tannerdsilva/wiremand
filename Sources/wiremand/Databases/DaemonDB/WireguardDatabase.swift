@@ -3,6 +3,7 @@ import AddressKit
 import Foundation
 import SystemPackage
 import Logging
+import SwiftBlake2
 
 struct WireguardDatabase {
 	fileprivate static func makeLogger() -> Logger {
@@ -20,9 +21,12 @@ struct WireguardDatabase {
 	enum Error:Swift.Error {
 		case immutableClient
 	}
+	fileprivate static func hash(clientName:MDB_val) throws -> Data {
+		return try Blake2bHasher.hash(clientName, outputLength:32)
+	}
 	fileprivate static func hash(clientName:String) throws -> Data {
 		let stringData = Data(clientName.utf8)
-		return try Blake2bHasher.hash(data:stringData, length:32)
+		return try Blake2bHasher.hash(stringData, outputLength:32)
 	}
 	fileprivate static func generateRandomData() throws -> Data {
 		// read 512 bytes of random data from the system
@@ -769,11 +773,20 @@ struct WireguardDatabase {
 	
 	func clientRename(publicKey:String, name:String) throws {
 		try env.transact(readOnly:false) { someTrans in
-			guard try self.clientPub_clientName.containsEntry(key:publicKey, tx:someTrans) == true else {
-				Self.logger.debug("client rename throwing .notFound - public key does not exist", metadata:["public_key":"\(publicKey)"])
-				throw LMDBError.notFound
-			}
-			try self.clientPub_clientName.setEntry(value:name, forKey:publicKey, tx:someTrans)
+			let clientNameCursor = try self.clientPub_clientName.cursor(tx:someTrans)
+			let subnetNameClientNameCursor = try self.subnetName_clientNameHash.cursor(tx:someTrans)
+			
+			// get the current name of the client. this validate that the public key is correct, and also allows us to remove the existing name hash from the subnetName_clientNameHash database
+			let getCurrentName = try clientNameCursor.getEntry(Cursor.Operation.set, key:publicKey).value
+			let hashedName = try Self.hash(clientName:getCurrentName)
+			
+			// replace existing name hash from the database
+			try subnetNameClientNameCursor.getEntry(.set, key:publicKey, value:hashedName)
+			try subnetNameClientNameCursor.deleteEntry()
+			let newNameHash = try Self.hash(clientName:name)
+			try subnetNameClientNameCursor.setEntry(value:newNameHash, forKey:publicKey)
+			
+			try clientNameCursor.setEntry(value:name, forKey:publicKey)
 		}
 		try env.sync()
 	}

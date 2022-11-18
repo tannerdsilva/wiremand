@@ -5,6 +5,7 @@ import Logging
 import AsyncHTTPClient
 import NIO
 import SystemPackage
+import SwiftBlake2
 
 class IPDatabase {
 	enum ResolveStatus {
@@ -60,31 +61,31 @@ class IPDatabase {
 	}
 	
 	static func produceIPHash(_ address:String) throws -> Data {
-		var blakeHasher = Blake2bHasher(outputLength:24)
+		var blakeHasher = try Blake2bHasher(outputLength:24)
 		let addressData = Data(address.utf8)
-		try blakeHasher.update(data:addressData)
-		return blakeHasher.export()
+		try blakeHasher.update(addressData)
+		return try blakeHasher.export()
 	}
 	
 	static func produceIPHash(_ address:AddressV4) throws -> Data {
-		var blakeHasher = Blake2bHasher(outputLength:24)
+		var blakeHasher = try Blake2bHasher(outputLength:24)
 		let addressData = Data(address.string.utf8)
-		try blakeHasher.update(data:addressData)
-		return blakeHasher.export()
+		try blakeHasher.update(addressData)
+		return try blakeHasher.export()
 	}
 	
 	static func produceIPHash(_ address:AddressV6) throws -> Data {
-		var blakeHasher = Blake2bHasher(outputLength:24)
+		var blakeHasher = try Blake2bHasher(outputLength:24)
 		let addressData = Data(address.string.utf8)
-		try blakeHasher.update(data:addressData)
-		return blakeHasher.export()
+		try blakeHasher.update(addressData)
+		return try blakeHasher.export()
 	}
 	
 	static func produceIDHash(_ identifier:String) throws -> Data {
-		var blakeHasher = Blake2bHasher(outputLength:24)
+		var blakeHasher = try Blake2bHasher(outputLength:24)
 		let addressData = Data(identifier.utf8)
-		try blakeHasher.update(data:addressData)
-		return blakeHasher.export()
+		try blakeHasher.update(addressData)
+		return try blakeHasher.export()
 	}
 	
 	let env:Environment

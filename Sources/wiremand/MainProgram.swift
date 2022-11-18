@@ -8,6 +8,7 @@ import Logging
 import SignalStack
 import SwiftSMTP
 import SwiftDate
+import SwiftBlake2
 
 extension NetworkV6 {
 	func maskingAddress() -> NetworkV6 {
@@ -25,7 +26,7 @@ struct WiremanD {
 	}
 	static func hash(domain:String) throws -> String {
 		let domainData = domain.lowercased().data(using:.utf8)!
-		return try Blake2bHasher.hash(data:domainData, length:64).base64EncodedString()
+		return try Blake2bHasher.hash(domainData, outputLength:64).base64EncodedString()
 	}
 	static func initializeProcess() {
 		umask(000)
