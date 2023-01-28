@@ -25,6 +25,7 @@ extension CLI {
 			case chownError
 			case chmodError
 			case daemonReloadError
+			case unableToGenerateBashCompletions
 		}
 		static let configuration = CommandConfiguration(
 			commandName:"install",
@@ -240,6 +241,12 @@ extension CLI {
 			try exeFD.writeAll(exeData)
 			try exeFD.close()
 			
+			appLogger.info("copying bash completions to /opt...")
+			guard try await Command(bash:"/opt/wiremand --generate-completion-script bash > /opt/wiremand.bash").runSync().succeeded == true else {
+				appLogger.critical("unable to generate bash completion scripts")
+				throw Error.unableToGenerateBashCompletions
+			}
+			
 			appLogger.info("installing systemd service for wiremand...")
 			
 			// install the systemd service for the daemon
@@ -289,11 +296,12 @@ extension CLI {
 				_ = try nginxUpstreams.writeAll(buildUpstream.utf8)
 			})
 			
-			appLogger.info("installing wiremand bash alias in /etc/skel...")
+			appLogger.info("updating  /etc/skel/.bashrc with wiremand conveniences")
 			
 			let bashRCHandle = try FileDescriptor.open("/etc/skel/.bashrc", .writeOnly, options:[.append], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 			try bashRCHandle.closeAfter {
-				let addLine = "alias wiremand='sudo -u wiremand /opt/wiremand'"
+				var addLine = "alias wiremand='sudo -u wiremand /opt/wiremand'\n"
+				addLine += "source /opt/wiremand.bash\n"
 				try bashRCHandle.writeAll(addLine.utf8)
 			}
 			
@@ -339,6 +347,7 @@ extension CLI {
 			case capApplyError
 			case unableToStopService
 			case unableToStartService
+			case unableToGenerateBashCompletions
 		}
 		
 		static let configuration = CommandConfiguration(
@@ -383,6 +392,11 @@ extension CLI {
 			guard startResult.succeeded == true else {
 				appLogger.critical("unable to start wiremand.service")
 				throw Error.unableToStartService
+			}
+			appLogger.info("copying bash completions to /opt...")
+			guard try await Command(bash:"/opt/wiremand --generate-completion-script bash > /opt/wiremand.bash").runSync().succeeded == true else {
+				appLogger.critical("unable to generate bash completion scripts")
+				throw Error.unableToGenerateBashCompletions
 			}
 			appLogger.info("wiremand successfully updated.")
 		}
