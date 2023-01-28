@@ -1,4 +1,5 @@
 import ArgumentParser
+import Logging
 
 extension CLI {
 	struct Domain:AsyncParsableCommand {
@@ -48,7 +49,7 @@ extension CLI {
 			
 			mutating func run() async throws {
 				let daemonDB = try DaemonDB(globals)
-				guard daemonDB.readOnly == false {
+				guard daemonDB.readOnly == false else {
 					throw CLI.Error.insufficientPrivilege
 				}
 				try daemonDB.wireguardDatabase.subnetRemove(name:domainName.lowercased())
@@ -70,7 +71,7 @@ extension CLI {
 			
 			mutating func run() throws {
 				let daemonDB = try DaemonDB(globals)
-				guard daemonDB.readOnly == false {
+				guard daemonDB.readOnly == false else {
 					throw CLI.Error.insufficientPrivilege
 				}
 				let allDomains = try daemonDB.wireguardDatabase.allSubnets()
