@@ -8,7 +8,7 @@ extension CLI {
 			case notFound
 		}
 		static let configuration = CommandConfiguration(
-			abstract:"manage the clients that may connect to wiremand.",
+			abstract:"manage wireguard clients.",
 			subcommands:[Punt.self, ProvisionIPv4.self, Revoke.self, Make.self, List.self, Rename.self]
 		)
 				
@@ -33,12 +33,13 @@ extension CLI {
 				
 				let newInvalidDate = try daemonDB.wireguardDatabase.puntClientInvalidation(subnet:domainName.domain!, name:domainName.name!)
 				let df = ISO8601DateFormatter()
-				print(Colors.Green("Client punted until \(df.string(from:newInvalidDate))"))
+				print(Colors.Green("Client punted to \(df.string(from:newInvalidDate))"))
 			}
 		}
 		
 		struct ProvisionIPv4:AsyncParsableCommand {
 			static let configuration = CommandConfiguration(
+				commandName:"provision-ipv4",
 				abstract:"assign an IPv4 address to a client."
 			)
 
@@ -197,7 +198,7 @@ extension CLI {
 			var domain:String? = nil
 			
 			@Flag(
-				name:.shortAndLong
+				name:.shortAndLong,
 				help:ArgumentHelp("Print IPv6 addresses in a Windows-friendly format.")
 			)
 			var windowsLegacy = false
@@ -328,7 +329,7 @@ extension CLI.Client {
 		@Option(
 			name:.shortAndLong,
 			help:ArgumentHelp(
-				"The domain name containing the client."
+				"The relevant domain name."
 			)
 		)
 		var domain:String? = nil
@@ -363,6 +364,7 @@ extension CLI.Client {
 			}
 			guard try daemonDB.wireguardDatabase.validateSubnet(name:domain!) == true else {
 				print(Colors.Red("The domain name '\(domain!)' does not exist"))
+				throw CLI.Client.Error.notFound
 			}
 			
 			// determine the name to use
@@ -371,7 +373,7 @@ extension CLI.Client {
 				switch allClients.count {
 					case 0:
 						print(Colors.Yellow("There are no clients on this subnet yet."))
-						throw Client.Error.notFound
+						throw CLI.Client.Error.notFound
 					default:
 						print(Colors.Yellow("There are \(allClients.count) clients on this subnet:"))
 						for curClient in allClients {
@@ -385,4 +387,4 @@ extension CLI.Client {
 			}
 		}
 	}
-}	
+}
