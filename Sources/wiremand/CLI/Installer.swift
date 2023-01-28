@@ -101,6 +101,9 @@ extension CLI {
 				ipStackKey = asString
 			}
 			
+			appLogger.info("clearing umask...")
+			umask(000)
+			
 			appLogger.info("installing software...")
 			
 			// install software
