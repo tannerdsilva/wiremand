@@ -17,14 +17,14 @@ struct CLI:AsyncParsableCommand {
 	
 	struct GlobalCLIOptions:ParsableArguments {
 #if DEBUG
-		@Argument
+		@Option
 		var logLevel:Logging.Logger.Level = .debug
 #else
-		@Argument
+		@Option(help:ArgumentHelp(visibility:.`private`))
 		var logLevel:Logging.Logger.Level = .info
 #endif
 		
-		@Argument
+		@Argument(help:ArgumentHelp(visibility:.`private`))
 		var databasePath:String = "/var/lib/wiremand"
 	}
 }
