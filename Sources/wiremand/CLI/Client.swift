@@ -240,15 +240,15 @@ extension CLI {
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
 										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
-											print(Colors.dim("\n  - Connected from \(hasCity), \(hasState) at \(hasEndpoint)"), terminator:"")
+											print(Colors.dim("\n - Connected from \(hasCity), \(hasState) at \(hasEndpoint)"), terminator:"")
 										} else if let hasState = resInfo.region?.name {
-											print(Colors.dim("\n  - Connected from \(hasState) at \(hasEndpoint)"), terminator:"")
+											print(Colors.dim("\n - Connected from \(hasState) at \(hasEndpoint)"), terminator:"")
 										}
 									} else {
-										print(Colors.dim("\n  - Connected at \(hasEndpoint)"), terminator:"")
+										print(Colors.dim("\n - Connected at \(hasEndpoint)"), terminator:"")
 									}
 								} else {
-									print(Colors.dim("\n  - Connected at unknown endpoint"), terminator:"")
+									print(Colors.dim("\n - Connected at unknown endpoint"), terminator:"")
 								}
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
 								// print the name in red text since the client is going to be revoked soon
@@ -258,7 +258,7 @@ extension CLI {
 								print("- \(curClient.name)")
 								
 								// endpoint info
-								print(Colors.dim("\n  - \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
+								print(Colors.dim("\n - \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
 										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
