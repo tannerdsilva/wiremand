@@ -255,7 +255,7 @@ extension CLI {
 								print(Colors.Red("- \(curClient.name)"), terminator:"")
 							} else {
 								// print the name in white text because the client has successfully made a handshake in the past, but is currently offline
-								print("- \(curClient.name)")
+								print("- \(curClient.name)", terminator:"")
 								
 								// endpoint info
 								print(Colors.dim("\n - \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
