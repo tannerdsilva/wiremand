@@ -24,7 +24,7 @@ struct CLI:AsyncParsableCommand {
 #endif
 		
 		@Argument(help:ArgumentHelp(visibility:.`private`))
-		var databasePath:String = FileManager.default.homeDirectoryForCurrentUser.path
+		var databasePath:String = "/var/lib/wiremand"
 	}
 }
 
