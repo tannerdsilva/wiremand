@@ -6,22 +6,6 @@ import SwiftSMTP
 import SystemPackage
 import Logging
 
-extension Task:MDB_convertible {
-    public init?(_ value: MDB_val) {
-        guard MemoryLayout<Self>.stride == value.mv_size else {
-            return nil
-        }
-        self = value.mv_data.bindMemory(to:Self.self, capacity:1).pointee
-    }
-    
-    public func asMDB_val<R>(_ valFunc: (inout MDB_val) throws -> R) rethrows -> R {
-        return try withUnsafePointer(to:self, { unsafePointer in
-            var newVal = MDB_val(mv_size:MemoryLayout<Self>.stride, mv_data:UnsafeMutableRawPointer(mutating:unsafePointer))
-            return try valFunc(&newVal)
-        })
-    }
-}
-
 class DaemonDB {
 	fileprivate static func makeLogger() -> Logger {
 		var newLogger = Logger(label:"daemon-db")
@@ -99,9 +83,7 @@ class DaemonDB {
 	let printerDatabase:PrintDB?
 	let ipdb:IPDatabase
 	
-    init(running:Bool = true) throws {
-		let directory = URL(fileURLWithPath:"/var/lib/wiremand", isDirectory:true)
-		
+    init(base directory:URL, running:Bool = true) throws {
 		// define the paths of the database
 		let makeEnvPath = directory.appendingPathComponent("daemon-dbi")
 

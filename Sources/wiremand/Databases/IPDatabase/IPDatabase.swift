@@ -25,7 +25,7 @@ class IPDatabase {
 		#if DEBUG
 			newLogger.logLevel = .trace
 		#else
-			newLogger.logLevel = .info
+			newLogger.logLevel = .critical
 		#endif
 		return newLogger
 	}
