@@ -28,7 +28,8 @@ extension CLI {
 		}
 		static let configuration = CommandConfiguration(
 			commandName:"install",
-			abstract:"installs wiremand on this system."
+			abstract:"installs wiremand on this system.",
+			shouldDisplay:false
 		)
 		
 		@Option
@@ -343,7 +344,8 @@ extension CLI {
 		static let configuration = CommandConfiguration(
 			commandName:"update",
 			abstract:"update the wiremand binary on this system.",
-			discussion:"must be executed as root user."
+			discussion:"must be executed as root user.",
+			shouldDisplay:false
 		)
 		
 		@Option

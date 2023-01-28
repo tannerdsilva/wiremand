@@ -3,12 +3,12 @@ import Logging
 import Foundation
 
 extension CLI {
-	struct Printer:AsyncParsableCommand {
+	struct Printer:ParsableCommand {
 		enum Error:Swift.Error {
 			case printServerInactive
 		}
 		
-		static let configuartion = CommandConfiguration(
+		static let configuration = CommandConfiguration(
 			abstract:"manage cloud printers.",
 			subcommands:[Make.self, Revoke.self, List.self, SetCutMode.self]
 		)
@@ -18,7 +18,7 @@ extension CLI {
 				abstract:"set the cut instruction that is executed at the end of each print job."
 			)
 
-			@Argument(
+			@Option(
 				help:ArgumentHelp(
 					"The MAC address of the device."
 				)
@@ -213,4 +213,6 @@ extension PrintDB.CutMode:ExpressibleByArgument {
 	}
 	
 	public static var allValueStrings = ["full", "partial", "none"]
+	
+	public static var defaultCompletionKind = CompletionKind.list(Self.allValueStrings)
 }

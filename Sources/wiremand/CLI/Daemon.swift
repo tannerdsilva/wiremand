@@ -18,7 +18,8 @@ extension CLI {
 		}
 
 		static let configuration = CommandConfiguration(
-			abstract:"run the daemon process"
+			abstract:"run the daemon process",
+			shouldDisplay:false
 		)
 		
 		@OptionGroup

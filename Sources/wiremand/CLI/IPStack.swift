@@ -5,6 +5,7 @@ extension CLI {
 	struct IPStack:ParsableCommand {
 		static let configuration = CommandConfiguration(
 			commandName:"ipstack",
+			shouldDisplay:false,
 			subcommands:[SetAPIKey.self, GetAPIKey.self]
 		)
 
