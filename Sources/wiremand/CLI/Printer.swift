@@ -76,12 +76,12 @@ extension CLI {
 							print(Colors.green("\t  -> Connected."))
 						}
 						if (statusInfo.status.contains("200") == true) {
-							print(Colors.green("\t  -> Printer Status: \(statusInfo.status)"))
+							print(Colors.dim("\t  -> Printer Status: \(statusInfo.status)"))
 						} else {
-							print(Colors.yellow("\t  -> Printer Status: \(statusInfo.status)"))
+							print(Colors.red("\t  -> Printer Status: \(statusInfo.status)"))
 						}
 						if (statusInfo.jobs.count == 0) {
-							print(Colors.green("\t  -> No pending jobs."))
+							print(Colors.dim("\t  -> No pending jobs."))
 						} else {
 							let sortedJobs = statusInfo.jobs.sorted(by: { $0 < $1 })
 							let oldestJob = sortedJobs.first!
@@ -90,7 +90,7 @@ extension CLI {
 								print(Colors.red("\t  -> \(statusInfo.jobs.count) pending jobs. (Oldest job received \(oldestJob.relativeTimeString()))"))
 							} else {
 								// there are pending jobs but they are moving at a reasonable rate. do not create visual noise, since the status is normal.
-								print(Colors.green("\t  -> \(statusInfo.jobs.count) pending jobs."))
+								print(Colors.dim("\t  -> \(statusInfo.jobs.count) pending jobs."))
 							}
 						}
 					}
