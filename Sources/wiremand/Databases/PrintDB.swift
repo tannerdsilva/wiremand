@@ -4,10 +4,20 @@ import CLMDB
 import SwiftBlake2
 
 actor PrintDB {
-	enum CutMode:String {
+	enum CutMode:String, LosslessStringConvertible, MDB_convertible {
 		case full = "full"
 		case partial = "partial"
 		case none = "none"
+		
+		var description:String {
+			get {
+				return self.rawValue
+			}
+		}
+		
+		init?(_ description:String) {
+			self.init(rawValue:description)
+		}
 	}
 
 	enum Metadatas:String {
@@ -81,7 +91,7 @@ actor PrintDB {
 			try mac_un.setEntry(value:un, forKey:mac, flags:[.noOverwrite], tx:someTrans)
 			try mac_pw.setEntry(value:pw, forKey:mac, flags:[.noOverwrite], tx:someTrans)
 			try mac_subnetName.setEntry(value:subnet, forKey:mac, flags:[.noOverwrite], tx:someTrans)
-			try mac_cutMode.setEntry(value:CutMode.full.rawValue, forKey:mac, flags:[.noOverwrite], tx:someTrans)
+			try mac_cutMode.setEntry(value:CutMode.full, forKey:mac, flags:[.noOverwrite], tx:someTrans)
 			return newPort
 		}
 		Task.detached {
@@ -101,7 +111,7 @@ actor PrintDB {
 	
 	nonisolated func assignCutMode(mac:String, mode:CutMode) throws {
 		try env.transact(readOnly:false) { someTrans in
-			return try mac_cutMode.setEntry(value:mode.rawValue, forKey:mac, tx:someTrans)
+			return try mac_cutMode.setEntry(value:mode, forKey:mac, tx:someTrans)
 		}
 	}
 	
@@ -132,10 +142,21 @@ actor PrintDB {
 				let un = try mac_un.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!
 				let pw = try mac_pw.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!
 				let subnet = try mac_subnetName.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!
-				let cutMode = CutMode(rawValue:try mac_cutMode.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!)!
+				let cutMode = try mac_cutMode.getEntry(type:CutMode.self, forKey:macAddress, tx:someTrans)!
 				buildList.append(AuthorizedPrinter(mac:macAddress, port:portNumber, username:un, password:pw, subnet:subnet, cutMode:cutMode))
 			}
 			return buildList
+		}
+	}
+	
+	nonisolated func getAuthorizedPrinterInfo(mac macAddress:String) throws -> AuthorizedPrinter {
+		return try env.transact(readOnly:true) { someTrans in
+			let portNumber = try self.mac_port.getEntry(type:UInt16.self, forKey:macAddress, tx:someTrans)!
+			let un = try mac_un.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!
+			let pw = try mac_pw.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!
+			let subnet = try mac_subnetName.getEntry(type:String.self, forKey:macAddress, tx:someTrans)!
+			let cutMode = try mac_cutMode.getEntry(type:CutMode.self, forKey:macAddress, tx:someTrans)!
+			return AuthorizedPrinter(mac:macAddress, port:portNumber, username:un, password:pw, subnet:subnet, cutMode:cutMode)			
 		}
 	}
 	
@@ -494,7 +515,7 @@ actor PrintDB {
 				try someTrans.commit()
 				throw error
 			}
-			let cutMode = CutMode(rawValue:try self.mac_cutMode.getEntry(type:String.self, forKey:mac, tx:someTrans)!)!
+			let cutMode = try self.mac_cutMode.getEntry(type:CutMode.self, forKey:mac, tx:someTrans)!
 			return (try self.macPrintHash_printJobData.getEntry(type:Data.self, forKey:token, tx:someTrans)!, cutMode)
 		}
 	}

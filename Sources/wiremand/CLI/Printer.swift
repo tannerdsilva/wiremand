@@ -10,7 +10,7 @@ extension CLI {
 		
 		static let configuration = CommandConfiguration(
 			abstract:"manage cloud printers.",
-			subcommands:[Make.self, Revoke.self, List.self, SetCutMode.self]
+			subcommands:[Make.self, Revoke.self, List.self, GetConfig.self, SetCutMode.self]
 		)
 		
 		struct SetCutMode:ParsableCommand {
@@ -18,12 +18,12 @@ extension CLI {
 				abstract:"set the cut instruction that is executed at the end of each print job."
 			)
 
-			@Option(
+			@Argument(
 				help:ArgumentHelp(
 					"The MAC address of the device."
 				)
 			)
-			var mac:String? = nil
+			var macAddress:String
 
 			@Argument(
 				help:ArgumentHelp(
@@ -43,8 +43,41 @@ extension CLI {
 				guard daemonDB.printerDatabase != nil else {
 					throw Error.printServerInactive
 				}
-				try daemonDB.printerDatabase!.assignCutMode(mac:mac!, mode:cutMode)
+				try daemonDB.printerDatabase!.assignCutMode(mac:macAddress, mode:cutMode)
 				try daemonDB.reloadRunningDaemon()
+			}
+		}
+		
+		struct GetConfig:ParsableCommand {
+			static let configuration = CommandConfiguration(
+				abstract:"get configuration info for a printer."
+			)
+			
+			@OptionGroup
+			var globals:CLI.GlobalCLIOptions
+			
+			@Argument(
+				help:ArgumentHelp(
+					"The MAC address of the device."
+				)
+			)
+			var macAddress:String
+			
+			mutating func run() throws {
+				let daemonDB = try DaemonDB(globals)
+				guard let pdb = daemonDB.printerDatabase else {
+					throw CLI.Printer.Error.printServerInactive
+				}
+				let printerInfo = try pdb.getAuthorizedPrinterInfo(mac:macAddress)
+				print(Colors.Cyan("CONFIGURE YOUR PRINT SOURCE TO SEND JOBS TO THIS IP & PORT."))
+				print(Colors.yellow("NOTICE: PRINT SOURCE MUST BE CONNECTED TO WIREGUARD NETWORK."))
+				print(Colors.Cyan("Address : \(try daemonDB.wireguardDatabase.getServerInternalNetwork().address.string)"))
+				print(Colors.Cyan("Port: \(printerInfo.port)"))
+				print(" - - - - - - - - - - - - - - - - - - - - - - - - ")
+				print(Colors.Magenta("CONFIGURE PRINT HARDWARE WITH THE FOLLOWING CLOUDPRINT SETTINGS:"))
+				print(Colors.Magenta("URL: https://\(printerInfo.subnet)/print"))
+				print(Colors.Magenta("Username: \(printerInfo.username)"))
+				print(Colors.Magenta("Password: \(printerInfo.password)"))			
 			}
 		}
 		
@@ -56,7 +89,7 @@ extension CLI {
 			@OptionGroup
 			var globals:CLI.GlobalCLIOptions
 			
-			@Option(help:ArgumentHelp("In recards to the visible output for this command, how much time is allowed to pass for a client to be considered \"disconnected\".", visibility:.`private`))
+			@Option(help:ArgumentHelp("In recards to the visible output for this command, this option specified how much time is allowed to pass for a client to be considered \"disconnected\".", visibility:.`private`))
 			var connectedSecondsThreshold:TimeInterval = 120
 
 			mutating func run() throws {
@@ -75,7 +108,7 @@ extension CLI {
 						} else {
 							print(Colors.green("\t  -> Connected."))
 						}
-						if (statusInfo.status.contains("200") == true) {
+						if (statusInfo.status.contains("200 OK") == true) {
 							print(Colors.dim("\t  -> Printer Status: \(statusInfo.status)"))
 						} else {
 							print(Colors.red("\t  -> Printer Status: \(statusInfo.status)"))
@@ -218,6 +251,7 @@ extension CLI {
 				let printerMetadata = try daemonDB.printerDatabase!.authorizeMacAddress(mac:mac!.lowercased(), subnet:domain!.lowercased())
 				print(Colors.Green("[OK] - Printer assigned to \(domain!)"))
 				print(Colors.Cyan("CONFIGURE YOUR PRINT SOURCE TO SEND JOBS TO THIS IP & PORT"))
+				print(Colors.yellow("NOTICE: PRINT SOURCE MUST BE CONNECTED TO WIREGUARD NETWORK."))
 				print(Colors.Cyan("Address : \(try daemonDB.wireguardDatabase.getServerInternalNetwork().address.string)"))
 				print(Colors.Cyan("Port: \(printerMetadata.port)"))
 				print(" - - - - - - - - - - - - - - - - - - - - - - - - ")
