@@ -66,6 +66,9 @@ extension CLI {
 				abstract:"list the domains that are available on this system."
 			)
 			
+			@Option(help:ArgumentHelp("show wiremand API keys for the domains."))
+			var apiKeys:Bool = false
+			
 			@OptionGroup
 			var globals:GlobalCLIOptions
 			
@@ -77,8 +80,10 @@ extension CLI {
 				let allDomains = try daemonDB.wireguardDatabase.allSubnets()
 				for curDomain in allDomains {
 					print("\(curDomain.name)")
-					print(Colors.Yellow("\t- sk: \(curDomain.securityKey)"))
-					print(Colors.Cyan("\t- dk: \(try WiremanD.hash(domain:curDomain.name))"))
+					if (self.apiKeys == true) {
+						print(Colors.Yellow("\t- sk: \(curDomain.securityKey)"))
+						print(Colors.Cyan("\t- dk: \(try WiremanD.hash(domain:curDomain.name))"))
+					}
 					print(Colors.dim("\t- subnet: \(curDomain.network.cidrString)"))
 				}
 			}

@@ -10,7 +10,7 @@ extension CLI {
 		
 		static let configuration = CommandConfiguration(
 			abstract:"manage cloud printers.",
-			subcommands:[Make.self, Revoke.self, List.self, SetCutMode.self]
+			subcommands:[Make.self, Revoke.self, List.self, GetConfig.self, SetCutMode.self]
 		)
 		
 		struct SetCutMode:ParsableCommand {
@@ -18,12 +18,12 @@ extension CLI {
 				abstract:"set the cut instruction that is executed at the end of each print job."
 			)
 
-			@Option(
+			@Argument(
 				help:ArgumentHelp(
 					"The MAC address of the device."
 				)
 			)
-			var mac:String? = nil
+			var macAddress:String
 
 			@Argument(
 				help:ArgumentHelp(
@@ -43,8 +43,41 @@ extension CLI {
 				guard daemonDB.printerDatabase != nil else {
 					throw Error.printServerInactive
 				}
-				try daemonDB.printerDatabase!.assignCutMode(mac:mac!, mode:cutMode)
+				try daemonDB.printerDatabase!.assignCutMode(mac:macAddress, mode:cutMode)
 				try daemonDB.reloadRunningDaemon()
+			}
+		}
+		
+		struct GetConfig:ParsableCommand {
+			static let configuration = CommandConfiguration(
+				abstract:"get configuration info for a printer."
+			)
+						
+			@Argument(
+				help:ArgumentHelp(
+					"The MAC address of the device."
+				)
+			)
+			var macAddress:String
+			
+			@OptionGroup
+			var globals:CLI.GlobalCLIOptions
+
+			mutating func run() throws {
+				let daemonDB = try DaemonDB(globals)
+				guard let pdb = daemonDB.printerDatabase else {
+					throw CLI.Printer.Error.printServerInactive
+				}
+				let printerInfo = try pdb.getAuthorizedPrinterInfo(mac:macAddress)
+				print(Colors.Cyan("CONFIGURE YOUR PRINT SOURCE TO SEND JOBS TO THIS IP & PORT."))
+				print(Colors.yellow("NOTICE: PRINT SOURCE MUST BE CONNECTED TO WIREGUARD NETWORK."))
+				print(Colors.Cyan("Address : \(try daemonDB.wireguardDatabase.getServerInternalNetwork().address.string)"))
+				print(Colors.Cyan("Port: \(printerInfo.port)"))
+				print(" - - - - - - - - - - - - - - - - - - - - - - - - ")
+				print(Colors.Magenta("CONFIGURE PRINT HARDWARE WITH THE FOLLOWING CLOUDPRINT SETTINGS:"))
+				print(Colors.Magenta("URL: https://\(printerInfo.subnet)/print"))
+				print(Colors.Magenta("Username: \(printerInfo.username)"))
+				print(Colors.Magenta("Password: \(printerInfo.password)"))			
 			}
 		}
 		
@@ -55,6 +88,9 @@ extension CLI {
 
 			@OptionGroup
 			var globals:CLI.GlobalCLIOptions
+			
+			@Option(help:ArgumentHelp("In recards to the visible output for this command, this option specified how much time is allowed to pass for a client to be considered \"disconnected\".", visibility:.`private`))
+			var connectedSecondsThreshold:TimeInterval = 120
 
 			mutating func run() throws {
 				let daemonDB = try DaemonDB(globals)
@@ -65,11 +101,31 @@ extension CLI {
 				for curSub in allAuthorized.sorted(by: { $0.key < $1.key }) {
 					print(Colors.Yellow("- \(curSub.key)"))
 					for curMac in curSub.value {
-						print(Colors.dim("\t-\t\(curMac.mac)"))
+						print("\t\(curMac.mac) -  -  -  -  -  -  -")
 						let statusInfo = try daemonDB.printerDatabase!.getPrinterStatus(mac:curMac.mac)
-						print("\t-> Last Connected: \(statusInfo.lastSeen)")
-						print("\t-> Status: \(statusInfo.status)")
-						print("\t-> \(statusInfo.jobs.count) Pending Jobs: \(statusInfo.jobs.sorted(by: { $0 < $1 }))")
+						if (abs(statusInfo.lastSeen.timeIntervalSinceNow) > connectedSecondsThreshold) {
+							print(Colors.red("\t  -> Last Connected: \(statusInfo.lastSeen.relativeTimeString())"))
+						} else {
+							print(Colors.green("\t  -> Connected."))
+						}
+						if (statusInfo.status.contains("200 OK") == true) {
+							print(Colors.dim("\t  -> Printer Status: \(statusInfo.status)"))
+						} else {
+							print(Colors.red("\t  -> Printer Status: \(statusInfo.status)"))
+						}
+						if (statusInfo.jobs.count == 0) {
+							print(Colors.dim("\t  -> No pending jobs."))
+						} else {
+							let sortedJobs = statusInfo.jobs.sorted(by: { $0 < $1 })
+							let oldestJob = sortedJobs.first!
+							if (abs(oldestJob.timeIntervalSinceNow) > 30) {
+								// the queue is not moving because the oldest job is older than it should be. print output in red
+								print(Colors.red("\t  -> \(statusInfo.jobs.count) pending jobs. (Oldest job received \(oldestJob.relativeTimeString()))"))
+							} else {
+								// there are pending jobs but they are moving at a reasonable rate. do not create visual noise, since the status is normal.
+								print(Colors.dim("\t  -> \(statusInfo.jobs.count) pending jobs."))
+							}
+						}
 					}
 				}
 
@@ -195,6 +251,7 @@ extension CLI {
 				let printerMetadata = try daemonDB.printerDatabase!.authorizeMacAddress(mac:mac!.lowercased(), subnet:domain!.lowercased())
 				print(Colors.Green("[OK] - Printer assigned to \(domain!)"))
 				print(Colors.Cyan("CONFIGURE YOUR PRINT SOURCE TO SEND JOBS TO THIS IP & PORT"))
+				print(Colors.yellow("NOTICE: PRINT SOURCE MUST BE CONNECTED TO WIREGUARD NETWORK."))
 				print(Colors.Cyan("Address : \(try daemonDB.wireguardDatabase.getServerInternalNetwork().address.string)"))
 				print(Colors.Cyan("Port: \(printerMetadata.port)"))
 				print(" - - - - - - - - - - - - - - - - - - - - - - - - ")
