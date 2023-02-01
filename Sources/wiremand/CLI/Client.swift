@@ -233,11 +233,11 @@ extension CLI {
 					for curClient in sortedClients {
 						if (curClient.lastHandshake == nil) {
 							// print the name in dim text since the client has never successfully handshaken
-							print(Colors.dim("\t- \(curClient.name)"), terminator:"\n")
+							print(Colors.dim(" - \(curClient.name)"), terminator:"\n")
 						} else {
 							if (curClient.lastHandshake!.timeIntervalSinceNow > -150) {
 								// print the name in green text since the client is online
-								print(Colors.Green("\t- \(curClient.name)"), terminator:"")
+								print(Colors.Green(" - \(curClient.name)"), terminator:"")
 								
 								// endpoint info
 								if let hasEndpoint = curClient.endpoint {
@@ -255,10 +255,10 @@ extension CLI {
 								}
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
 								// print the name in red text since the client is going to be revoked soon
-								print(Colors.Red("\t- \(curClient.name)"), terminator:"")
+								print(Colors.Red(" - \(curClient.name)"), terminator:"")
 							} else {
 								// print the name in white text because the client has successfully made a handshake in the past, but is currently offline
-								print("\t- \(curClient.name)")
+								print(" - \(curClient.name)", terminator:"")
 								
 								// endpoint info
 								print(Colors.dim("\n\t\t- \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
