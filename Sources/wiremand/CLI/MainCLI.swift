@@ -12,7 +12,7 @@ struct CLI:AsyncParsableCommand {
 	static let configuration = CommandConfiguration(
 		commandName:"wiremand",
 		abstract:"wireguard management daemon and CLI tool.",
-		subcommands:[Run.self, CLI.Installer.self, CLI.Updater.self, CLI.Client.self, CLI.Domain.self, CLI.Printer.self, CLI.IPStack.self]
+		subcommands:[CLI.Notifications.self, Run.self, CLI.Installer.self, CLI.Updater.self, CLI.Client.self, CLI.Domain.self, CLI.Printer.self, CLI.IPStack.self]
 	)
 	
 	struct GlobalCLIOptions:ParsableArguments {
