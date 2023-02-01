@@ -52,10 +52,7 @@ extension CLI {
 			static let configuration = CommandConfiguration(
 				abstract:"get configuration info for a printer."
 			)
-			
-			@OptionGroup
-			var globals:CLI.GlobalCLIOptions
-			
+						
 			@Argument(
 				help:ArgumentHelp(
 					"The MAC address of the device."
@@ -63,6 +60,9 @@ extension CLI {
 			)
 			var macAddress:String
 			
+			@OptionGroup
+			var globals:CLI.GlobalCLIOptions
+
 			mutating func run() throws {
 				let daemonDB = try DaemonDB(globals)
 				guard let pdb = daemonDB.printerDatabase else {
