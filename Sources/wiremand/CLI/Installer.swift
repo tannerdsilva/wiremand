@@ -349,6 +349,9 @@ extension CLI {
 		@Option
 		var logLevel:Logging.Logger.Level = .info
 		
+		@Option(help:ArgumentHelp("Do not restart the wiremand process after updating the binaries on this system"))
+		var noStart:Bool = false
+		
 		mutating func run() async throws {
 			var appLogger = Logger(label:"wiremand")
 			appLogger.logLevel = logLevel
@@ -370,7 +373,8 @@ extension CLI {
 				appLogger.critical("unable to stop wiremand.service")
 				throw Error.unableToStopService
 			}
-			appLogger.info("installing executable into /opt")
+			appLogger.info("installing executable into /opt"
+			)
 			// install the executable in the system
 			let exeData = try Data(contentsOf:exePath)
 			let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
@@ -382,6 +386,16 @@ extension CLI {
 				appLogger.critical("unable to start wiremand.service")
 				throw Error.unableToStartService
 			}
+<<<<<<< Updated upstream
+=======
+			
+			// update the tab-completion scripts for 
+			appLogger.info("copying bash completions to /opt...")
+			guard try await Command(bash:"/opt/wiremand --generate-completion-script bash > /opt/wiremand.bash").runSync().succeeded == true else {
+				appLogger.critical("unable to generate bash completion scripts")
+				throw Error.unableToGenerateBashCompletions
+			}
+>>>>>>> Stashed changes
 			appLogger.info("wiremand successfully updated.")
 		}
 	}
