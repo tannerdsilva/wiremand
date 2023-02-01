@@ -58,7 +58,6 @@ extension IPDatabase {
 		let isp:String
 		
 		init(apiResponse:[String:Any]) throws {
-			WiremanD.appLogger.info("initializing resolved IP structure", metadata:["api_resp":"\(String(describing:apiResponse))"])
 			self.continent = try? ContinentInfo(apiResponse:apiResponse)
 			self.country = try? CountryInfo(apiResponse:apiResponse)
 			self.region = try? RegionInfo(apiResponse:apiResponse)
@@ -68,11 +67,6 @@ extension IPDatabase {
 				throw Error.missingISPInfo
 			}
 			self.isp = hasISP
-//			guard let hasSecurity = apiResponse["security"] as? [String:Any], let hasThreatLevel = hasSecurity["threat_level"] as? String else {
-//				throw Error.missingThreatInfo
-//			}
-//			self.threatLevel = hasThreatLevel
-			
 		}
 
 		static func from(addressString:String, accessKey:String, client:HTTPClient) async throws -> ResolvedIPInfo {
