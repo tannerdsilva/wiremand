@@ -233,35 +233,35 @@ extension CLI {
 					for curClient in sortedClients {
 						if (curClient.lastHandshake == nil) {
 							// print the name in dim text since the client has never successfully handshaken
-							print(Colors.dim(" - \(curClient.name)"), terminator:"\n")
+							print(Colors.dim("\t- \(curClient.name)"), terminator:"\n")
 						} else {
 							if (curClient.lastHandshake!.timeIntervalSinceNow > -150) {
 								// print the name in green text since the client is online
-								print(Colors.Green(" - \(curClient.name)"), terminator:"")
+								print(Colors.Green("\t- \(curClient.name)"), terminator:"")
 								
 								// endpoint info
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
 										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
-											print(Colors.dim("\n\t- Connected from \(hasCity), \(hasState) at \(hasEndpoint)"), terminator:"")
+											print(Colors.dim("\n\t  - Connected from \(hasCity), \(hasState) at \(hasEndpoint)"), terminator:"")
 										} else if let hasState = resInfo.region?.name {
-											print(Colors.dim("\n\t- Connected from \(hasState) at \(hasEndpoint)"), terminator:"")
+											print(Colors.dim("\n\t  - Connected from \(hasState) at \(hasEndpoint)"), terminator:"")
 										}
 									} else {
-										print(Colors.dim("\n\t- Connected at \(hasEndpoint)"), terminator:"")
+										print(Colors.dim("\n\t  - Connected at \(hasEndpoint)"), terminator:"")
 									}
 								} else {
-									print(Colors.dim("\n\t- Connected at unknown endpoint"), terminator:"")
+									print(Colors.dim("\n\t  - Connected at unknown endpoint"), terminator:"")
 								}
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
 								// print the name in red text since the client is going to be revoked soon
-								print(Colors.Red(" - \(curClient.name)"), terminator:"")
+								print(Colors.Red("\t- \(curClient.name)"), terminator:"")
 							} else {
 								// print the name in white text because the client has successfully made a handshake in the past, but is currently offline
-								print(" - \(curClient.name)", terminator:"")
+								print("\t- \(curClient.name)", terminator:"")
 								
 								// endpoint info
-								print(Colors.dim("\n\t- \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
+								print(Colors.dim("\n\t  - \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
 										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
@@ -281,17 +281,17 @@ extension CLI {
 							
 							// print the client address
 							if (windowsLegacy == false) {
-								print(Colors.dim("\t- \(curClient.address.string)"), terminator:"")
+								print(Colors.dim("\t  - \(curClient.address.string)"), terminator:"")
 							} else {
 								let replaceString = curClient.address.string.replacingOccurrences(of:":", with:"-") + ".ipv6-literal.net"
-								print(Colors.cyan("\t- \(replaceString)"), terminator:"")
+								print(Colors.cyan("\t  - \(replaceString)"), terminator:"")
 							}
 							if (curClient.addressV4 != nil) {
 								print(Colors.dim(" & \(curClient.addressV4!.string)"), terminator:"")
 							}
 							
 							// print the public key of the client
-							print(Colors.dim("\n\t- Public key: \(curClient.publicKey)"))
+							print(Colors.dim("\n\t  - Public key: \(curClient.publicKey)"))
 						} 
 					}
 				}
