@@ -66,7 +66,7 @@ extension CLI {
 				abstract:"list the domains that are available on this system."
 			)
 			
-			@Option(help:ArgumentHelp("show wiremand API keys for the domains."))
+			@Flag(help:ArgumentHelp("show wiremand API keys for the domains."))
 			var apiKeys:Bool = false
 			
 			@OptionGroup
