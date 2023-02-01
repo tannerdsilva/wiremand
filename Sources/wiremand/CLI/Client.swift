@@ -243,15 +243,15 @@ extension CLI {
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
 										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
-											print(Colors.dim("\n\t\t- Connected from \(hasCity), \(hasState) at \(hasEndpoint)"), terminator:"")
+											print(Colors.dim("\n\t- Connected from \(hasCity), \(hasState) at \(hasEndpoint)"), terminator:"")
 										} else if let hasState = resInfo.region?.name {
-											print(Colors.dim("\n\t\t- Connected from \(hasState) at \(hasEndpoint)"), terminator:"")
+											print(Colors.dim("\n\t- Connected from \(hasState) at \(hasEndpoint)"), terminator:"")
 										}
 									} else {
-										print(Colors.dim("\n\t\t- Connected at \(hasEndpoint)"), terminator:"")
+										print(Colors.dim("\n\t- Connected at \(hasEndpoint)"), terminator:"")
 									}
 								} else {
-									print(Colors.dim("\n\t\t- Connected at unknown endpoint"), terminator:"")
+									print(Colors.dim("\n\t- Connected at unknown endpoint"), terminator:"")
 								}
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
 								// print the name in red text since the client is going to be revoked soon
@@ -261,7 +261,7 @@ extension CLI {
 								print(" - \(curClient.name)", terminator:"")
 								
 								// endpoint info
-								print(Colors.dim("\n\t\t- \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
+								print(Colors.dim("\n\t- \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try daemonDB.ipdb.getResolveStatus(address:hasEndpoint) {
 										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
@@ -281,17 +281,17 @@ extension CLI {
 							
 							// print the client address
 							if (windowsLegacy == false) {
-								print(Colors.dim("\t\t- \(curClient.address.string)"), terminator:"")
+								print(Colors.dim("\t- \(curClient.address.string)"), terminator:"")
 							} else {
 								let replaceString = curClient.address.string.replacingOccurrences(of:":", with:"-") + ".ipv6-literal.net"
-								print(Colors.cyan("\t\t- \(replaceString)"), terminator:"")
+								print(Colors.cyan("\t- \(replaceString)"), terminator:"")
 							}
 							if (curClient.addressV4 != nil) {
 								print(Colors.dim(" & \(curClient.addressV4!.string)"), terminator:"")
 							}
 							
 							// print the public key of the client
-							print(Colors.dim("\n\t\t- Public key: \(curClient.publicKey)"))
+							print(Colors.dim("\n\t- Public key: \(curClient.publicKey)"))
 						} 
 					}
 				}
