@@ -68,18 +68,17 @@ extension CLI {
 				for curSub in allAuthorized.sorted(by: { $0.key < $1.key }) {
 					print(Colors.Yellow("- \(curSub.key)"))
 					for curMac in curSub.value {
-						print(Colors.dim("\t-\(curMac.mac)"))
+						print("\t\(curMac.mac) -  -  -  -  -  -  -")
 						let statusInfo = try daemonDB.printerDatabase!.getPrinterStatus(mac:curMac.mac)
 						if (abs(statusInfo.lastSeen.timeIntervalSinceNow) > connectedSecondsThreshold) {
 							print(Colors.red("\t  -> Last Connected: \(statusInfo.lastSeen.relativeTimeString())"))
 						} else {
-							print(Colors.green("\t  -> Connected "), terminator:"")
-							print(Colors.dim("(within \(connectedSecondsThreshold) seconds)."))
+							print(Colors.green("\t  -> Connected."))
 						}
 						if (statusInfo.status.contains("200") == true) {
-							print(Colors.green("\t  -> Status: \(statusInfo.status)"))
+							print(Colors.green("\t  -> Printer Status: \(statusInfo.status)"))
 						} else {
-							print(Colors.red("\t  -> Status: \(statusInfo.status)"))
+							print(Colors.yellow("\t  -> Printer Status: \(statusInfo.status)"))
 						}
 						if (statusInfo.jobs.count == 0) {
 							print(Colors.green("\t  -> No pending jobs."))
