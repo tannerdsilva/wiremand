@@ -55,6 +55,9 @@ extension CLI {
 
 			@OptionGroup
 			var globals:CLI.GlobalCLIOptions
+			
+			@Option(help:ArgumentHelp("In recards to the visible output for this command, how much time is allowed to pass for a client to be considered \"disconnected\".", visibility:.`private`))
+			var connectedSecondsThreshold:TimeInterval = 120
 
 			mutating func run() throws {
 				let daemonDB = try DaemonDB(globals)
@@ -67,23 +70,28 @@ extension CLI {
 					for curMac in curSub.value {
 						print(Colors.dim("\t-\t\(curMac.mac)"))
 						let statusInfo = try daemonDB.printerDatabase!.getPrinterStatus(mac:curMac.mac)
-						print("\t-> Last Connected: \(statusInfo.lastSeen.relativeTimeString())")
+						if (abs(statusInfo.lastSeen.timeIntervalSinceNow) > connectedSecondsThreshold) {
+							print(Colors.red("\t-> Last Connected: \(statusInfo.lastSeen.relativeTimeString())"))
+						} else {
+							print(Colors.green("\t-> Connected "), terminator:"")
+							print(Colors.dim("(within \(connectedSecondsThreshold) seconds)."))
+						}
 						if (statusInfo.status.contains("200") == true) {
 							print(Colors.green("\t-> Status: \(statusInfo.status)"))
 						} else {
 							print(Colors.red("\t-> Status: \(statusInfo.status)"))
 						}
 						if (statusInfo.jobs.count == 0) {
-							print(Colors.green("\t-> No Pending Jobs."))
+							print(Colors.green("\t-> No pending jobs."))
 						} else {
 							let sortedJobs = statusInfo.jobs.sorted(by: { $0 < $1 })
 							let oldestJob = sortedJobs.first!
 							if (abs(oldestJob.timeIntervalSinceNow) > 30) {
 								// the queue is not moving because the oldest job is older than it should be. print output in red
-								print(Colors.red("\t-> \(statusInfo.jobs.count) Pending Jobs. (Oldest job received on: \(oldestJob))"))
+								print(Colors.red("\t-> \(statusInfo.jobs.count) pending jobs. (Oldest job received \(oldestJob.relativeTimeString()))"))
 							} else {
 								// there are pending jobs but they are moving at a reasonable rate. do not create visual noise, since the status is normal.
-								print(Colors.green("\t-> \(statusInfo.jobs.count) Pending Jobs."))
+								print(Colors.green("\t-> \(statusInfo.jobs.count) pending jobs."))
 							}
 						}
 					}
