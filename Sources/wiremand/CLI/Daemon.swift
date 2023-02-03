@@ -34,18 +34,28 @@ extension CLI {
 				print("this function must be run as the wiremand user")
 				throw Error.invalidUser
 			}
+			
 			let daemonDB = try DaemonDB(globals, running:true)
-			await SignalStack.global.add(signal: SIGHUP, { _ in
-				if let hasPDB = daemonDB.printerDatabase {
-					Task.detached { [hasPDB, logger = appLogger] in
-						logger.info("port sync triggered")
-						try await hasPDB.portSync()
-					}
-				}
-			})
+			
 			let interfaceName = try daemonDB.wireguardDatabase.primaryInterfaceName()
 			let tcpPortBind = try daemonDB.wireguardDatabase.getServerInternalNetwork().address.string
-			
+			let tcpManager:TCPPortManager?
+			if let hasPrintDB = daemonDB.printerDatabase {
+				tcpManager = try TCPPortManager(bindHost:tcpPortBind, printDB:hasPrintDB)
+				await SignalStack.global.add(signal:SIGHUP) { [tcpm = tcpManager!, appLogger] _ in
+					Task.detached { [tcpMan = tcpm, appLogger] in
+						do {
+							try await tcpMan.updatePrinters()
+							appLogger.notice("successfully refreshed printers")
+						} catch let error {
+							appLogger.error("unable to reload daemon", metadata:["error":"\(error)"])
+						}
+					}
+				}
+			} else {
+				tcpManager = nil
+			}
+
 			// schedule the handshake checker
 			try daemonDB.launchSchedule(.latestWireguardHandshakesCheck, interval:10, { [wgdb = daemonDB.wireguardDatabase, logger = appLogger] in
 				do {
@@ -182,13 +192,6 @@ extension CLI {
 				}
 			}
 			
-			var allPorts = [UInt16:TCPServer]()
-			try! await daemonDB.printerDatabase!.assignPortHandlers(opener: { newPort, _ in
-				let newServer = try TCPServer(host:tcpPortBind, port:newPort, db:daemonDB.printerDatabase!)
-				allPorts[newPort] = newServer
-			}, closer: { oldPort in
-				allPorts[oldPort] = nil
-			})
 			let webserver = try PublicHTTPWebServer(daemonDB:daemonDB, pp:daemonDB.printerDatabase!, port:daemonDB.getPublicHTTPPort())
 			try webserver.run()
 			webserver.wait()

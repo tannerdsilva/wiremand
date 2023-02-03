@@ -57,6 +57,8 @@ class DaemonDB {
         case pidExclusivityNotClaimed
 		case databaseNotCreated
 		case databaseNotReadable
+		case unableToSignal
+		case daemonNotRunning
     }
     enum Metadatas:String {
         case daemonRunningPID = "_daemonRunningPID" //pid_t
@@ -212,12 +214,14 @@ class DaemonDB {
 		try env.sync()
     }
 	nonisolated func reloadRunningDaemon() throws {
-		do {
-			try env.transact(readOnly:true) { someTrans in
-				let daemonPID = try metadata.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
-				kill(daemonPID, SIGHUP)
+		try env.transact(readOnly:true) { someTrans in
+			let daemonPID = try metadata.getEntry(type:pid_t.self, forKey:Metadatas.daemonRunningPID.rawValue, tx:someTrans)!
+			guard kill(daemonPID, SIGHUP) == 0 else {
+				Self.logger.error("unable to signal daemon process.", metadata:["pid":"\(daemonPID)"])
+				throw Error.unableToSignal
 			}
-		} catch LMDBError.notFound {}
+			Self.logger.debug("successfully signaled daemon process.")
+		}
 	}
 	
 	nonisolated func addNotifyUser(name:String, email:String) throws {

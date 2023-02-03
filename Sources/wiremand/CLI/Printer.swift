@@ -128,7 +128,6 @@ extension CLI {
 						}
 					}
 				}
-
 			}
 		}
 		
@@ -249,6 +248,7 @@ extension CLI {
 					} while mac == nil || mac!.count == 0
 				}
 				let printerMetadata = try daemonDB.printerDatabase!.authorizeMacAddress(mac:mac!.lowercased(), subnet:domain!.lowercased())
+				try daemonDB.reloadRunningDaemon()
 				print(Colors.Green("[OK] - Printer assigned to \(domain!)"))
 				print(Colors.Cyan("CONFIGURE YOUR PRINT SOURCE TO SEND JOBS TO THIS IP & PORT"))
 				print(Colors.yellow("NOTICE: PRINT SOURCE MUST BE CONNECTED TO WIREGUARD NETWORK."))
