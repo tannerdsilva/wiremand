@@ -230,16 +230,16 @@ extension CLI {
 			
 			// install the executable in the system
 			let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
-			appLogger.info("applying effective CAP_KILL capabilities to executable")
-			let setCapResult = try await Command(bash:"sudo setcap CAP_KILL+ep '\(exePath.path)'").runSync()
-			guard setCapResult.succeeded == true else {
-				appLogger.critical("unable to set effective CAP_KILL capabilities to executable", metadata:["path":"\(exePath.path)", "exitCode":"\(setCapResult.exitCode)"])
-				throw Error.capApplyError
-			}
 			let exeData = try Data(contentsOf:exePath)
-			let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
+			let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
 			try exeFD.writeAll(exeData)
 			try exeFD.close()
+			appLogger.info("applying effective CAP_KILL capabilities to executable.")
+			let setCapResult = try await Command(bash:"sudo setcap CAP_KILL+ep '/opt/wiremand'").runSync()
+			guard setCapResult.succeeded == true else {
+				appLogger.critical("unable to set effective CAP_KILL capabilities to executable")
+				throw Error.capApplyError
+			}
 			
 			appLogger.info("copying bash completions to /opt...")
 			guard try await Command(bash:"/opt/wiremand --generate-completion-script bash > /opt/wiremand.bash").runSync().succeeded == true else {
@@ -296,7 +296,7 @@ extension CLI {
 				_ = try nginxUpstreams.writeAll(buildUpstream.utf8)
 			})
 			
-			appLogger.info("updating  /etc/skel/.bashrc with wiremand conveniences")
+			appLogger.info("updating /etc/skel/.bashrc with wiremand conveniences")
 			
 			let bashRCHandle = try FileDescriptor.open("/etc/skel/.bashrc", .writeOnly, options:[.append], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 			try bashRCHandle.closeAfter {
@@ -372,12 +372,6 @@ extension CLI {
 			}
 			let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
 			appLogger.info("initiating system update of wiremand process.", metadata:["oldPath":"/opt/wiremand", "updateWith":"\(exePath.path)"])
-			let setCapResult = try await Command(bash:"sudo setcap CAP_KILL+ep '\(exePath.path)'").runSync()
-			guard setCapResult.succeeded == true else {
-				appLogger.critical("unable to set effective CAP_KILL capabilities to executable")
-				throw Error.capApplyError
-			}
-			appLogger.info("applied effective CAP_KILL capabilities to executable.")
 			appLogger.info("stopping wiremand service")
 			let stopResult = try await Command(bash:"systemctl stop wiremand.service").runSync()
 			guard stopResult.succeeded == true else {
@@ -387,9 +381,17 @@ extension CLI {
 			appLogger.info("installing executable into /opt")
 			// install the executable in the system
 			let exeData = try Data(contentsOf:exePath)
-			let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
+			let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
 			try exeFD.writeAll(exeData)
 			try exeFD.close()
+			
+			let setCapResult = try await Command(bash:"sudo setcap CAP_KILL+ep '/opt/wiremand'").runSync()
+			guard setCapResult.succeeded == true else {
+				appLogger.critical("unable to set effective CAP_KILL capabilities to executable")
+				throw Error.capApplyError
+			}
+			appLogger.info("applying effective CAP_KILL capabilities to executable.")
+			
 			if (noRestart == false) {
 				appLogger.info("starting wiremand service")
 				let startResult = try await Command(bash:"systemctl start wiremand.service").runSync()
