@@ -390,11 +390,13 @@ extension CLI {
 			let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
 			try exeFD.writeAll(exeData)
 			try exeFD.close()
-			appLogger.info("starting wiremand service")
-			let startResult = try await Command(bash:"systemctl start wiremand.service").runSync()
-			guard startResult.succeeded == true else {
-				appLogger.critical("unable to start wiremand.service")
-				throw Error.unableToStartService
+			if (noRestart == false) {
+				appLogger.info("starting wiremand service")
+				let startResult = try await Command(bash:"systemctl start wiremand.service").runSync()
+				guard startResult.succeeded == true else {
+					appLogger.critical("unable to start wiremand.service")
+					throw Error.unableToStartService
+				}
 			}
 			appLogger.info("copying bash completions to /opt...")
 			guard try await Command(bash:"/opt/wiremand --generate-completion-script bash > /opt/wiremand.bash").runSync().succeeded == true else {
