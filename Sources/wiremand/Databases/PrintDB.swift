@@ -94,9 +94,6 @@ actor PrintDB {
 			try mac_cutMode.setEntry(value:CutMode.full, forKey:mac, flags:[.noOverwrite], tx:someTrans)
 			return newPort
 		}
-		Task.detached {
-			try await self.firePortOpener(port:newPort, mac:mac)
-		}
 		return (newPort, un, pw)
 	}
 	
@@ -126,9 +123,6 @@ actor PrintDB {
 			try self.mac_subnetName.deleteEntry(key:mac, tx:someTrans)
 			try self.mac_cutMode.deleteEntry(key:mac, tx:someTrans)
 			return getPort
-		}
-		Task.detached {
-			try await self.firePortCloser(port:closedPort)
 		}
 	}
 	
@@ -185,64 +179,64 @@ actor PrintDB {
 	let mac_lastPW:Database
 	let mac_lastAuthAttempt:Database
 	
-	typealias OpenHandler = (UInt16, String) throws -> Void
-	typealias CloseHandler = (UInt16) throws -> Void
-	fileprivate var opener:OpenHandler? = nil
-	fileprivate var closer:CloseHandler? = nil
-	fileprivate var openedPort = Set<UInt16>()
-	func assignPortHandlers(opener:@escaping(OpenHandler), closer:@escaping(CloseHandler)) throws {
-		guard self.opener == nil && self.closer == nil else {
-			return
-		}
-		self.opener = opener
-		self.closer = closer
-		try env.transact(readOnly:true) { someTrans in
-			let port_macCursor = try port_mac.cursor(tx:someTrans)
-			for curPort in port_macCursor {
-				let asUInt = UInt16(curPort.key)!
-				let macStr = String(curPort.value)!
-				try opener(asUInt, macStr)
-				openedPort.update(with:asUInt)
-			}
-		}
-	}
-	func portSync() throws {
-		guard opener != nil && closer != nil else {
-			return
-		}
-		try env.transact(readOnly:true) { someTrans in
-			let port_macCursor = try port_mac.cursor(tx:someTrans)
-			
-			// open any unopened ports
-			for curPort in port_macCursor {
-				let asUInt = UInt16(curPort.key)!
-				let macStr = String(curPort.value)!
-				if openedPort.contains(asUInt) {
-					try opener!(asUInt, macStr)
-					openedPort.update(with:asUInt)
-				}
-			}
-			// close any opened ports which should not be running
-			for curPort in openedPort {
-				if try port_macCursor.containsEntry(key:curPort) == false {
-					try closer!(curPort)
-					openedPort.remove(curPort)
-				}
-			}
-		}
-	}
-	fileprivate func firePortOpener(port:UInt16, mac:String) throws {
-		if let hasOpener = opener, openedPort.contains(port) == false {
-			try hasOpener(port, mac)
-			openedPort.update(with:port)
-		}
-	}
-	fileprivate func firePortCloser(port:UInt16) throws {
-		if let hasCloser = closer, openedPort.contains(port) == true {
-			try hasCloser(port)
-			openedPort.remove(port)
-		}
-	}
+//	typealias OpenHandler = (UInt16, String) throws -> Void
+//	typealias CloseHandler = (UInt16) throws -> Void
+//	fileprivate var opener:OpenHandler? = nil
+//	fileprivate var closer:CloseHandler? = nil
+//	fileprivate var openedPort = Set<UInt16>()
+//	func assignPortHandlers(opener:@escaping(OpenHandler), closer:@escaping(CloseHandler)) throws {
+//		guard self.opener == nil && self.closer == nil else {
+//			return
+//		}
+//		self.opener = opener
+//		self.closer = closer
+//		try env.transact(readOnly:true) { someTrans in
+//			let port_macCursor = try port_mac.cursor(tx:someTrans)
+//			for curPort in port_macCursor {
+//				let asUInt = UInt16(curPort.key)!
+//				let macStr = String(curPort.value)!
+//				try opener(asUInt, macStr)
+//				openedPort.update(with:asUInt)
+//			}
+//		}
+//	}
+//	func portSync() throws {
+//		guard opener != nil && closer != nil else {
+//			return
+//		}
+//		try env.transact(readOnly:true) { someTrans in
+//			let port_macCursor = try port_mac.cursor(tx:someTrans)
+//			
+//			// open any unopened ports
+//			for curPort in port_macCursor {
+//				let asUInt = UInt16(curPort.key)!
+//				let macStr = String(curPort.value)!
+//				if openedPort.contains(asUInt) {
+//					try opener!(asUInt, macStr)
+//					openedPort.update(with:asUInt)
+//				}
+//			}
+//			// close any opened ports which should not be running
+//			for curPort in openedPort {
+//				if try port_macCursor.containsEntry(key:curPort) == false {
+//					try closer!(curPort)
+//					openedPort.remove(curPort)
+//				}
+//			}
+//		}
+//	}
+//	fileprivate func firePortOpener(port:UInt16, mac:String) throws {
+//		if let hasOpener = opener, openedPort.contains(port) == false {
+//			try hasOpener(port, mac)
+//			openedPort.update(with:port)
+//		}
+//	}
+//	fileprivate func firePortCloser(port:UInt16) throws {
+//		if let hasCloser = closer, openedPort.contains(port) == true {
+//			try hasCloser(port)
+//			openedPort.remove(port)
+//		}
+//	}
 	
 	struct AuthData {
 		let un:String
