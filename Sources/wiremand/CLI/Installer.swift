@@ -357,6 +357,9 @@ extension CLI {
 			shouldDisplay:false
 		)
 		
+		@Flag(help:"do not start the wiremand process after it has been updated on this system.")
+		var noRestart = false
+		
 		@Option
 		var logLevel:Logging.Logger.Level = .info
 		
