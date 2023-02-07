@@ -135,7 +135,7 @@ extension CLI {
 					throw CLI.Error.insufficientPrivilege
 				}
 				
-				try domainName.promptInteractivelyIfNecessary(db:daemonDB)
+				try domainName.promptInteractivelyIfNecessary(db:daemonDB, noClientsAllowed:true)
 				guard try daemonDB.wireguardDatabase.validateNewClientName(subnet:domainName.domain!, clientName:domainName.name!) == true else {
 					fatalError("the client name '\(domainName.name!)' cannot be used")
 				}
@@ -345,7 +345,7 @@ extension CLI.Client {
 		)
 		var name:String? = nil
 		
-		mutating func promptInteractivelyIfNecessary(db daemonDB:DaemonDB) throws {
+		mutating func promptInteractivelyIfNecessary(db daemonDB:DaemonDB, noClientsAllowed:Bool = false) throws {
 			// determine the domain to use
 			if (domain == nil || domain!.count == 0) {
 				let allSubnets = try daemonDB.wireguardDatabase.allSubnets()
@@ -376,10 +376,12 @@ extension CLI.Client {
 				switch allClients.count {
 					case 0:
 						print(Colors.Yellow("There are no clients on this subnet yet."))
-						throw CLI.Client.Error.notFound
+						if (noClientsAllowed == false) {
+							throw CLI.Client.Error.notFound
+						}
 					default:
 						print(Colors.Yellow("There are \(allClients.count) clients on this subnet:"))
-						for curClient in allClients {
+						for curClient in allClients.sorted(by: { $0.name < $1.name }) {
 							print(Colors.dim("\t-\t\(curClient.name)"))
 						}
 				}
