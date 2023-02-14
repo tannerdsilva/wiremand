@@ -130,17 +130,17 @@ extension CLI {
 			var globals:GlobalCLIOptions
 			
 			mutating func run() async throws {
-				let daemonDB = try DaemonDB(globals)
+				let daemonDB = try! DaemonDB(globals)
 				guard daemonDB.readOnly == false else {
 					throw CLI.Error.insufficientPrivilege
 				}
 				
-				try domainName.promptInteractivelyIfNecessary(db:daemonDB, noClientsAllowed:true)
-				guard try daemonDB.wireguardDatabase.validateNewClientName(subnet:domainName.domain!, clientName:domainName.name!) == true else {
+				try! domainName.promptInteractivelyIfNecessary(db:daemonDB, noClientsAllowed:true)
+				guard try! daemonDB.wireguardDatabase.validateNewClientName(subnet:domainName.domain!, clientName:domainName.name!) == true else {
 					fatalError("the client name '\(domainName.name!)' cannot be used")
 				}
 				
-				let newKeys = try await WireguardExecutor.generateClient()
+				let newKeys = try! await WireguardExecutor.generateClient()
 				
 				var usePublicKey:String
 				if (publicKey == nil) {
@@ -149,9 +149,9 @@ extension CLI {
 					usePublicKey = publicKey!
 				}
 				
-				let (newClientAddress, optionalV4) = try daemonDB.wireguardDatabase.clientMake(name:domainName.name!, publicKey:usePublicKey, subnet:domainName.domain!, ipv4:ipv4)
+				let (newClientAddress, optionalV4) = try! daemonDB.wireguardDatabase.clientMake(name:domainName.name!, publicKey:usePublicKey, subnet:domainName.domain!, ipv4:ipv4)
 				
-				let (wg_dns_name, wg_port, wg_internal_network, serverV4, serverPub, interfaceName) = try daemonDB.wireguardDatabase.getWireguardConfigMetas()
+				let (wg_dns_name, wg_port, wg_internal_network, serverV4, serverPub, interfaceName) = try! daemonDB.wireguardDatabase.getWireguardConfigMetas()
 
 				var buildKey = "[Interface]\n"
 				if publicKey == nil {
@@ -176,14 +176,14 @@ extension CLI {
 				buildKey += "Endpoint = " + wg_dns_name + ":\(wg_port)" + "\n"
 				buildKey += "PersistentKeepalive = 25" + "\n"
 				
-				try await WireguardExecutor.install(publicKey:usePublicKey, presharedKey:newKeys.presharedKey, address:newClientAddress, addressv4:optionalV4, interfaceName:interfaceName)
-				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName)
-				try daemonDB.wireguardDatabase.serveConfiguration(buildKey, forPublicKey:usePublicKey)
-				let subnetHash = try WiremanD.hash(domain:domainName.domain!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)!
+				try! await WireguardExecutor.install(publicKey:usePublicKey, presharedKey:newKeys.presharedKey, address:newClientAddress, addressv4:optionalV4, interfaceName:interfaceName)
+				try! await WireguardExecutor.saveConfiguration(interfaceName:interfaceName)
+				try! daemonDB.wireguardDatabase.serveConfiguration(buildKey, forPublicKey:usePublicKey)
+				let subnetHash = try! WiremanD.hash(domain:domainName.domain!).addingPercentEncoding(withAllowedCharacters:.alphanumerics)!
 				let buildURL = "\nhttps://\(domainName.domain!)/wg_getkey?dk=\(subnetHash)&pk=\(usePublicKey.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
 				print("\(buildURL)")
-				try DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
-				try await DNSmasqExecutor.reload()
+				try! DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
+				try! await DNSmasqExecutor.reload()
 			}
 		}
 		
