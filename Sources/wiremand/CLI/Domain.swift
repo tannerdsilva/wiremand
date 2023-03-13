@@ -12,12 +12,13 @@ extension CLI {
 			static let configuration = CommandConfiguration(
 				abstract:"install a domain on this wiremand system."
 			)
-			
-			@OptionGroup
-			var globals:GlobalCLIOptions
-			
+	
 			@Argument
 			var domainName:String
+
+					
+			@OptionGroup
+			var globals:GlobalCLIOptions
 			
 			mutating func run() async throws {
 				let daemonDB = try DaemonDB(globals)
@@ -41,11 +42,11 @@ extension CLI {
 				discussion:"will instantly invalidate all users within the submet."
 			)
 
-			@OptionGroup
-			var globals:GlobalCLIOptions
-			
 			@Argument
 			var domainName:String
+			
+			@OptionGroup
+			var globals:GlobalCLIOptions
 			
 			mutating func run() async throws {
 				let daemonDB = try DaemonDB(globals)
