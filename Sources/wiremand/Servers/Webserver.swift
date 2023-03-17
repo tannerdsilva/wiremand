@@ -287,7 +287,7 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
                 // we will make the keys on behalf of the client
 				let newKeys = try await WireguardExecutor.generateClient()
 				
-				let (wg_dns_name, wg_port, wg_internal_network, serverV4, pubKey, interfaceName) = try wgdb.getWireguardConfigMetas()
+				let (wg_dns_name, wg_port, wg_internal_network, serverV4, pubKey, interfaceName, publicV4) = try wgdb.getWireguardConfigMetas()
 				
 				let newClientAddress:AddressV6
 				let optionalV4:AddressV4?
@@ -317,7 +317,11 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
 				} else {
 					buildKey += "\n"
 				}
-                buildKey += "Endpoint = " + wg_dns_name + ":\(wg_port)" + "\n"
+				if let publicV4 = publicV4 {
+					buildKey += "Endpoint = \(publicV4.string):\(wg_port)\n"
+				} else {
+					buildKey += "Endpoint = \(wg_dns_name):\(wg_port)\n"
+				}
                 buildKey += "PersistentKeepalive = 25" + "\n"
                 
                 var buildBytes = ByteBuffer()

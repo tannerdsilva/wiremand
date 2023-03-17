@@ -135,15 +135,21 @@ struct WireguardDatabase {
 		return try self.metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:tx)!
 	}
 	
-	func getWireguardConfigMetas() throws -> (String, UInt16, NetworkV6, AddressV4, String, String) {
-		return try env.transact(readOnly:true) { someTrans -> (String, UInt16, NetworkV6, AddressV4, String, String) in
+	func getWireguardConfigMetas() throws -> (String, UInt16, NetworkV6, AddressV4, String, String, AddressV4?) {
+		return try env.transact(readOnly:true) { someTrans -> (String, UInt16, NetworkV6, AddressV4, String, String, AddressV4?) in
 			let getDNSName = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicDomainName.rawValue, tx:someTrans)!
 			let getPort = try metadata.getEntry(type:UInt16.self, forKey:Metadatas.wg_serverPublicListenPort.rawValue, tx:someTrans)!
 			let ipv6Block = try metadata.getEntry(type:NetworkV6.self, forKey:Metadatas.wg_serverIPv6Block.rawValue, tx:someTrans)!
 			let ipv4Address = try metadata.getEntry(type:NetworkV4.self, forKey:Metadatas.wg_serverIPv4Block.rawValue, tx:someTrans)!.address
 			let serverPubKey = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_serverPublicKey.rawValue, tx:someTrans)!
 			let publicInterfaceName = try metadata.getEntry(type:String.self, forKey:Metadatas.wg_primaryInterfaceName.rawValue, tx:someTrans)!
-			return (getDNSName, getPort, ipv6Block, ipv4Address, serverPubKey, publicInterfaceName)
+			let publicIPv4Interface:AddressV4?
+			do {
+				publicIPv4Interface = try metadata.getEntry(type:AddressV4.self, forKey:Metadatas.wg_serverPublicIPv4Address.rawValue, tx:someTrans)!
+			} catch LMDBError.notFound {
+				publicIPv4Interface = nil
+			}
+			return (getDNSName, getPort, ipv6Block, ipv4Address, serverPubKey, publicInterfaceName, publicIPv4Interface)
 		}
 	}
 	
