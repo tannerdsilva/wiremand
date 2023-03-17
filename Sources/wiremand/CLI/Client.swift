@@ -57,7 +57,7 @@ extension CLI {
 				
 				try domainName.promptInteractivelyIfNecessary(db:daemonDB)
 
-				let (_, _, _, _, _, interfaceName) = try daemonDB.wireguardDatabase.getWireguardConfigMetas()
+				let (_, _, _, _, _, interfaceName, _) = try daemonDB.wireguardDatabase.getWireguardConfigMetas()
 				let (newV4, curV6, pubString) = try daemonDB.wireguardDatabase.clientAssignIPv4(subnet:domainName.domain!, name:domainName.name!)
 				try await WireguardExecutor.updateExistingClient(publicKey:pubString, with:curV6, and:newV4, interfaceName:interfaceName)
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName)
@@ -151,7 +151,7 @@ extension CLI {
 				
 				let (newClientAddress, optionalV4) = try daemonDB.wireguardDatabase.clientMake(name:domainName.name!, publicKey:usePublicKey, subnet:domainName.domain!, ipv4:ipv4)
 				
-				let (wg_dns_name, wg_port, wg_internal_network, serverV4, serverPub, interfaceName) = try daemonDB.wireguardDatabase.getWireguardConfigMetas()
+				let (wg_dns_name, wg_port, wg_internal_network, serverV4, serverPub, interfaceName, ipv4Public) = try daemonDB.wireguardDatabase.getWireguardConfigMetas()
 
 				var buildKey = "[Interface]\n"
 				if publicKey == nil {
@@ -173,7 +173,11 @@ extension CLI {
 				} else {
 					buildKey += "\n"
 				}
-				buildKey += "Endpoint = " + wg_dns_name + ":\(wg_port)" + "\n"
+				if let hasPublicIPv4 = ipv4Public {
+					buildKey += "Endpoint = " + hasPublicIPv4.string + ":\(wg_port)" + "\n"
+				} else {
+					buildKey += "Endpoint = " + wg_dns_name + ":\(wg_port)" + "\n"
+				}
 				buildKey += "PersistentKeepalive = 25" + "\n"
 				
 				try await WireguardExecutor.install(publicKey:usePublicKey, presharedKey:newKeys.presharedKey, address:newClientAddress, addressv4:optionalV4, interfaceName:interfaceName)
