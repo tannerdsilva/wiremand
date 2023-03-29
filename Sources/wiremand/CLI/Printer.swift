@@ -1,6 +1,7 @@
 import ArgumentParser
 import Logging
 import Foundation
+import QuickLMDB
 
 extension CLI {
 	struct Printer:ParsableCommand {
@@ -101,30 +102,34 @@ extension CLI {
 				for curSub in allAuthorized.sorted(by: { $0.key < $1.key }) {
 					print(Colors.Yellow("- \(curSub.key)"))
 					for curMac in curSub.value {
-						print("\t\(curMac.mac) -  -  -  -  -  -  -")
-						let statusInfo = try daemonDB.printerDatabase!.getPrinterStatus(mac:curMac.mac)
-						if (abs(statusInfo.lastSeen.timeIntervalSinceNow) > connectedSecondsThreshold) {
-							print(Colors.red("\t  -> Last Connected: \(statusInfo.lastSeen.relativeTimeString())"))
-						} else {
-							print(Colors.green("\t  -> Connected."))
-						}
-						if (statusInfo.status.contains("200 OK") == true) {
-							print(Colors.dim("\t  -> Printer Status: \(statusInfo.status)"))
-						} else {
-							print(Colors.red("\t  -> Printer Status: \(statusInfo.status)"))
-						}
-						if (statusInfo.jobs.count == 0) {
-							print(Colors.dim("\t  -> No pending jobs."))
-						} else {
-							let sortedJobs = statusInfo.jobs.sorted(by: { $0 < $1 })
-							let oldestJob = sortedJobs.first!
-							if (abs(oldestJob.timeIntervalSinceNow) > 30) {
-								// the queue is not moving because the oldest job is older than it should be. print output in red
-								print(Colors.red("\t  -> \(statusInfo.jobs.count) pending jobs. (Oldest job received \(oldestJob.relativeTimeString()))"))
+						do {
+							print("\t\(curMac.mac) -  -  -  -  -  -  -")
+							let statusInfo = try daemonDB.printerDatabase!.getPrinterStatus(mac:curMac.mac)
+							if (abs(statusInfo.lastSeen.timeIntervalSinceNow) > connectedSecondsThreshold) {
+								print(Colors.red("\t  -> Last Connected: \(statusInfo.lastSeen.relativeTimeString())"))
 							} else {
-								// there are pending jobs but they are moving at a reasonable rate. do not create visual noise, since the status is normal.
-								print(Colors.dim("\t  -> \(statusInfo.jobs.count) pending jobs."))
+								print(Colors.green("\t  -> Connected."))
 							}
+							if (statusInfo.status.contains("200 OK") == true) {
+								print(Colors.dim("\t  -> Printer Status: \(statusInfo.status)"))
+							} else {
+								print(Colors.red("\t  -> Printer Status: \(statusInfo.status)"))
+							}
+							if (statusInfo.jobs.count == 0) {
+								print(Colors.dim("\t  -> No pending jobs."))
+							} else {
+								let sortedJobs = statusInfo.jobs.sorted(by: { $0 < $1 })
+								let oldestJob = sortedJobs.first!
+								if (abs(oldestJob.timeIntervalSinceNow) > 30) {
+									// the queue is not moving because the oldest job is older than it should be. print output in red
+									print(Colors.red("\t  -> \(statusInfo.jobs.count) pending jobs. (Oldest job received \(oldestJob.relativeTimeString()))"))
+								} else {
+									// there are pending jobs but they are moving at a reasonable rate. do not create visual noise, since the status is normal.
+									print(Colors.dim("\t  -> \(statusInfo.jobs.count) pending jobs."))
+								}
+							}
+						} catch LMDBError.notFound {
+							print(Colors.red("Error trying to list printer \(curMac.mac) - \(curSub.key)."))
 						}
 					}
 				}
