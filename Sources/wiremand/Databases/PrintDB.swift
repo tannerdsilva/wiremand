@@ -319,10 +319,12 @@ actor PrintDB {
 			let status = try self.mac_status.getEntry(type:String.self, forKey:mac, tx:someTrans)!
 			let jobCursor = try self.mac_printJobDate.cursor(tx:someTrans)
 			var jobs = Set<Date>()
-			for curJob in try jobCursor.makeDupIterator(key:mac) {
-				let jobDate = Date(curJob.value)!
-				jobs.update(with:jobDate)
-			}
+			do {
+				for curJob in try jobCursor.makeDupIterator(key:mac) {
+					let jobDate = Date(curJob.value)!
+					jobs.update(with:jobDate)
+				}
+			} catch LMDBError.notFound {}
 			let lastAuth:Date?
 			do {
 				lastAuth = try self.mac_lastAuthenticated.getEntry(type:Date.self, forKey:mac, tx: someTrans)!
