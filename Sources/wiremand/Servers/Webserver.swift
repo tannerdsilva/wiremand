@@ -83,11 +83,13 @@ fileprivate struct PrinterPoll:HBResponder {
 	
 	public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
 		// check for the remote address
-		request.logger.debug("CloudPRNT traffic", metadata:["method": "\(request.method)"])
 		guard let remoteAddress = request.headers["X-Real-IP"].first?.lowercased() else {
 			request.logger.error("no remote address was found in this request")
 			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 		}
+		// log the beginning of this traffic
+		request.logger.trace("cloudprint traffic identified", metadata:["remote":"\(remoteAddress)"])
+
 		// check which domain the user is requesting from
 		guard let domainString = request.headers["Host"].first?.lowercased() else {
 			request.logger.error("no domain was found in this request", metadata:["remote":"\(remoteAddress)"])
@@ -101,15 +103,14 @@ fileprivate struct PrinterPoll:HBResponder {
         do {
 			// check for the user agent
 			guard let userAgent = request.headers["User-Agent"].first else {
-				request.logger.error("no user agent was found in this request", metadata:["remote":"\(remoteAddress)"])
+				request.logger.error("no user agent was found in this request", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 			}
 			// check for the serial number
 			guard let serial = request.headers["X-Star-Serial-Number"].first else {
-				request.logger.error("no serial number was found in this request", metadata:["remote":"\(remoteAddress)"])
+				request.logger.error("no serial number was found in this request", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 			}
-
 			
 			// mark the date
 			let date = Date()
@@ -117,7 +118,7 @@ fileprivate struct PrinterPoll:HBResponder {
 			// this is the function that will actually return a useful and accurate response to the printer
 			let authorization = request.headers["Authorization"].first?.makeAuthData()
 			if (authorization != nil) {
-				request.logger.debug("decoded username and password", metadata:["username":"\(String(describing: authorization?.un))", "password":"\(String(describing: authorization?.pw))"])
+				request.logger.debug("decoded authentication username from traffic: '\(authorization!.un)", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
 			}
 			
 			do {
@@ -129,58 +130,59 @@ fileprivate struct PrinterPoll:HBResponder {
 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 					}
 					guard let parsed = try JSONSerialization.jsonObject(with:requestData) as? [String:Any], let statusCode = parsed["statusCode"] as? String, let decodeStatusCode = statusCode.removingPercentEncoding else {
-						request.logger.error("unable to parse json body for this request", metadata:["remote":"\(remoteAddress)"])
+						request.logger.error("unable to parse json body for this request", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 					}
 					
 					let jobCode = try printDB.checkForPrintJobs(mac:mac, ua:userAgent, serial:serial, status:decodeStatusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
 					
-					var responseData = ByteBuffer()
 					var buildObject:[String:Any] = ["mediaTypes": ["text/plain"]]
 					if jobCode != nil {
-						request.logger.info("printer has a pending job", metadata:["jobToken": "\(jobCode!.base64EncodedString())"])
-						buildObject["jobToken"] = jobCode!.base64EncodedString()
+						let asb64 = jobCode!.base64EncodedString()
+						request.logger.notice("printer is polling for new jobs. responding with latest job token: '\(asb64)", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+						buildObject["jobToken"] = asb64
 						buildObject["jobReady"] = true
 					} else {
+						request.logger.notice("printer is polling for new jobs. there are no jobs available.", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
 						buildObject["jobReady"] = false
 					}
 					
 					let jsonData = try JSONSerialization.data(withJSONObject:buildObject)
+					var responseData = request.context.allocator.buffer(capacity:jsonData.count)
 					responseData.writeData(jsonData)
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "application/json")), body:.byteBuffer(responseData)))
 				case .GET:
 					guard let jobToken = request.uri.queryParameters["token"] else {
-						request.logger.info("printer didn't ask for a job token")
+						request.logger.error("printer is calling job retrieval endpoint but never provided a job token. this is not expected.", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 					}
 					let (jobData, cutMode) = try printDB.retrievePrintJob(token:Data(base64Encoded:jobToken)! ,mac:mac, ua:userAgent, serial:serial, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
-					var newByteBuffer = ByteBuffer()
+					var newByteBuffer = request.context.allocator.buffer(capacity:jobData.count)
 					newByteBuffer.writeData(jobData)
-					request.logger.info("printer is getting job data", metadata:["length": "\(jobData.count)"])
+					request.logger.notice("returning \(newByteBuffer.readableBytes) bytes for job token: '\(jobToken)'", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "text/plain"), ("X-Star-Cut", "\(cutMode.rawValue); feed=true")), body:.byteBuffer(newByteBuffer)))
 					
 				case .DELETE:
 					guard let jobToken = request.uri.queryParameters["token"] else {
-						request.logger.info("printer didn't ask for a job token")
+						request.logger.error("printer is calling job deletion endpoint but never provided a job token. this is not expected.", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 					}
-					request.logger.debug("CloudPRNT delete job", metadata:["token": "\(jobToken)"])
 					try printDB.completePrintJob(token:Data(base64Encoded:jobToken)!, mac:mac, ua:userAgent, serial:serial, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
+					request.logger.notice("job token successfully printed and cleared: '\(jobToken)'", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok))
 				default:
 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.notFound))
 				}
 			} catch PrintDB.AuthorizationError.unauthorized {
-				request.logger.info("unauthorized printer poll", metadata:["mac": "\(mac)"])
+				request.logger.error("unauthorized printer poll", metadata:["mac": "\(mac)"])
 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized))
 			} catch let PrintDB.AuthorizationError.reauthorizationRequired(authRealm) {
-				request.logger.info("requesting requthentication", metadata:["mac": "\(mac)"])
+				request.logger.error("requesting requthentication", metadata:["mac": "\(mac)"])
 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized, headers:HTTPHeaders([("WWW-Authenticate", "Basic realm=\"\(authRealm)\"")])))
 			} catch let PrintDB.AuthorizationError.invalidScope(correctRealm) {
-				request.logger.info("printer is polling incorrect subnet", metadata:["mac": "\(mac)", "currentPollSubnet": "\(domainString)", "correctPollSubnet": "\(correctRealm)"])
+				request.logger.error("printer is polling incorrect subnet", metadata:["mac": "\(mac)", "currentPollSubnet": "\(domainString)", "correctPollSubnet": "\(correctRealm)"])
 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.forbidden))
 			}
-	
-            return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
         } catch let error {
             request.logger.error("error thrown - \(error)")
             return request.eventLoop.makeFailedFuture(error)
@@ -225,7 +227,7 @@ fileprivate struct Wireguard_GetKeyResponder:HBResponder {
             
             let config = try wgDatabase.getConfiguration(publicKey:publicKey, subnetName:domainString)
             
-            var writeBuffer = ByteBuffer()
+            var writeBuffer = request.context.allocator.buffer(capacity:config.configuration.count)
             writeBuffer.writeString(config.configuration)
             
 			let newResponse = HBResponse(status:.ok, headers:HTTPHeaders([("Content-Disposition", "attachment; filename=\"\(config.name.filter({ ($0.isASCII) && ($0.isLetter || $0.isNumber) })).conf\";")]), body:.byteBuffer(writeBuffer))
