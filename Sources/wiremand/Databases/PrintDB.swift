@@ -345,17 +345,19 @@ actor PrintDB {
 	nonisolated fileprivate func _deleteOldPrintJobs(mac:String, tx:Transaction) throws {
 		let macPrintCursor = try mac_printJobDate.cursor(tx:tx)
 		let macData = Data(mac.utf8)
-		for (_, curDateVal) in try macPrintCursor.makeDupIterator(key:mac) {
-			let asDate = Date(curDateVal)!
-			// if the job is older than 12 hours, delete the job
-			if (asDate.timeIntervalSinceNow < -43200) {
-				let combinedData = macData + Data(curDateVal)!
-				let jobHashData = try Blake2bHasher.hash(combinedData, outputLength:16)
-				try _deleteJob(hash:jobHashData, tx:tx)
-			} else {
-				return
+		do {
+			for (_, curDateVal) in try macPrintCursor.makeDupIterator(key:mac) {
+				let asDate = Date(curDateVal)!
+				// if the job is older than 12 hours, delete the job
+				if (asDate.timeIntervalSinceNow < -43200) {
+					let combinedData = macData + Data(curDateVal)!
+					let jobHashData = try Blake2bHasher.hash(combinedData, outputLength:16)
+					try _deleteJob(hash:jobHashData, tx:tx)
+				} else {
+					return
+				}
 			}
-		}
+		} catch LMDBError.notFound {}
 	}
 	
 	// returns the oldest job token for a given mac address
