@@ -38,7 +38,7 @@ class PublicHTTPWebServer {
 		let makePP = PrinterPoll(printDB:pp)
 		let logLevel:Logger.Level
 		#if DEBUG
-		logLevel = .info
+		logLevel = .trace
 		#else
 		logLevel = .error
 		#endif
@@ -87,8 +87,6 @@ fileprivate struct PrinterPoll:HBResponder {
 			request.logger.error("no remote address was found in this request")
 			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 		}
-		// log the beginning of this traffic
-		request.logger.trace("cloudprint traffic identified", metadata:["remote":"\(remoteAddress)"])
 
 		// check which domain the user is requesting from
 		guard let domainString = request.headers["Host"].first?.lowercased() else {
@@ -100,6 +98,10 @@ fileprivate struct PrinterPoll:HBResponder {
 			request.logger.error("no mac address was found in this request", metadata:["remote":"\(remoteAddress)"])
 			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
 		}
+	
+		// log the beginning of this traffic
+		request.logger.trace("cloudprint traffic identified", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+
         do {
 			// check for the user agent
 			guard let userAgent = request.headers["User-Agent"].first else {
@@ -118,7 +120,7 @@ fileprivate struct PrinterPoll:HBResponder {
 			// this is the function that will actually return a useful and accurate response to the printer
 			let authorization = request.headers["Authorization"].first?.makeAuthData()
 			if (authorization != nil) {
-				request.logger.debug("decoded authentication username from traffic: '\(authorization!.un)", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+				request.logger.debug("decoded authentication username from traffic: '\(authorization!.un)'", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
 			}
 			
 			do {
