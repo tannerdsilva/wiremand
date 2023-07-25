@@ -11,8 +11,69 @@ extension CLI {
 		
 		static let configuration = CommandConfiguration(
 			abstract:"manage cloud printers.",
-			subcommands:[Make.self, Revoke.self, List.self, GetConfig.self, SetCutMode.self]
+			subcommands:[Make.self, Revoke.self, List.self, GetConfig.self, SetCutMode.self, ClearJobs.self, Rename.self]
 		)
+
+		struct ClearJobs:ParsableCommand {
+			static let configuration = CommandConfiguration(
+				abstract:"clear all jobs from a printer."
+			)
+
+			@Argument(
+				help:ArgumentHelp(
+					"The MAC address of the device."
+				)
+			)
+			var macAddress:String
+
+			@OptionGroup
+			var globals:CLI.GlobalCLIOptions
+
+			mutating func run() throws {
+				let daemonDB = try DaemonDB(globals)
+				guard daemonDB.readOnly == false else {
+					throw CLI.Error.insufficientPrivilege
+				}
+				guard daemonDB.printerDatabase != nil else {
+					throw Error.printServerInactive
+				}
+				try daemonDB.printerDatabase!.deleteAllPrintJobs(mac:macAddress)
+			}
+		}
+
+		struct Rename:ParsableCommand {
+			static let configuration = CommandConfiguration(
+				abstract:"rename a printer."
+			)
+
+			@Argument(
+				help:ArgumentHelp(
+					"The MAC address of the device."
+				)
+			)
+			var macAddress:String
+
+			@Argument(
+				help:ArgumentHelp(
+					"The cut mode to assign to this device."
+				)
+			)
+			var name:String
+
+			@OptionGroup
+			var globals:CLI.GlobalCLIOptions
+
+			mutating func run() throws {
+				let daemonDB = try DaemonDB(globals)
+				guard daemonDB.readOnly == false else {
+					throw CLI.Error.insufficientPrivilege
+				}
+				guard daemonDB.printerDatabase != nil else {
+					throw Error.printServerInactive
+				}
+				try daemonDB.printerDatabase!.assignHumanFriendlyName(mac:macAddress, name:name)
+			}
+		}
 		
 		struct SetCutMode:ParsableCommand {
 			static let configuration = CommandConfiguration(
@@ -103,7 +164,16 @@ extension CLI {
 					print(Colors.Yellow("- \(curSub.key)"))
 					for curMac in curSub.value {
 						do {
-							print("\t\(curMac.mac) -  -  -  -  -  -  -")
+							print("\t", terminator:"")
+							if (curMac.humanName != nil) {
+								print(Colors.dim("[ "), terminator:"")
+								print(Colors.Magenta("\(curMac.humanName!)"), terminator:"")
+								print(Colors.dim(" ]"), terminator:"")
+							}
+							print(Colors.dim("( "), terminator:"")
+							print(Colors.cyan("\(curMac.mac)"), terminator:"")
+							print(Colors.dim(" )"), terminator:"")
+							print(" -  -  -  -  -  -  -")
 							let statusInfo = try daemonDB.printerDatabase!.getPrinterStatus(mac:curMac.mac)
 							if (abs(statusInfo.lastSeen.timeIntervalSinceNow) > connectedSecondsThreshold) {
 								print(Colors.red("\t  -> Last Connected: \(statusInfo.lastSeen.relativeTimeString())"))
@@ -200,6 +270,14 @@ extension CLI {
 				)
 			)
 			var mac:String? = nil
+
+			@Option(
+				name:.shortAndLong,
+				help:ArgumentHelp(
+					"The human-friendly name of the device."
+				)
+			)
+			var name:String? = nil
 			
 			@OptionGroup
 			var globals:CLI.GlobalCLIOptions
@@ -252,7 +330,17 @@ extension CLI {
 						mac = readLine()
 					} while mac == nil || mac!.count == 0
 				}
-				let printerMetadata = try daemonDB.printerDatabase!.authorizeMacAddress(mac:mac!.lowercased(), subnet:domain!.lowercased())
+
+				// determine the name to use
+				if (name == nil || name!.count == 0) {
+					print("Please enter a human-friendly name for the new printer:")
+					repeat {
+						print("Name: ", terminator:"")
+						name = readLine()
+					} while name == nil || name!.count == 0
+				}
+
+				let printerMetadata = try daemonDB.printerDatabase!.authorizeMacAddress(mac:mac!.lowercased(), subnet:domain!.lowercased(), name:name!)
 				try daemonDB.reloadRunningDaemon()
 				print(Colors.Green("[OK] - Printer assigned to \(domain!)"))
 				print(Colors.Cyan("CONFIGURE YOUR PRINT SOURCE TO SEND JOBS TO THIS IP & PORT"))

@@ -3,7 +3,7 @@ import Foundation
 import SwiftSlash
 
 extension WireguardDatabase.ClientInfo {
-	func dynamicDNSLine() -> String {
+	public func dynamicDNSLine() -> String {
 		let domainName = self.subnetName.split(separator:".", omittingEmptySubsequences:false)
 		let mainName:String
 		if domainName.count == 3 {
@@ -20,10 +20,10 @@ extension WireguardDatabase.ClientInfo {
 }
 
 struct DNSmasqExecutor {
-	enum Error:Swift.Error {
+	public enum Error:Swift.Error {
 		case reloadError
 	}
-	static func exportAutomaticDNSEntries(db:DaemonDB) throws {
+	public static func exportAutomaticDNSEntries(db:DaemonDB) throws {
 		let clients = try db.wireguardDatabase.allClients().compactMap { $0.dynamicDNSLine() }.joined(separator: "\n")
 		// install the systemd service for the daemon
 		let systemdFD = try FileDescriptor.open("/var/lib/wiremand/hosts-auto", .writeOnly, options:[.create, .truncate], permissions:[.ownerRead, .ownerWrite, .groupRead, .groupWrite])
