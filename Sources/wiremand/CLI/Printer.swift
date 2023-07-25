@@ -170,11 +170,9 @@ extension CLI {
 								print(Colors.Magenta("\(curMac.humanName!)"), terminator:"")
 								print(Colors.dim(" ]"), terminator:"")
 							}
-							if (curMac.mac != nil) {
-								print(Colors.dim("( "), terminator:"")
-								print(Colors.cyan("\(curMac.humanName!)"), terminator:"")
-								print(Colors.dim(" )"), terminator:"")
-							}
+							print(Colors.dim("( "), terminator:"")
+							print(Colors.cyan("\(curMac.mac)"), terminator:"")
+							print(Colors.dim(" )"), terminator:"")
 							print(" -  -  -  -  -  -  -")
 							let statusInfo = try daemonDB.printerDatabase!.getPrinterStatus(mac:curMac.mac)
 							if (abs(statusInfo.lastSeen.timeIntervalSinceNow) > connectedSecondsThreshold) {
