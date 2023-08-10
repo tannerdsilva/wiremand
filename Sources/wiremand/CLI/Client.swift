@@ -188,6 +188,10 @@ extension CLI {
 				print("\(buildURL)")
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
 				try await DNSmasqExecutor.reload()
+
+				if (ipv4) {
+					print("IPv4 address: \(newClientAddress.string)")
+				}
 			}
 		}
 		
