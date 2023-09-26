@@ -124,16 +124,29 @@ actor PrintDB {
 	}
 	
 	nonisolated func deauthorizeMacAddress(mac:String) throws {
-		try env.transact(readOnly:false) { someTrans in
-			//get the port for this mac
-			let getPort = try self.mac_port.getEntry(type:UInt16.self, forKey:mac, tx:someTrans)!
-			try self.port_mac.deleteEntry(key:getPort, tx:someTrans)
-			try self.mac_port.deleteEntry(key:mac, tx:someTrans)
-			try self.mac_un.deleteEntry(key:mac, tx:someTrans)
-			try self.mac_pw.deleteEntry(key:mac, tx:someTrans)
-			try self.mac_subnetName.deleteEntry(key:mac, tx:someTrans)
-			try self.mac_cutMode.deleteEntry(key:mac, tx:someTrans)
-			try? self.mac_humanName.deleteEntry(key:mac, tx:someTrans)
+		try env.transact(readOnly:false) { masterTrans in
+			// get the port for this mac
+			try masterTrans.transact(readOnly:false) { someTrans in
+				let getPort = try self.mac_port.getEntry(type:UInt16.self, forKey:mac, tx:someTrans)!
+				try self.port_mac.deleteEntry(key:getPort, tx:someTrans)
+				try self.mac_port.deleteEntry(key:mac, tx:someTrans)
+				try self.mac_un.deleteEntry(key:mac, tx:someTrans)
+				try self.mac_pw.deleteEntry(key:mac, tx:someTrans)
+				try self.mac_subnetName.deleteEntry(key:mac, tx:someTrans)
+				try self.mac_cutMode.deleteEntry(key:mac, tx:someTrans)
+				try? self.mac_humanName.deleteEntry(key:mac, tx:someTrans)
+			}
+			// delete all the other info 
+			try masterTrans.transact(readOnly:false) { someTrans in				
+				try? _deleteAllPrintJobs(mac:mac, tx:someTrans)
+				try? mac_lastSeen.deleteEntry(key:mac, tx:someTrans)
+				try? mac_status.deleteEntry(key:mac, tx:someTrans)
+				try? mac_userAgent.deleteEntry(key:mac, tx:someTrans)
+				try? mac_callingDomain.deleteEntry(key:mac, tx:someTrans)
+				try? mac_lastUN.deleteEntry(key:mac, tx:someTrans)
+				try? mac_lastPW.deleteEntry(key:mac, tx:someTrans)
+				try? mac_lastAuthAttempt.deleteEntry(key:mac, tx:someTrans)
+			}
 		}
 	}
 	
