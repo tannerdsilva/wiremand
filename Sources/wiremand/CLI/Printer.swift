@@ -175,15 +175,25 @@ extension CLI {
 							print(Colors.dim(" )"), terminator:"")
 							print(" -  -  -  -  -  -  -")
 							let statusInfo = try daemonDB.printerDatabase!.getPrinterStatus(mac:curMac.mac)
-							if (abs(statusInfo.lastSeen.timeIntervalSinceNow) > connectedSecondsThreshold) {
-								print(Colors.red("\t  -> Last Connected: \(statusInfo.lastSeen.relativeTimeString())"))
-							} else {
-								print(Colors.green("\t  -> Connected."))
+							switch statusInfo.lastSeen {
+								case .none:
+									print(Colors.red("\t  -> Last Seen: Never"))
+								case .some(let lastSeen):
+									if (abs(lastSeen.timeIntervalSinceNow) > connectedSecondsThreshold) {
+										print(Colors.red("\t  -> Last Seen: \(lastSeen.relativeTimeString())"))
+									} else {
+										print(Colors.green("\t  -> Last Seen: \(lastSeen.relativeTimeString())"))
+									}
 							}
-							if (statusInfo.status.contains("200 OK") == true) {
-								print(Colors.dim("\t  -> Printer Status: \(statusInfo.status)"))
-							} else {
-								print(Colors.red("\t  -> Printer Status: \(statusInfo.status)"))
+							switch statusInfo.status {
+								case .none:
+									print(Colors.dim("\t  -> Printer Status: Never Seen"))
+								case .some(let status):
+									if (status.contains("200 OK") == true) {
+										print(Colors.dim("\t  -> Printer Status: \(status)"))
+									} else {
+										print(Colors.red("\t  -> Printer Status: \(status)"))
+									}
 							}
 							if (statusInfo.jobs.count == 0) {
 								print(Colors.dim("\t  -> No pending jobs."))

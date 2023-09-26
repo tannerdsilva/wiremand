@@ -191,8 +191,8 @@ actor PrintDB {
 	// sighting information for printers
 	struct PrinterStatus {
 		let mac:String
-		let lastSeen:Date
-		let status:String
+		let lastSeen:Date?
+		let status:String?
 		let jobs:Set<Date>
 		let lastAuthAttempt:Date?
 		let lastAuthenticated:Date?
@@ -343,8 +343,18 @@ actor PrintDB {
 	
 	nonisolated internal func getPrinterStatus(mac:String) throws -> PrinterStatus {
 		try env.transact(readOnly:true) { someTrans in
-			let lastSeen = try self.mac_lastSeen.getEntry(type:Date.self, forKey:mac, tx:someTrans)!
-			let status = try self.mac_status.getEntry(type:String.self, forKey:mac, tx:someTrans)!
+			let lastSeen:Date?
+			do {
+				lastSeen = try self.mac_lastSeen.getEntry(type:Date.self, forKey:mac, tx:someTrans)!
+			} catch LMDBError.notFound {
+				lastSeen = nil
+			}
+			let status:String?
+			do {
+				status = try self.mac_status.getEntry(type:String.self, forKey:mac, tx:someTrans)!
+			} catch LMDBError.notFound {
+				status = nil
+			}
 			let jobCursor = try self.mac_printJobDate.cursor(tx:someTrans)
 			var jobs = Set<Date>()
 			do {
