@@ -24,7 +24,6 @@ struct CLI:AsyncParsableCommand {
 		var logLevel:Logging.Logger.Level = .info
 #endif
 		
-		@Argument(help:ArgumentHelp(visibility:.`private`))
 		var databasePath:String = "/var/lib/wiremand"
 	}
 }
