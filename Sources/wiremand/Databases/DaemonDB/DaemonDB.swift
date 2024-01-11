@@ -55,7 +55,7 @@ class DaemonDB {
     enum Error:Swift.Error {
         case daemonAlreadyRunning
         case pidExclusivityNotClaimed
-		case databaseNotCreated
+		case databaseNotCreated(String)
 		case databaseNotReadable
 		case unableToSignal
 		case daemonNotRunning
