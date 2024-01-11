@@ -103,7 +103,7 @@ class DaemonDB {
 				Self.logger.trace("read/write mode enabled.")
 			}
 		} else {
-			throw Error.databaseNotCreated
+			throw Error.databaseNotCreated(makeEnvPath.path)
 		}
 		
 		let makeEnv:Environment
