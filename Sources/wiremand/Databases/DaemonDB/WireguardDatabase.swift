@@ -755,13 +755,12 @@ struct WireguardDatabase {
 			let getCurrentName = try! clientNameCursor.getEntry(Cursor.Operation.set, key:publicKey).value
 			let getCurrentNetworkName = try! self.clientPub_subnetName.getEntry(type:String.self, forKey:publicKey, tx:someTrans)!
 			let hashedName = try Self.hash(clientName:getCurrentName)
-			let hashedNetworkName = try WiremanD.hash(domain:getCurrentNetworkName)
 			
 			// replace existing name hash from the database
-			try! subnetNameClientNameCursor.getEntry(.getBoth, key:hashedNetworkName, value:hashedName)
+			try! subnetNameClientNameCursor.getEntry(.getBoth, key:getCurrentNetworkName, value:hashedName)
 			try! subnetNameClientNameCursor.deleteEntry()
 			let newNameHash = try Self.hash(clientName:name)
-			try! subnetNameClientNameCursor.setEntry(value:newNameHash, forKey:hashedNetworkName)
+			try! subnetNameClientNameCursor.setEntry(value:newNameHash, forKey:getCurrentNetworkName)
 			
 			try clientNameCursor.setEntry(value:name, forKey:publicKey)
 		}
