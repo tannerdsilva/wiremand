@@ -753,13 +753,15 @@ struct WireguardDatabase {
 			
 			// get the current name of the client. this validate that the public key is correct, and also allows us to remove the existing name hash from the subnetName_clientNameHash database
 			let getCurrentName = try clientNameCursor.getEntry(Cursor.Operation.set, key:publicKey).value
+			let getCurrentNetworkName = try self.clientPub_subnetName.getEntry(type:String.self, forKey:publicKey, tx:someTrans)!
 			let hashedName = try Self.hash(clientName:getCurrentName)
+			let hashedNetworkName = try WiremanD.hash(domain:getCurrentNetworkName)
 			
 			// replace existing name hash from the database
-			try subnetNameClientNameCursor.getEntry(.set, key:publicKey, value:hashedName)
+			try subnetNameClientNameCursor.getEntry(.getBoth, key:hashedNetworkName, value:hashedName)
 			try subnetNameClientNameCursor.deleteEntry()
 			let newNameHash = try Self.hash(clientName:name)
-			try subnetNameClientNameCursor.setEntry(value:newNameHash, forKey:publicKey)
+			try subnetNameClientNameCursor.setEntry(value:newNameHash, forKey:hashedNetworkName)
 			
 			try clientNameCursor.setEntry(value:name, forKey:publicKey)
 		}
