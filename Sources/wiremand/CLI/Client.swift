@@ -306,7 +306,7 @@ extension CLI {
 			}
 		}
 		
-		struct Rename:ParsableCommand {
+		struct Rename:AsyncParsableCommand {
 			static let configuration = CommandConfiguration(
 				abstract:"modify the name of an existing client within its domain."
 			)
@@ -324,12 +324,14 @@ extension CLI {
 			@OptionGroup
 			var globals:GlobalCLIOptions
 						
-			mutating func run() throws {
+			mutating func run() async throws {
 				let daemonDB = try DaemonDB(globals)
 				guard daemonDB.readOnly == false else {
 					throw CLI.Error.insufficientPrivilege
 				}
 				try daemonDB.wireguardDatabase.clientRename(publicKey:publicKey, name:newName)
+				try DNSmasqExecutor.exportAutomaticDNSEntries(db:daemonDB)
+				try await DNSmasqExecutor.reload()
 			}
 		}
 	}
