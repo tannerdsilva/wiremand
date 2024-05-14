@@ -285,6 +285,7 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
             guard let keyName = request.uri.queryParameters["key_name"] else {
                 return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
             }
+
             // begin the async work of making the key
             let keyPromise = request.eventLoop.makePromise(of:HBResponse.self)
             keyPromise.completeWithTask({ [wgdb = wgDatabase] in
@@ -311,7 +312,20 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
 				if optionalV4 != nil {
 					buildKey += "Address = " + optionalV4!.string + "/32\n"
 				}
-                buildKey += "DNS = " + wg_internal_network.address.string + "\n"
+
+				var useDNSString:String
+				if let dnsString = request.uri.queryParameters["dns"] {
+					let allClientsByDNSName = Dictionary(grouping:try wgDatabase.allClients(), by: { $0.dynamicDNSLine() }).compactMapValues( { $0.first! })
+					if let client = allClientsByDNSName[dnsString] {
+						useDNSString = client.address.string
+					} else {
+						useDNSString = wg_internal_network.address.string
+					}
+				} else {
+					useDNSString = wg_internal_network.address.string
+				}
+				
+                buildKey += "DNS = " + useDNSString + "\n"
                 buildKey += "[Peer]\n"
                 buildKey += "PublicKey = " + pubKey + "\n"
                 buildKey += "PresharedKey = " + newKeys.presharedKey + "\n"
