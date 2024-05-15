@@ -24,7 +24,7 @@ struct WireguardDatabase {
 	fileprivate static func newSecurityKey() throws -> String {
 		return try Self.generateRandomData().base64EncodedString()
 	}
-	static func createDatabase(environment:Environment, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_resolvedServerPublicIPv4:AddressV4, wg_resolvedServerPublicIPv6:AddressV6, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, serverIPv4Block:NetworkV4, publicKey:String, defaultSubnetMask:UInt8, noHandshakeInvalidationInterval:TimeInterval = 3600, handshakeInvalidationInterval:TimeInterval = 2629800) throws {
+	static func createDatabase(environment:Environment, wg_primaryInterfaceName:String, wg_serverPublicDomainName:String, wg_resolvedServerPublicIPv4:AddressV4, wg_resolvedServerPublicIPv6:AddressV6, wg_serverPublicListenPort:UInt16, serverIPv6Block:NetworkV6, serverIPv4Block:NetworkV4, publicKey:String, defaultSubnetMask:UInt8, noHandshakeInvalidationInterval:TimeInterval = 3600, handshakeInvalidationInterval:TimeInterval = 2.36682e7) throws {
 
 		let makeEnv = environment
 		try makeEnv.transact(readOnly: false) { someTransaction in
