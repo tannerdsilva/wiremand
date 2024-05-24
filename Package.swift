@@ -16,10 +16,12 @@ let package = Package(
 		// .package(url:"https://github.com/tannerdsilva/swift-smtp.git", .revision("ba82aa3b56e75a798b155524fcb083a9f012a844")),
 		// .package(url:"https://github.com/swift-server/async-http-client.git", from:"1.0.0"),
 		.package(url:"https://github.com/apple/swift-system.git", from:"1.0.0"),
-		.package(url:"https://github.com/tannerdsilva/bedrock.git", revision:"4aceda6bc23f09018d8e8ef8a2db4fe310775e17"),
+		.package(url:"https://github.com/tannerdsilva/bedrock.git", revision:"b59f0dac567dcf063345b62c9e60acde5534c365"),
 //		.package(path:"../bedrock"),
 		.package(url:"https://github.com/tannerdsilva/rawdog.git", from:"8.0.0"),
 		.package(url:"https://github.com/apple/swift-log.git", from:"1.0.0"),
+		.package(path:"../CWireguardTools")
+		// .package(url:"https://github.com/tannerdsilva/CWireguardTools.git", revision:"16d641233957801ff733a1ae8684d72b0ac5dc2b")
     ],
     targets: [
         // Targets are the basic building blocks of a package. A target can define a module or a test suite.
@@ -40,10 +42,10 @@ let package = Package(
 		// 		.product(name:"bedrock", package:"bedrock")
         //     ]),
 		.target(name:"wireman-c"),
-		.target(name:"wireguard-tools",
-				path:"./wireguard-tools/src",
-				exclude:["./wincompat", "./wg-quick", "./man", "./fuzz", "./systemd"],
-				publicHeadersPath:"."),
+		.target(name:"wireman-wg",
+					dependencies:[
+						"CWireguardTools"
+					]),
 		.executableTarget(name:"wireman-db", dependencies:[
 			.product(name:"SwiftSlash", package:"SwiftSlash"),
 			.product(name:"QuickLMDB", package:"QuickLMDB"),
