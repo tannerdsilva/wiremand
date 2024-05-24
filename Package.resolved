@@ -10,6 +10,14 @@
       }
     },
     {
+      "identity" : "bedrock",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/bedrock.git",
+      "state" : {
+        "revision" : "4aceda6bc23f09018d8e8ef8a2db4fe310775e17"
+      }
+    },
+    {
       "identity" : "clmdb",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/CLMDB.git",
