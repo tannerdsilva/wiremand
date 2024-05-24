@@ -5,24 +5,24 @@ import Logging
 import AddressKit
 import QuickLMDB
 
-extension String {
-	fileprivate func makeAuthData() -> PrintDB.AuthData? {
-		guard self.contains(" ") == true else {
-			return nil
-		}
-		let splitSpace = self.split(separator:" ", omittingEmptySubsequences:false)
-		guard splitSpace.count == 2, splitSpace[0] == "Basic", let decodedData = Data(base64Encoded:String(splitSpace[1])), let decodedString = String(data:decodedData, encoding:.utf8), decodedString.contains(":") else {
-			return nil
-		}
+// extension String {
+// 	fileprivate func makeAuthData() -> PrintDB.AuthData? {
+// 		guard self.contains(" ") == true else {
+// 			return nil
+// 		}
+// 		let splitSpace = self.split(separator:" ", omittingEmptySubsequences:false)
+// 		guard splitSpace.count == 2, splitSpace[0] == "Basic", let decodedData = Data(base64Encoded:String(splitSpace[1])), let decodedString = String(data:decodedData, encoding:.utf8), decodedString.contains(":") else {
+// 			return nil
+// 		}
 		
-		let splitAuthPlain = decodedString.split(separator:":", omittingEmptySubsequences:false)
-		guard splitAuthPlain.count == 2 else {
-			print(Colors.Red("\t unable to split"))
-			return nil
-		}
-		return PrintDB.AuthData(un:String(splitAuthPlain[0]), pw:String(splitAuthPlain[1]))
-	}
-}
+// 		let splitAuthPlain = decodedString.split(separator:":", omittingEmptySubsequences:false)
+// 		guard splitAuthPlain.count == 2 else {
+// 			print(Colors.Red("\t unable to split"))
+// 			return nil
+// 		}
+// 		return PrintDB.AuthData(un:String(splitAuthPlain[0]), pw:String(splitAuthPlain[1]))
+// 	}
+// }
 
 class PublicHTTPWebServer {
     let ipv4Application:HBApplication
@@ -56,12 +56,12 @@ class PublicHTTPWebServer {
         ipv4Application.router.add("wg_makekey", method:.GET, responder:wgAPI)
         ipv6Application.router.add("wg_getkey", method:.GET, responder:wgGetKey)
         ipv4Application.router.add("wg_getkey", method:.GET, responder:wgGetKey)
-        ipv6Application.router.add("print", method:.POST, responder:pp)
-        ipv4Application.router.add("print", method:.POST, responder:pp)
-		ipv6Application.router.add("print", method:.GET, responder:pp)
-		ipv4Application.router.add("print", method:.GET, responder:pp)
-		ipv6Application.router.add("print", method:.DELETE, responder:pp)
-		ipv4Application.router.add("print", method:.DELETE, responder:pp)
+        // ipv6Application.router.add("print", method:.POST, responder:pp)
+        // ipv4Application.router.add("print", method:.POST, responder:pp)
+		// ipv6Application.router.add("print", method:.GET, responder:pp)
+		// ipv4Application.router.add("print", method:.GET, responder:pp)
+		// ipv6Application.router.add("print", method:.DELETE, responder:pp)
+		// ipv4Application.router.add("print", method:.DELETE, responder:pp)
         try ipv4Application.start()
         try ipv6Application.start()
     }
@@ -72,125 +72,125 @@ class PublicHTTPWebServer {
     }
 }
 
-fileprivate struct PrinterPoll:HBResponder {
-    struct Response:Encodable {
-        let jobReady:Bool
-        let mediaTypes = ["plain/text"]
-        let jobToken:String?
-    }
+// fileprivate struct PrinterPoll:HBResponder {
+//     struct Response:Encodable {
+//         let jobReady:Bool
+//         let mediaTypes = ["plain/text"]
+//         let jobToken:String?
+//     }
 	
-	let printDB:PrintDB
+// 	let printDB:PrintDB
 	
-	public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
-		// check for the remote address
-		guard let remoteAddress = request.headers["X-Real-IP"].first?.lowercased() else {
-			request.logger.error("no remote address was found in this request")
-			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-		}
+// 	public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
+// 		// check for the remote address
+// 		guard let remoteAddress = request.headers["X-Real-IP"].first?.lowercased() else {
+// 			request.logger.error("no remote address was found in this request")
+// 			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+// 		}
 
-		// check which domain the user is requesting from
-		guard let domainString = request.headers["Host"].first?.lowercased() else {
-			request.logger.error("no domain was found in this request", metadata:["remote":"\(remoteAddress)"])
-			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-		}
-		// check for the mac address
-		guard let mac = request.headers["X-Star-Mac"].first?.lowercased() else {
-			request.logger.error("no mac address was found in this request", metadata:["remote":"\(remoteAddress)"])
-			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-		}
+// 		// check which domain the user is requesting from
+// 		guard let domainString = request.headers["Host"].first?.lowercased() else {
+// 			request.logger.error("no domain was found in this request", metadata:["remote":"\(remoteAddress)"])
+// 			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+// 		}
+// 		// check for the mac address
+// 		guard let mac = request.headers["X-Star-Mac"].first?.lowercased() else {
+// 			request.logger.error("no mac address was found in this request", metadata:["remote":"\(remoteAddress)"])
+// 			return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+// 		}
 	
-		// log the beginning of this traffic
-		request.logger.trace("cloudprint traffic identified", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+// 		// log the beginning of this traffic
+// 		request.logger.trace("cloudprint traffic identified", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
 
-        do {
-			// check for the user agent
-			guard let userAgent = request.headers["User-Agent"].first else {
-				request.logger.error("no user agent was found in this request", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
-				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-			}
-			// check for the serial number
-			guard let serial = request.headers["X-Star-Serial-Number"].first else {
-				request.logger.error("no serial number was found in this request", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
-				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-			}
+//         do {
+// 			// check for the user agent
+// 			guard let userAgent = request.headers["User-Agent"].first else {
+// 				request.logger.error("no user agent was found in this request", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+// 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+// 			}
+// 			// check for the serial number
+// 			guard let serial = request.headers["X-Star-Serial-Number"].first else {
+// 				request.logger.error("no serial number was found in this request", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+// 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+// 			}
 			
-			// mark the date
-			let date = Date()
+// 			// mark the date
+// 			let date = Date()
 			
-			// this is the function that will actually return a useful and accurate response to the printer
-			let authorization = request.headers["Authorization"].first?.makeAuthData()
-			if (authorization != nil) {
-				request.logger.debug("decoded authentication username from traffic: '\(authorization!.un)'", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
-			}
+// 			// this is the function that will actually return a useful and accurate response to the printer
+// 			let authorization = request.headers["Authorization"].first?.makeAuthData()
+// 			if (authorization != nil) {
+// 				request.logger.debug("decoded authentication username from traffic: '\(authorization!.un)'", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+// 			}
 			
-			do {
-				switch request.method {
-				case .POST:
-					// this is a poll that contains useful metadata. parse the request
-					guard let requestData = request.body.buffer else {
-						request.logger.error("no request body was found", metadata:["remote":"\(remoteAddress)"])
-						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-					}
-					guard let parsed = try JSONSerialization.jsonObject(with:requestData) as? [String:Any], let statusCode = parsed["statusCode"] as? String, let decodeStatusCode = statusCode.removingPercentEncoding else {
-						request.logger.error("unable to parse json body for this request", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
-						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-					}
+// 			do {
+// 				switch request.method {
+// 				case .POST:
+// 					// this is a poll that contains useful metadata. parse the request
+// 					guard let requestData = request.body.buffer else {
+// 						request.logger.error("no request body was found", metadata:["remote":"\(remoteAddress)"])
+// 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+// 					}
+// 					guard let parsed = try JSONSerialization.jsonObject(with:requestData) as? [String:Any], let statusCode = parsed["statusCode"] as? String, let decodeStatusCode = statusCode.removingPercentEncoding else {
+// 						request.logger.error("unable to parse json body for this request", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+// 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+// 					}
 					
-					let jobCode = try printDB.checkForPrintJobs(mac:mac, ua:userAgent, serial:serial, status:decodeStatusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
+// 					let jobCode = try printDB.checkForPrintJobs(mac:mac, ua:userAgent, serial:serial, status:decodeStatusCode, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
 					
-					var buildObject:[String:Any] = ["mediaTypes": ["text/plain"]]
-					if jobCode != nil {
-						let asb64 = jobCode!.base64EncodedString()
-						request.logger.notice("printer is polling for new jobs. responding with latest job token: '\(asb64)", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
-						buildObject["jobToken"] = asb64
-						buildObject["jobReady"] = true
-					} else {
-						request.logger.notice("printer is polling for new jobs. there are no jobs available.", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
-						buildObject["jobReady"] = false
-					}
+// 					var buildObject:[String:Any] = ["mediaTypes": ["text/plain"]]
+// 					if jobCode != nil {
+// 						let asb64 = jobCode!.base64EncodedString()
+// 						request.logger.notice("printer is polling for new jobs. responding with latest job token: '\(asb64)", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+// 						buildObject["jobToken"] = asb64
+// 						buildObject["jobReady"] = true
+// 					} else {
+// 						request.logger.notice("printer is polling for new jobs. there are no jobs available.", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+// 						buildObject["jobReady"] = false
+// 					}
 					
-					let jsonData = try JSONSerialization.data(withJSONObject:buildObject)
-					var responseData = request.context.allocator.buffer(capacity:jsonData.count)
-					responseData.writeData(jsonData)
-					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "application/json")), body:.byteBuffer(responseData)))
-				case .GET:
-					guard let jobToken = request.uri.queryParameters["token"] else {
-						request.logger.error("printer is calling job retrieval endpoint but never provided a job token. this is not expected.", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
-						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-					}
-					let (jobData, cutMode) = try printDB.retrievePrintJob(token:Data(base64Encoded:jobToken)! ,mac:mac, ua:userAgent, serial:serial, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
-					var newByteBuffer = request.context.allocator.buffer(capacity:jobData.count)
-					newByteBuffer.writeData(jobData)
-					request.logger.notice("returning \(newByteBuffer.readableBytes) bytes for job token: '\(jobToken)'", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
-					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "text/plain"), ("X-Star-Cut", "\(cutMode.rawValue); feed=true")), body:.byteBuffer(newByteBuffer)))
+// 					let jsonData = try JSONSerialization.data(withJSONObject:buildObject)
+// 					var responseData = request.context.allocator.buffer(capacity:jsonData.count)
+// 					responseData.writeData(jsonData)
+// 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "application/json")), body:.byteBuffer(responseData)))
+// 				case .GET:
+// 					guard let jobToken = request.uri.queryParameters["token"] else {
+// 						request.logger.error("printer is calling job retrieval endpoint but never provided a job token. this is not expected.", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+// 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+// 					}
+// 					let (jobData, cutMode) = try printDB.retrievePrintJob(token:Data(base64Encoded:jobToken)! ,mac:mac, ua:userAgent, serial:serial, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
+// 					var newByteBuffer = request.context.allocator.buffer(capacity:jobData.count)
+// 					newByteBuffer.writeData(jobData)
+// 					request.logger.notice("returning \(newByteBuffer.readableBytes) bytes for job token: '\(jobToken)'", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+// 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok, headers:HTTPHeaders(dictionaryLiteral:("Content-Type", "text/plain"), ("X-Star-Cut", "\(cutMode.rawValue); feed=true")), body:.byteBuffer(newByteBuffer)))
 					
-				case .DELETE:
-					guard let jobToken = request.uri.queryParameters["token"] else {
-						request.logger.error("printer is calling job deletion endpoint but never provided a job token. this is not expected.", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
-						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
-					}
-					try printDB.completePrintJob(token:Data(base64Encoded:jobToken)!, mac:mac, ua:userAgent, serial:serial, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
-					request.logger.notice("job token successfully printed and cleared: '\(jobToken)'", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
-					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok))
-				default:
-					return request.eventLoop.makeSucceededFuture(HBResponse(status:.notFound))
-				}
-			} catch PrintDB.AuthorizationError.unauthorized {
-				request.logger.error("unauthorized printer poll", metadata:["mac": "\(mac)"])
-				return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized))
-			} catch let PrintDB.AuthorizationError.reauthorizationRequired(authRealm) {
-				request.logger.error("requesting requthentication", metadata:["mac": "\(mac)"])
-				return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized, headers:HTTPHeaders([("WWW-Authenticate", "Basic realm=\"\(authRealm)\"")])))
-			} catch let PrintDB.AuthorizationError.invalidScope(correctRealm) {
-				request.logger.error("printer is polling incorrect subnet", metadata:["mac": "\(mac)", "currentPollSubnet": "\(domainString)", "correctPollSubnet": "\(correctRealm)"])
-				return request.eventLoop.makeSucceededFuture(HBResponse(status:.forbidden))
-			}
-        } catch let error {
-            request.logger.error("error thrown - \(error)")
-            return request.eventLoop.makeFailedFuture(error)
-        }
-    }
-}
+// 				case .DELETE:
+// 					guard let jobToken = request.uri.queryParameters["token"] else {
+// 						request.logger.error("printer is calling job deletion endpoint but never provided a job token. this is not expected.", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+// 						return request.eventLoop.makeSucceededFuture(HBResponse(status:.badRequest))
+// 					}
+// 					try printDB.completePrintJob(token:Data(base64Encoded:jobToken)!, mac:mac, ua:userAgent, serial:serial, remoteAddress:remoteAddress, date:date, domain:domainString, auth:authorization)
+// 					request.logger.notice("job token successfully printed and cleared: '\(jobToken)'", metadata:["remote":"\(remoteAddress)", "mac":"\(mac)"])
+// 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.ok))
+// 				default:
+// 					return request.eventLoop.makeSucceededFuture(HBResponse(status:.notFound))
+// 				}
+// 			} catch PrintDB.AuthorizationError.unauthorized {
+// 				request.logger.error("unauthorized printer poll", metadata:["mac": "\(mac)"])
+// 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized))
+// 			} catch let PrintDB.AuthorizationError.reauthorizationRequired(authRealm) {
+// 				request.logger.error("requesting requthentication", metadata:["mac": "\(mac)"])
+// 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.unauthorized, headers:HTTPHeaders([("WWW-Authenticate", "Basic realm=\"\(authRealm)\"")])))
+// 			} catch let PrintDB.AuthorizationError.invalidScope(correctRealm) {
+// 				request.logger.error("printer is polling incorrect subnet", metadata:["mac": "\(mac)", "currentPollSubnet": "\(domainString)", "correctPollSubnet": "\(correctRealm)"])
+// 				return request.eventLoop.makeSucceededFuture(HBResponse(status:.forbidden))
+// 			}
+//         } catch let error {
+//             request.logger.error("error thrown - \(error)")
+//             return request.eventLoop.makeFailedFuture(error)
+//         }
+//     }
+// }
 
 fileprivate struct Wireguard_GetKeyResponder:HBResponder {
     
@@ -324,7 +324,7 @@ fileprivate struct Wireguard_MakeKeyResponder:HBResponder {
 				} else {
 					useDNSString = wg_internal_network.address.string
 				}
-				
+
                 buildKey += "DNS = " + useDNSString + "\n"
                 buildKey += "[Peer]\n"
                 buildKey += "PublicKey = " + pubKey + "\n"

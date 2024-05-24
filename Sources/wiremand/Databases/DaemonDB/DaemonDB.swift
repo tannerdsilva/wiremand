@@ -92,7 +92,7 @@ class DaemonDB {
 		let ro:Bool
 		var mdb_flags:Environment.Flags = [.noSync, .noSubDir, .noReadAhead]
 		
-		//validate the file exists
+		// validate the file exists
 		if (access(makeEnvPath.path, F_OK | R_OK | X_OK) == 0) {
 			if access(makeEnvPath.path, W_OK) != 0 {
 				ro = true
