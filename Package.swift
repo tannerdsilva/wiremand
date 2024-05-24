@@ -43,9 +43,9 @@ let package = Package(
         //     ]),
 		.target(name:"wireman-c"),
 		.target(name:"wireman-wg",
-					dependencies:[
-						"CWireguardTools"
-					]),
+			dependencies:[
+				"CWireguardTools"
+			]),
 		.executableTarget(name:"wireman-db", dependencies:[
 			.product(name:"SwiftSlash", package:"SwiftSlash"),
 			.product(name:"QuickLMDB", package:"QuickLMDB"),
