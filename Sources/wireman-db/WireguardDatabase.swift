@@ -6,6 +6,11 @@ import RAW
 import struct Foundation.URL
 import wireman_c
 
+#if os(Linux)
+import Glibc
+#elseif os(macOS)
+import Darwin
+#endif
 
 extension Foundation.URL {
 	internal func getFileSize() -> off_t {

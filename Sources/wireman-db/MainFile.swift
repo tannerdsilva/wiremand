@@ -9,7 +9,7 @@ struct CLI:ParsableCommand {
 
 	mutating func run() throws {
 		let asNetwork = NetworkV6(address)
-		print("Network: \(String(asNetwork!.range.lowerBound)) - \(String(asNetwork!.range.upperBound))")
+		print("Network: \(String(address6:asNetwork!.range.lowerBound)) - \(String(address6:asNetwork!.range.upperBound))")
 	}
 	
 }
