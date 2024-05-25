@@ -27,6 +27,15 @@
       }
     },
     {
+      "identity" : "cwireguardtools",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/CWireguardTools.git",
+      "state" : {
+        "branch" : "wiremand-prep",
+        "revision" : "b7aaa15386fa7d64566fc2ca01a669533d24a54e"
+      }
+    },
+    {
       "identity" : "hummingbird",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/hummingbird-project/hummingbird.git",

@@ -20,8 +20,8 @@ let package = Package(
 //		.package(path:"../bedrock"),
 		.package(url:"https://github.com/tannerdsilva/rawdog.git", from:"8.0.0"),
 		.package(url:"https://github.com/apple/swift-log.git", from:"1.0.0"),
-		// .package(url:"https://github.com/tannerdsilva/CWireguard?Tools.git", revision:"b7aaa15386fa7d64566fc2ca01a669533d24a54e")
-		.package(path:"../CWireguardTools")
+		.package(url:"https://github.com/tannerdsilva/CWireguardTools.git", branch:"wiremand-prep")
+		// .package(path:"../CWireguardTools")
     ],
     targets: [
         // Targets are the basic building blocks of a package. A target can define a module or a test suite.
@@ -45,9 +45,10 @@ let package = Package(
 		.executableTarget(name:"wireman-wg",
 			dependencies:[
 				"CWireguardTools",
+				"wireman-db",
 				.product(name:"ArgumentParser", package:"swift-argument-parser"),
 			]),
-		.executableTarget(name:"wireman-db", dependencies:[
+		.target(name:"wireman-db", dependencies:[
 			.product(name:"SwiftSlash", package:"SwiftSlash"),
 			.product(name:"QuickLMDB", package:"QuickLMDB"),
 			.product(name:"Hummingbird", package:"hummingbird"),
@@ -55,6 +56,7 @@ let package = Package(
 			.product(name:"bedrock-ipaddress", package:"bedrock"),
 			.product(name:"RAW", package:"rawdog"),
 			.product(name:"RAW_blake2", package:"rawdog"),
+			.product(name:"RAW_base64", package:"rawdog"),
 			.product(name:"Logging", package:"swift-log"),
 			.product(name:"SystemPackage", package:"swift-system"),
 			.product(name:"ArgumentParser", package:"swift-argument-parser"),
