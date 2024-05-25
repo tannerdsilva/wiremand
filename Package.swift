@@ -20,8 +20,8 @@ let package = Package(
 //		.package(path:"../bedrock"),
 		.package(url:"https://github.com/tannerdsilva/rawdog.git", from:"8.0.0"),
 		.package(url:"https://github.com/apple/swift-log.git", from:"1.0.0"),
+		// .package(url:"https://github.com/tannerdsilva/CWireguard?Tools.git", revision:"b7aaa15386fa7d64566fc2ca01a669533d24a54e")
 		.package(path:"../CWireguardTools")
-		// .package(url:"https://github.com/tannerdsilva/CWireguardTools.git", revision:"16d641233957801ff733a1ae8684d72b0ac5dc2b")
     ],
     targets: [
         // Targets are the basic building blocks of a package. A target can define a module or a test suite.
@@ -42,9 +42,10 @@ let package = Package(
 		// 		.product(name:"bedrock", package:"bedrock")
         //     ]),
 		.target(name:"wireman-c"),
-		.target(name:"wireman-wg",
+		.executableTarget(name:"wireman-wg",
 			dependencies:[
-				"CWireguardTools"
+				"CWireguardTools",
+				.product(name:"ArgumentParser", package:"swift-argument-parser"),
 			]),
 		.executableTarget(name:"wireman-db", dependencies:[
 			.product(name:"SwiftSlash", package:"SwiftSlash"),
