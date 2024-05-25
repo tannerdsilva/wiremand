@@ -1,6 +1,7 @@
 import CWireguardTools
 import ArgumentParser
 import wireman_db
+import bedrock_ipaddress
 
 #if os(Linux)
 import Glibc
@@ -31,16 +32,17 @@ extension PrivateKey {
 	}
 }
 
-struct Wireguard {
+public struct Wireguard {
 	public final class Device:Hashable, Equatable, Sequence, Sendable {
 	    public func makeIterator() -> Iterator {
 	        return Iterator(device:self)
 	    }
 
-		struct Iterator:IteratorProtocol {
+		public struct Iterator:IteratorProtocol, Sendable {
 			private var currentPeer:UnsafeMutablePointer<wg_peer>?
 			private var currentDevice:Device
-			init(device:Device) {
+			
+			fileprivate init(device:Device) {
 				currentDevice = device
 				currentPeer = device.ptr.pointee.first_peer
 			}
@@ -55,9 +57,6 @@ struct Wireguard {
 				return Wireguard.Peer(ptr:currentPeer!)
 			}
 		}
-
-
-
 
 	    public typealias Element = Peer
 
@@ -96,6 +95,15 @@ struct Wireguard {
 			self.ptr = ptr
 		}
 
+		public func update(with insertPeer:Peer) {
+			for curPeer in self {
+				if curPeer == insertPeer {
+					// Update the peer
+					return
+				}
+			}
+		}
+
 		public static func load(name:String) throws -> Device {
 			return try Wireguard.loadExistingDevice(name:name)
 		}
@@ -114,20 +122,62 @@ struct Wireguard {
 		}
 	}
 
-	public struct Peer:Hashable, Equatable {
+	public struct Peer:Hashable, Equatable, Sequence {
+	    public func makeIterator() -> Iterator {
+	        return Iterator(peer:self)
+	    }
+
+		public enum AllowedIP {
+			case v4(NetworkV4)
+			case v6(NetworkV6)
+
+			public init(_ ptr:UnsafeMutablePointer<wg_allowedip>) {
+				switch Int32(ptr.pointee.family) {
+				case AF_INET:
+					let address = AddressV4(RAW_staticbuff:&ptr.pointee.ip4)
+					self = .v4(NetworkV4(address:address, prefix:ptr.pointee.cidr))
+				case AF_INET6:
+					let address = AddressV6(RAW_staticbuff:&ptr.pointee.ip6)
+					self = .v6(NetworkV6(address:address, prefix: ptr.pointee.cidr))
+				default:
+					fatalError("Invalid address family")
+				}
+			}
+		}
+
+		public struct Iterator:IteratorProtocol {
+			private var currentAllowedIP:UnsafeMutablePointer<wg_allowedip>?
+			private var currentPeer:Peer
+
+			fileprivate init(peer:Peer) {
+				currentPeer = peer
+				currentAllowedIP = peer.ptr.pointee.first_allowedip
+			}
+
+			public mutating func next() -> AllowedIP? {
+				defer {
+					currentAllowedIP = currentAllowedIP?.pointee.next_allowedip
+				}
+				guard currentAllowedIP != nil else {
+					return nil
+				}
+				return AllowedIP(currentAllowedIP!)
+			}
+		}
+
 		private let ptr:UnsafeMutablePointer<wg_peer>
 
 		public var publicKey:PublicKey {
 			return PublicKey(RAW_staticbuff:&ptr.pointee.public_key)
 		}
 
-		public var presharedKey:PresharedKey {
+		public var presharedKey:PresharedKey? {
+			guard ptr.pointee.flags.rawValue & WGPEER_HAS_PRESHARED_KEY.rawValue != 0 else {
+				return nil
+			}
 			return PresharedKey(RAW_staticbuff:&ptr.pointee.preshared_key)
 		}
 
-		public var persistentKeepalive:UInt16 {
-			return ptr.pointee.persistent_keepalive_interval
-		}
 
 		fileprivate init(ptr:UnsafeMutablePointer<wg_peer>) {
 			self.ptr = ptr
@@ -135,6 +185,14 @@ struct Wireguard {
 
 		public static func == (lhs:Peer, rhs:Peer) -> Bool {
 			lhs.publicKey == rhs.publicKey
+		}
+
+		public func hash(into hasher:inout Hasher) {
+			hasher.combine(publicKey)
+		}
+
+		public func apply(to location:UnsafeMutablePointer<wg_peer>) {
+			memcpy(location, ptr, MemoryLayout<wg_peer>.size)
 		}
 		
 	}
@@ -232,4 +290,30 @@ struct InitializeInterface:AsyncParsableCommand {
 		let intPK = wireguardInterface.publicKey
 		print("Interface Public Key: \(intPK)")
 	}
+}
+
+extension Wireguard.Peer.AllowedIP:Hashable, Equatable {
+
+			public static func == (lhs:Wireguard.Peer.AllowedIP, rhs:Wireguard.Peer.AllowedIP) -> Bool {
+				switch (lhs, rhs) {
+				case (.v4(let a), .v4(let b)):
+					return a == b
+				case (.v6(let a), .v6(let b)):
+					return a == b
+				default:
+					return false
+				}
+			}
+
+			public func hash(into hasher:inout Hasher) {
+				switch self {
+				case .v4(let a):
+					hasher.combine("v4")
+					hasher.combine(a)
+				case .v6(let a):
+					hasher.combine("v6")
+					hasher.combine(a)
+				}
+			}
+
 }

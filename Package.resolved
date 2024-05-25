@@ -14,7 +14,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/bedrock.git",
       "state" : {
-        "revision" : "b59f0dac567dcf063345b62c9e60acde5534c365"
+        "revision" : "9d62763483f89e386e50d2e5d1f2c57821e8366d"
       }
     },
     {

@@ -16,7 +16,7 @@ let package = Package(
 		// .package(url:"https://github.com/tannerdsilva/swift-smtp.git", .revision("ba82aa3b56e75a798b155524fcb083a9f012a844")),
 		// .package(url:"https://github.com/swift-server/async-http-client.git", from:"1.0.0"),
 		.package(url:"https://github.com/apple/swift-system.git", from:"1.0.0"),
-		.package(url:"https://github.com/tannerdsilva/bedrock.git", revision:"b59f0dac567dcf063345b62c9e60acde5534c365"),
+		.package(url:"https://github.com/tannerdsilva/bedrock.git", revision:"9d62763483f89e386e50d2e5d1f2c57821e8366d"),
 //		.package(path:"../bedrock"),
 		.package(url:"https://github.com/tannerdsilva/rawdog.git", from:"8.0.0"),
 		.package(url:"https://github.com/apple/swift-log.git", from:"1.0.0"),
