@@ -1,5 +1,5 @@
 import QuickLMDB
-import bedrock_ipaddress
+import bedrock_ip
 import SystemPackage
 import Logging
 import RAW
@@ -25,7 +25,7 @@ extension Foundation.URL {
 fileprivate struct FileIOError:Swift.Error {}
 internal func readRandomData(size:size_t) throws -> [UInt8] {
 	let randomSource = try SystemPackage.FileDescriptor.open("/dev/urandom", .readOnly)
-	defer { try? randomSource.close() }
+	defer { try! randomSource.close() }
 	let newBuffer = UnsafeMutableRawBufferPointer.allocate(byteCount:size, alignment:MemoryLayout<UInt8>.alignment)
 	defer { newBuffer.deallocate() }
 	let bytesRead = try randomSource.read(into:newBuffer)
@@ -37,17 +37,25 @@ internal func readRandomData(size:size_t) throws -> [UInt8] {
 
 extension AddressV4 {
 	public static func random() throws -> Self {
-		return withUnsafePointer(to:try readRandomData(size:16)) { ptr in
-			return AddressV4(RAW_staticbuff:ptr)
-		}
+		return AddressV4(RAW_staticbuff:try readRandomData(size:16))
 	}
 }
 
 extension AddressV6 {
 	public static func random() throws -> Self {
-		return withUnsafePointer(to:try readRandomData(size:16)) { ptr in
-			return AddressV6(RAW_staticbuff:ptr)
-		}
+		return AddressV6(RAW_staticbuff:try readRandomData(size:16))
+	}
+}
+
+extension NetworkV4 {
+	public func randomAddress() throws -> AddressV4 {
+		return (try AddressV4.random() & ~subnetMask) | (address & subnetMask)
+	}
+}
+
+extension NetworkV6 {
+	public func randomAddress() throws -> AddressV6 {
+		return (try AddressV6.random() & ~subnetMask) | (address & subnetMask)
 	}
 }
 

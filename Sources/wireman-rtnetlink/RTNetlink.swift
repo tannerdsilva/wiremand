@@ -1,5 +1,5 @@
 import Crtnetlink
-import bedrock_ipaddress
+import bedrock_ip
 
 public enum AddressFamily:UInt8 {
 	case v4 = 4
@@ -281,20 +281,20 @@ extension UInt32 {
 			switch curV4 {
 				case .add(let inter, let addr):
 				let addr4 = addr.address.RAW_access_staticbuff({ $0.assumingMemoryBound(to:UInt32.self).pointee })
-				encLen += Crtnetlink.add_address_assignment_request_v4(buffer.baseAddress, encLen, buffer.count, inter, addr4, addr.prefix, &sequence)
+				encLen += Crtnetlink.add_address_assignment_request_v4(buffer.baseAddress, encLen, buffer.count, inter, addr4, addr.subnetPrefix, &sequence)
 				case .remove(let inter, let addr):
 				let addr4 = addr.RAW_access_staticbuff({ $0.assumingMemoryBound(to:UInt32.self).pointee })
-				encLen += Crtnetlink.add_address_removal_request_v4(buffer.baseAddress, encLen, buffer.count, inter, addr4, addr.prefix, &sequence)
+				encLen += Crtnetlink.add_address_removal_request_v4(buffer.baseAddress, encLen, buffer.count, inter, addr4, addr.subnetPrefix, &sequence)
 			}
 		}
 		for curV6 in addressV6 {
 			switch curV6 {
 				case .add(let inter, let addr):
 				let addr6 = addr.address.RAW_access_staticbuff({ $0.assumingMemoryBound(to:in6_addr.self).pointee })
-				encLen += Crtnetlink.add_address_assignment_request_v6(buffer.baseAddress, encLen, buffer.count, inter, addr6, addr.prefix, &sequence)
+				encLen += Crtnetlink.add_address_assignment_request_v6(buffer.baseAddress, encLen, buffer.count, inter, addr6, addr.subnetPrefix, &sequence)
 				case .remove(let inter, let addr):
 				let addr6 = addr.RAW_access_staticbuff({ $0.assumingMemoryBound(to:in6_addr.self).pointee })
-				encLen += Crtnetlink.add_address_removal_request_v6(buffer.baseAddress, encLen, buffer.count, inter, addr6, addr.prefix, &sequence)
+				encLen += Crtnetlink.add_address_removal_request_v6(buffer.baseAddress, encLen, buffer.count, inter, addr6, addr.subnetPrefix, &sequence)
 			}
 		}
 		

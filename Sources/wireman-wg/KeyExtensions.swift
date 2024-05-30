@@ -1,7 +1,7 @@
 import CWireguardTools
 import ArgumentParser
 import wireman_db
-import bedrock_ipaddress
+import bedrock_ip
 
 #if os(Linux)
 import Glibc

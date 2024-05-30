@@ -1,5 +1,5 @@
 import QuickLMDB
-import bedrock_ipaddress
+import bedrock_ip
 
 extension WireguardDatabaseV2 {
 	internal struct AddressDatabaseV4 {
