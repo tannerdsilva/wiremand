@@ -1,0 +1,4 @@
+module wireman_cnftables [system] {
+	link "nftables"
+	export *
+}

@@ -5,10 +5,88 @@ import QuickLMDB
 import RAW_base64
 import CWireguardTools
 
+@RAW_staticbuff(bytes:32)
+@MDB_comparable()
+public struct Fingerprint:AdditiveArithmetic, Sendable {
+	
+	// this is a multiplication aid that is double the required length, apparently this helps hold intermediate results.
+	@RAW_staticbuff(bytes:64)
+	internal struct _StaticLengthMultiplicationAid:Sendable {
+		internal init() {
+			self = Self(RAW_staticbuff:(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+		}
+	}
+
+	public static func * (lhs:Self, rhs:Self) -> Self {
+		return lhs.RAW_access { lhsBytes in
+			return rhs.RAW_access { rhsBytes in
+				var res = _StaticLengthMultiplicationAid()
+				return res.RAW_access_mutating { result in
+					for i in 0..<32 {
+						var carry:UInt = 0
+						for j in 0..<32 {
+							let index = i + j
+							let product = UInt(lhsBytes[i]) * UInt(rhsBytes[j]) + UInt(result[index]) + carry
+							result[index] = UInt8(product & 0xFF)
+							carry = product >> 8
+						}
+					}
+					return Self(RAW_staticbuff:result.baseAddress!)
+				}
+			}
+		}
+	}
+	
+	public static func - (lhs:Fingerprint, rhs:Fingerprint) -> Fingerprint {
+		var result = zero
+		result.RAW_access_mutating({ resultPtr in
+			lhs.RAW_access { lhsPtr in
+				rhs.RAW_access { rhsPtr in
+					var borrow:UInt16 = 0
+					var i = 31
+					while i >= 0 {
+						defer { i -= 1 }
+						let diff = UInt16(lhsPtr[i]) - UInt16(rhsPtr[i]) - borrow
+						if UInt16(lhsPtr[i]) < UInt16(rhsPtr[i]) + borrow {
+							resultPtr[i] = UInt8((diff + 0x100) & 0xFF) // proper underflow handling
+							borrow = 1
+						} else {
+							resultPtr[i] = UInt8(diff & 0xFF)
+							borrow = 0
+						}
+					}
+				}
+			}
+		})
+		return result
+	}
+
+	public static func + (lhs:Fingerprint, rhs: Fingerprint) -> Fingerprint {
+		var result = zero
+		result.RAW_access_mutating({ resultPtr in
+			lhs.RAW_access { lhsPtr in
+				rhs.RAW_access { rhsPtr in
+					var carry:UInt16 = 0
+					var i = 31
+					while i >= 0 {
+						defer { i -= 1 }
+						let sum = UInt16(lhsPtr[i]) + UInt16(rhsPtr[i]) + carry
+						resultPtr[i] = UInt8(sum & 0xff)
+						carry = sum >> 8
+					}
+				}
+			}
+		})
+		return result
+	}
+
+	public static let zero:Fingerprint = Self(RAW_staticbuff:(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+}
+
 // represents a public key of a wireguard client. this is the primary UID for the client in the database
 @RAW_staticbuff(bytes:32)
 @MDB_comparable()
-public struct PublicKey:RAW_comparable, Comparable, Hashable, Equatable, CustomDebugStringConvertible, LosslessStringConvertible, Codable {
+public struct PublicKey:Sendable, RAW_comparable, Comparable, Hashable, Equatable, CustomDebugStringConvertible, LosslessStringConvertible, Codable {
 	public var description:String {
 		return String(RAW_base64.encode(self))
 	}
@@ -51,7 +129,7 @@ public struct PublicKey:RAW_comparable, Comparable, Hashable, Equatable, CustomD
 
 @RAW_staticbuff(bytes:32)
 @MDB_comparable()
-public struct PresharedKey:RAW_comparable, Comparable, Hashable, Equatable, CustomDebugStringConvertible, LosslessStringConvertible, Codable {
+public struct PresharedKey:Sendable, RAW_comparable, Comparable, Hashable, Equatable, CustomDebugStringConvertible, LosslessStringConvertible, Codable {
 	public var description:String {
 		return String(RAW_base64.encode(self))
 	}
@@ -94,10 +172,9 @@ public struct PresharedKey:RAW_comparable, Comparable, Hashable, Equatable, Cust
 	}
 }
 
-
 @RAW_staticbuff(bytes:32)
 @MDB_comparable()
-public struct PrivateKey:RAW_comparable, Comparable, Hashable, Equatable, CustomDebugStringConvertible, LosslessStringConvertible, Codable {
+public struct PrivateKey:Sendable, RAW_comparable, Comparable, Hashable, Equatable, CustomDebugStringConvertible, LosslessStringConvertible, Codable {
     public var description:String {
 		return String(RAW_base64.encode(self))
 	}
@@ -139,16 +216,16 @@ public struct PrivateKey:RAW_comparable, Comparable, Hashable, Equatable, Custom
 // general string
 @RAW_convertible_string_type<RAW_byte>(UTF8)
 @MDB_comparable()
-public struct EncodedString:RAW_comparable, ExpressibleByStringLiteral {}
+public struct EncodedString:RAW_comparable, ExpressibleByStringLiteral, Sendable {}
 
 // client names
 @RAW_convertible_string_type<RAW_byte>(UTF8)
 @MDB_comparable()
-public struct ClientName:RAW_comparable {}
+public struct ClientName:RAW_comparable, Sendable {}
 
 @RAW_staticbuff(bytes:16)
 @MDB_comparable()
-public struct ClientNameHash:RAW_comparable {
+public struct ClientNameHash:RAW_comparable, Sendable {
 	public init(clientName:ClientName) throws {
 		var hasher = try RAW_blake2.Hasher<B, Self>()
 		try hasher.update(clientName)
@@ -159,11 +236,11 @@ public struct ClientNameHash:RAW_comparable {
 // subnet names
 @RAW_convertible_string_type<RAW_byte>(UTF8)
 @MDB_comparable()
-public struct SubnetName:RAW_comparable {}
+public struct SubnetName:RAW_comparable, Sendable {}
 
 @RAW_staticbuff(bytes:16)
 @MDB_comparable()
-public struct SubnetNameHash:RAW_comparable {
+public struct SubnetNameHash:RAW_comparable, Sendable {
 	public init(subnetName:SubnetName) throws {
 		var hasher = try RAW_blake2.Hasher<B, Self>()
 		try hasher.update(subnetName)
@@ -173,7 +250,7 @@ public struct SubnetNameHash:RAW_comparable {
 
 @RAW_staticbuff(bytes:128)
 @MDB_comparable()
-public struct NetworkSecurityKey:RAW_comparable, Comparable, Equatable, Hashable {
+public struct NetworkSecurityKey:RAW_comparable, Comparable, Equatable, Hashable, Sendable {
 	public static func new() throws -> Self {
 		return Self(RAW_staticbuff:try readRandomData(size:128))
 	}

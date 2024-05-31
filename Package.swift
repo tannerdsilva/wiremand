@@ -9,7 +9,7 @@ let package = Package(
     dependencies: [
         .package(url:"https://github.com/apple/swift-argument-parser.git", .upToNextMinor(from:"1.2.1")),
 		.package(url:"https://github.com/tannerdsilva/SwiftSlash.git", .upToNextMinor(from:"3.1.0")),
-		.package(url:"https://github.com/tannerdsilva/QuickLMDB.git", branch:"v3-dev"),
+		.package(url:"https://github.com/tannerdsilva/QuickLMDB.git", from:"4.0.0"),
 		// .package(path:"../QuickLMDB"),
 		// .package(url:"https://github.com/tannerdsilva/AddressKit.git", .upToNextMinor(from:"1.1.0")),
 		.package(url:"https://github.com/hummingbird-project/hummingbird.git", exact:"2.0.0-beta.5"),
@@ -19,7 +19,7 @@ let package = Package(
 		.package(url:"https://github.com/apple/swift-system.git", from:"1.0.0"),
 		// .package(url:"https://github.com/tannerdsilva/bedrock.git", revision:"606b258fc0aad46d84b7621c33851e32377cd5e0"),
 		.package(path:"../bedrock"),
-		.package(url:"https://github.com/tannerdsilva/rawdog.git", from:"10.1.0"),
+		.package(url:"https://github.com/tannerdsilva/rawdog.git", from:"11.0.0"),
 		.package(url:"https://github.com/apple/swift-log.git", from:"1.0.0"),
 		// .package(url:"https://github.com/tannerdsilva/Crtnetlink.git", revision:"3fbb59f15872e493a556c8e9c5f924fcbadfac90"),
 		.package(path:"../Crtnetlink"),
@@ -46,6 +46,7 @@ let package = Package(
 		// 		.product(name:"ArgumentParser", package:"swift-argument-parser"),
 		// 		.product(name:"bedrock", package:"bedrock")
         //     ]),
+		.systemLibrary(name:"wireman-cnftables", pkgConfig:"libnftables", providers:[.apt(["libnftables-dev"])]),
 		.target(name:"wireman-c"),
 		.executableTarget(name:"wireman-wg",
 			dependencies:[
@@ -54,7 +55,8 @@ let package = Package(
 				.product(name:"ArgumentParser", package:"swift-argument-parser"),
 				"wireman-rtnetlink",
 				"QuickJSON",
-				.product(name:"Logging", package:"swift-log")
+				.product(name:"Logging", package:"swift-log"),
+				"wireman-cnftables",
 			]),
 		.target(name:"wireman-rtnetlink",
 			dependencies:[

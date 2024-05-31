@@ -2,11 +2,11 @@ import bedrock_ip
 import wireman_db
 import RAW_blake2
 
-public struct Configuration:Codable {
-	public struct TrustedNode:Codable, Hashable, Equatable {
+public struct Configuration:Codable, Sendable {
+	public struct TrustedNode:Sendable, Codable, Hashable, Equatable {
 		public var publicKey:PublicKey
 		public var presharedKey:PresharedKey
-		public struct Endpoint:Codable, Hashable, Equatable {
+		public struct Endpoint:Sendable, Codable, Hashable, Equatable {
 			public var address:Address
 			public var port:UInt16
 		}
