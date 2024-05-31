@@ -12,6 +12,9 @@ import Darwin
 
 extension Device {
 	public final class Peer:Sequence, Hashable, Equatable {
+		private static let logger = makeDefaultLogger(label:"Device.Peer", logLevel:.trace)
+		private var logger = Peer.logger
+
 		public typealias Element = AllowedIPsEntry
 		public typealias Iterator = Set<AllowedIPsEntry>.Iterator
 		public func makeIterator() -> Set<AllowedIPsEntry>.Iterator {
@@ -108,6 +111,10 @@ extension Device {
 			}
 			#endif
 
+			guard peer.pointer(to:\.flags)!.pointee.rawValue & WGPEER_HAS_PUBLIC_KEY.rawValue != 0 else {
+				fatalError("peer must have a public key")
+			}
+
 			ptr = peer
 			var currentAllowedIP = peer.pointer(to:\.first_allowedip)!.pointee
 			var buildEntries = Set<AllowedIPsEntry>()
@@ -121,6 +128,8 @@ extension Device {
 				buildEntries.update(with:allowedIPEntry)
 			}
 			allowedIPs = buildEntries
+
+			logger[metadataKey:"publicKey"] = "\(publicKey!)"
 		}
 
 		internal init(publicKey:PublicKey, presharedKey:PresharedKey?) {
@@ -137,6 +146,8 @@ extension Device {
 				})
 			}
 			allowedIPs = []
+
+			logger[metadataKey:"publicKey"] = "\(publicKey)"
 		}
 
 		internal func render(as _:wg_peer.Type) -> UnsafeMutablePointer<wg_peer> {
@@ -158,10 +169,12 @@ extension Device {
 		}
 
 		public func update(with allowIP:AllowedIPsEntry) {
+			logger.debug("updating allowed IPs with \(allowIP)")
 			allowedIPs.update(with:allowIP)
 		}
 
 		public func remove(_ allowIP:AllowedIPsEntry) {
+			logger.debug("removing allowed IPs with \(allowIP)")
 			allowedIPs.remove(allowIP)
 		}
 
@@ -174,6 +187,7 @@ extension Device {
 		}
 
 		deinit {
+			logger.trace("deinitialized instance")
 			free(ptr)
 		}
 	}

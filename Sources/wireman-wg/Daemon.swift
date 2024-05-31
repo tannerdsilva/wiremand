@@ -16,9 +16,9 @@ import Glibc
 import Darwin
 #endif
 
-struct Daemon:Service {
-	let configuration:Configuration
- 	func run() async throws {
+internal struct Daemon:Service {
+	internal let configuration:Configuration
+ 	internal func run() async throws {
 		let logger = makeDefaultLogger(label:"daemon", logLevel:.debug)
 		
 		// compute the master keys
@@ -78,77 +78,85 @@ struct Daemon:Service {
 		hostedInterface.privateKey = hostedInterfaceKey
 		try trustInterface.set()
 		try hostedInterface.set()
-		trustInterface = try Device.load(name:trustedDevName)
-		hostedInterface = try Device.load(name:hostedDevName)
 
-		var existingAddressesH:Set<Network> = []
-		var existingAddressesT:Set<Network> = []
-		for curAdd in try getAddressesV4() {
-			if curAdd.address != nil {
-				if curAdd.interfaceIndex == trustInterface.interfaceIndex {
-					existingAddressesT.update(with:.v4(NetworkV4(address:AddressV4(curAdd.address!)!, subnetPrefix:curAdd.prefix_length)))
-				}
-				if curAdd.interfaceIndex == hostedInterface.interfaceIndex {
-					existingAddressesH.update(with:.v4(NetworkV4(address:AddressV4(curAdd.address!)!, subnetPrefix:curAdd.prefix_length)))
-				}
-			}
-		}
-		for curAdd in try getAddressesV6() {
-			if curAdd.address != nil {
-				if curAdd.interfaceIndex == trustInterface.interfaceIndex {
-					existingAddressesT.update(with:.v6(NetworkV6(address:AddressV6(curAdd.address!)!, subnetPrefix:curAdd.prefix_length)))
-				}
-				if curAdd.interfaceIndex == hostedInterface.interfaceIndex {
-					existingAddressesH.update(with:.v6(NetworkV6(address:AddressV6(curAdd.address!)!, subnetPrefix:curAdd.prefix_length)))
-				}
-			}
-		}
+		repeat {
+			trustInterface = try Device.load(name:trustedDevName)
+			hostedInterface = try Device.load(name:hostedDevName)
 
-		var addressModifications4 = Set<AddRemove<NetworkV4>>()
-		var addressModifications6 = Set<AddRemove<NetworkV6>>()
-		for (curTrustNetInternal, curNodes) in configuration.trustedNodes {
-			logger.info("initializing trusted network: \(curTrustNetInternal)")
-			for curNode in curNodes {
-				let newPeer = Device.Peer(publicKey:curNode.publicKey, presharedKey:curNode.presharedKey)
-				switch curNode.endpoint.address {
-				case .v4(let asV4):
-					newPeer.endpoint = .v4(asV4, curNode.endpoint.port)
-				case .v6(let asV6):
-					newPeer.endpoint = .v6(asV6, curNode.endpoint.port)
+			// poll the system and take tabs on any addresses that are assigned to the interfaces
+			var existingAddressesH:Set<Network> = []
+			var existingAddressesT:Set<Network> = []
+			// v4
+			for curAdd in try getAddressesV4() {
+				if curAdd.address != nil {
+					if curAdd.interfaceIndex == trustInterface.interfaceIndex {
+						existingAddressesT.update(with:.v4(NetworkV4(address:AddressV4(curAdd.address!)!, subnetPrefix:curAdd.prefix_length)))
+					}
+					if curAdd.interfaceIndex == hostedInterface.interfaceIndex {
+						existingAddressesH.update(with:.v4(NetworkV4(address:AddressV4(curAdd.address!)!, subnetPrefix:curAdd.prefix_length)))
+					}
 				}
-				newPeer.update(with:Device.Peer.AllowedIPsEntry(NetworkV6(address:curNode.allowedIP, subnetPrefix:128)))
-				trustInterface.update(with:newPeer)
 			}
-			if existingAddressesT.contains(.v6(curTrustNetInternal)) == false {
-				logger.info("assigning address to trusted interface: \(curTrustNetInternal)")
-				addressModifications6.update(with:.add(Int32(trustInterface.interfaceIndex), curTrustNetInternal))
+			// v6
+			for curAdd in try getAddressesV6() {
+				if curAdd.address != nil {
+					if curAdd.interfaceIndex == trustInterface.interfaceIndex {
+						existingAddressesT.update(with:.v6(NetworkV6(address:AddressV6(curAdd.address!)!, subnetPrefix:curAdd.prefix_length)))
+					}
+					if curAdd.interfaceIndex == hostedInterface.interfaceIndex {
+						existingAddressesH.update(with:.v6(NetworkV6(address:AddressV6(curAdd.address!)!, subnetPrefix:curAdd.prefix_length)))
+					}
+				}
 			}
-		}
-		
-		for curExisting in existingAddressesH {
-			if configuration.hostedNetworks.contains(curExisting) == false {
-				logger.info("removing address from hosted interface: \(curExisting)")
-				switch curExisting {
+
+			// assign trust interface addresses and peers based on the configuration
+			var addressModifications4 = Set<AddRemove<NetworkV4>>()
+			var addressModifications6 = Set<AddRemove<NetworkV6>>()
+			for (curTrustNetInternal, curNodes) in configuration.trustedNodes {
+				for curNode in curNodes {
+					let newPeer = Device.Peer(publicKey:curNode.publicKey, presharedKey:curNode.presharedKey)
+					switch curNode.endpoint.address {
 					case .v4(let asV4):
-						addressModifications4.update(with:.remove(Int32(hostedInterface.interfaceIndex), asV4))
+						newPeer.endpoint = .v4(asV4, curNode.endpoint.port)
 					case .v6(let asV6):
-						addressModifications6.update(with:.remove(Int32(hostedInterface.interfaceIndex), asV6))
+						newPeer.endpoint = .v6(asV6, curNode.endpoint.port)
+					}
+					newPeer.update(with:Device.Peer.AllowedIPsEntry(NetworkV6(address:curNode.allowedIP, subnetPrefix:128)))
+					trustInterface.update(with:newPeer)
+				}
+				if existingAddressesT.contains(.v6(curTrustNetInternal)) == false {
+					logger.info("assigning address to trusted interface: \(curTrustNetInternal)")
+					addressModifications6.update(with:.add(Int32(trustInterface.interfaceIndex), curTrustNetInternal))
 				}
 			}
-		}
-		for curHostedNet in configuration.hostedNetworks {
-			if existingAddressesH.contains(curHostedNet) == false {
-				logger.info("assigning address to hosted interface: \(curHostedNet)")
-				switch curHostedNet {
-					case .v4(let asV4):
-						addressModifications4.update(with:.add(Int32(hostedInterface.interfaceIndex), asV4))
-					case .v6(let asV6):
-						addressModifications6.update(with:.add(Int32(hostedInterface.interfaceIndex), asV6))
+			
+			// remove any addresses that are not in the configuration
+			for curExisting in existingAddressesH {
+				if configuration.hostedNetworks.contains(curExisting) == false {
+					logger.info("removing address from hosted interface: \(curExisting)")
+					switch curExisting {
+						case .v4(let asV4):
+							addressModifications4.update(with:.remove(Int32(hostedInterface.interfaceIndex), asV4))
+						case .v6(let asV6):
+							addressModifications6.update(with:.remove(Int32(hostedInterface.interfaceIndex), asV6))
+					}
 				}
 			}
-		}
-		if addressModifications6.count > 0 || addressModifications4.count > 0 {
-			_ = try modifyInterface(addressV4:addressModifications4, addressV6:addressModifications6)
-		}
+			for curHostedNet in configuration.hostedNetworks {
+				if existingAddressesH.contains(curHostedNet) == false {
+					logger.info("assigning address to hosted interface: \(curHostedNet)")
+					switch curHostedNet {
+						case .v4(let asV4):
+							addressModifications4.update(with:.add(Int32(hostedInterface.interfaceIndex), asV4))
+						case .v6(let asV6):
+							addressModifications6.update(with:.add(Int32(hostedInterface.interfaceIndex), asV6))
+					}
+				}
+			}
+			if addressModifications6.count > 0 || addressModifications4.count > 0 {
+				_ = try modifyInterface(addressV4:addressModifications4, addressV6:addressModifications6)
+			}
+			try await Task.sleep(nanoseconds:1000000000*5)
+		} while true
 	}
 }

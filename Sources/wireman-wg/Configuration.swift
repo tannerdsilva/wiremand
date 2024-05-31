@@ -11,7 +11,7 @@ public struct Configuration:Codable, Sendable {
 			public var port:UInt16
 		}
 		public var endpoint:Endpoint
-		public var allowedIP:AddressV6 // only ipv6 endpoints are supported with wireman peers for now
+		public var allowedIP:AddressV6 // only ipv6 endpoints are supported with wireman peers.
 	}
 	public var privateKey:PrivateKey
 	public var trustedNodes:[NetworkV6:Set<TrustedNode>]

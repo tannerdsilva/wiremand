@@ -8,35 +8,6 @@ import CWireguardTools
 @RAW_staticbuff(bytes:32)
 @MDB_comparable()
 public struct Fingerprint:AdditiveArithmetic, Sendable {
-	
-	// this is a multiplication aid that is double the required length, apparently this helps hold intermediate results.
-	@RAW_staticbuff(bytes:64)
-	internal struct _StaticLengthMultiplicationAid:Sendable {
-		internal init() {
-			self = Self(RAW_staticbuff:(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
-		}
-	}
-
-	public static func * (lhs:Self, rhs:Self) -> Self {
-		return lhs.RAW_access { lhsBytes in
-			return rhs.RAW_access { rhsBytes in
-				var res = _StaticLengthMultiplicationAid()
-				return res.RAW_access_mutating { result in
-					for i in 0..<32 {
-						var carry:UInt = 0
-						for j in 0..<32 {
-							let index = i + j
-							let product = UInt(lhsBytes[i]) * UInt(rhsBytes[j]) + UInt(result[index]) + carry
-							result[index] = UInt8(product & 0xFF)
-							carry = product >> 8
-						}
-					}
-					return Self(RAW_staticbuff:result.baseAddress!)
-				}
-			}
-		}
-	}
-	
 	public static func - (lhs:Fingerprint, rhs:Fingerprint) -> Fingerprint {
 		var result = zero
 		result.RAW_access_mutating({ resultPtr in

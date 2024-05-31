@@ -1,5 +1,7 @@
 import bedrock_ip
 import CWireguardTools
+import Logging
+import bedrock
 
 #if os(Linux)
 import Glibc
@@ -9,6 +11,9 @@ import Darwin
 
 extension Device.Peer {
 	public final class AllowedIPsEntry:Hashable, Equatable, Comparable, CustomDebugStringConvertible {
+		private static let logger = makeDefaultLogger(label:"Device.Peer.AllowedIPsEntry", logLevel:.trace)
+		private var logger = AllowedIPsEntry.logger
+
 	    public var debugDescription:String {
 			switch (isIPv4()) {
 			case true:
@@ -53,6 +58,7 @@ extension Device.Peer {
 			self.ptr = ptr
 		}
 		deinit {
+			logger.trace("deinitialized instance")
 			free(ptr)
 		}
 		public static func == (lhs:borrowing AllowedIPsEntry, rhs:borrowing AllowedIPsEntry) -> Bool {

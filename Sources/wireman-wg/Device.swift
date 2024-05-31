@@ -17,7 +17,7 @@ public struct Device:~Copyable {
 		case internalError
 	}
 
-	private static let logger = makeDefaultLogger(label:"Device", logLevel:.debug)
+	private static let logger = makeDefaultLogger(label:"Device", logLevel:.trace)
 	private var logger = Device.logger
 	private let ptr:UnsafeMutablePointer<wg_device>
 	private var pending_remove:[PublicKey:Peer]
@@ -100,7 +100,10 @@ public struct Device:~Copyable {
 	/// loads an existing wireguard interface by name.
 	public static func load(name:String) throws -> Device {
 		var wgD:UnsafeMutablePointer<wg_device>? = nil
+		let startTime = Date()
 		let interface = wg_get_device(&wgD, name)
+		let endTime = Date()
+		logger.debug("load time: \(endTime.timeIntervalSince(startTime))")
 		guard interface == 0 else {
 			logger.error("failed to load device: '\(name)'")
 			throw Error.insufficientPermissions
