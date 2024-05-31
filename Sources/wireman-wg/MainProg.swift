@@ -1,316 +1,19 @@
-
 import CWireguardTools
 import ArgumentParser
 import wireman_db
 import bedrock_ip
+import RAW_blake2
 import wireman_rtnetlink
 import SystemPackage
 import QuickJSON
+import bedrock
+import RAW_hex
 
 #if os(Linux)
 import Glibc
 #elseif os(macOS)
 import Darwin
 #endif
-
-// extension wg_allowedip {
-// 	public init(_ allowedIP:Wireguard.Device.Pe.AllowedIPsEntry) {
-// 		self.init()
-// 		switch allowedIP.isIPv4() {
-// 		case true:
-// 			let v4 = allowedIP.addressV4()!
-// 			family = UInt16(AF_INET)
-// 			cidr = v4.prefix
-// 			v4.address.RAW_access_staticbuff { (addr:UnsafeRawPointer) in
-// 				_ = memcpy(&ip4, addr, MemoryLayout<in_addr>.size)
-// 			}
-// 			next_allowedip = nil
-// 		case false:
-// 			let v6 = allowedIP.addressV6()!
-// 			family = UInt16(AF_INET6)
-// 			cidr = v6.prefix
-// 			v6.address.RAW_access_staticbuff { (addr:UnsafeRawPointer) in
-// 				_ = memcpy(&ip6, addr, MemoryLayout<in6_addr>.size)
-// 			}
-// 			next_allowedip = nil
-// 		}
-// 	}
-// }
-
-extension Device {
-	public final class Peer:Sequence, Hashable, Equatable {
-		public typealias Element = AllowedIPsEntry
-		public typealias Iterator = Set<AllowedIPsEntry>.Iterator
-		public func makeIterator() -> Set<AllowedIPsEntry>.Iterator {
-			return allowedIPs.makeIterator()
-		}
-		
-		private let ptr:UnsafeMutablePointer<wg_peer>
-		private var allowedIPs:Set<AllowedIPsEntry>
-
-		internal var removeMe:Bool {
-			get {
-				return (ptr.pointer(to:\.flags)!.pointee.rawValue & WGPEER_REMOVE_ME.rawValue) == 0
-			}
-			set {
-				if newValue {
-					ptr.pointer(to:\.flags)!.pointee = wg_peer_flags(rawValue:ptr.pointer(to:\.flags)!.pointee.rawValue | WGPEER_REMOVE_ME.rawValue)
-				} else {
-					ptr.pointer(to:\.flags)!.pointee = wg_peer_flags(rawValue:ptr.pointer(to:\.flags)!.pointee.rawValue & ~WGPEER_REMOVE_ME.rawValue)
-				}
-			}
-		}
-
-		public var publicKey:PublicKey? {
-			guard ptr.pointer(to:\.flags)!.pointee.rawValue & WGPEER_HAS_PUBLIC_KEY.rawValue != 0 else {
-				return nil
-			}
-			return PublicKey(RAW_staticbuff:ptr.pointer(to:\.public_key)!)
-		}
-		
-		internal init(peer:UnsafeMutablePointer<wg_peer>) {
-			#if DEBUG
-			guard peer.pointer(to:\.flags)!.pointee.rawValue & WGPEER_REMOVE_ME.rawValue == 0 else {
-				fatalError("peer cannot be initialized if it is marked for removal")
-			}
-			#endif
-
-			ptr = peer
-			var currentAllowedIP = peer.pointer(to:\.first_allowedip)!.pointee
-			var buildEntries = Set<AllowedIPsEntry>()
-			while currentAllowedIP != nil {
-				defer {
-					let oldAllowedIP = currentAllowedIP
-					currentAllowedIP = currentAllowedIP?.pointee.next_allowedip
-					oldAllowedIP!.pointee.next_allowedip = nil
-				}
-				let allowedIPEntry = AllowedIPsEntry(ptr:currentAllowedIP!)
-				buildEntries.update(with:allowedIPEntry)
-			}
-			allowedIPs = buildEntries
-		}
-
-		internal init(publicKey:PublicKey, presharedKey:PresharedKey?) {
-			ptr = UnsafeMutablePointer<wg_peer>.allocate(capacity:1)
-			ptr.initialize(to:wg_peer())
-			ptr.pointer(to:\.flags)!.pointee = WGPEER_HAS_PUBLIC_KEY
-			ptr.pointer(to:\.public_key)!.pointee = publicKey.RAW_access_staticbuff({
-				return $0.assumingMemoryBound(to:wg_key.self).pointee
-			})
-			if presharedKey != nil {
-				ptr.pointer(to:\.flags)!.pointee = wg_peer_flags(rawValue:ptr.pointer(to:\.flags)!.pointee.rawValue | WGPEER_HAS_PRESHARED_KEY.rawValue)
-				ptr.pointer(to:\.preshared_key)!.pointee = presharedKey!.RAW_access_staticbuff({
-					return $0.assumingMemoryBound(to:wg_key.self).pointee
-				})
-			}
-			allowedIPs = []
-		}
-
-		internal func render(as _:wg_peer.Type) -> UnsafeMutablePointer<wg_peer> {
-			ptr.pointer(to:\.first_allowedip)!.pointee = nil
-			var lastAllowedIP:UnsafeMutablePointer<wg_allowedip>? = nil
-			for allowedIP in allowedIPs {
-				defer {
-					lastAllowedIP = allowedIP.ptr
-				}
-				if ptr.pointer(to:\.first_allowedip)!.pointee == nil {
-					ptr.pointer(to:\.first_allowedip)!.pointee = allowedIP.ptr
-				} else {
-					ptr.pointer(to:\.last_allowedip)!.pointee = allowedIP.ptr
-				}
-			}
-			ptr.pointer(to:\.last_allowedip)!.pointee = lastAllowedIP ?? ptr.pointer(to:\.first_allowedip)!.pointee
-			lastAllowedIP?.pointer(to:\.next_allowedip)?.pointee = nil
-			return ptr
-		}
-
-		public func update(with allowIP:AllowedIPsEntry) {
-			allowedIPs.update(with:allowIP)
-		}
-
-		public func remove(_ allowIP:AllowedIPsEntry) {
-			allowedIPs.remove(allowIP)
-		}
-
-		public static func == (lhs:Peer, rhs:Peer) -> Bool {
-			return lhs.publicKey == rhs.publicKey
-		}
-
-		public func hash(into hasher:inout Hasher) {
-			hasher.combine(publicKey)
-		}
-
-		deinit {
-			free(ptr)
-		}
-	}
-}
-
-extension Device.Peer {
-	public final class AllowedIPsEntry:Hashable, Equatable, Comparable, CustomDebugStringConvertible {
-	    public var debugDescription:String {
-			switch (isIPv4()) {
-			case true:
-				return "AllowedIPsEntry(\"\(String(addressV4()!))/\(ptr.pointer(to:\.cidr)!.pointee)\")"
-			case false:
-				return "AllowedIPsEntry(\"\(String(addressV6()!))/\(ptr.pointer(to:\.cidr)!.pointee)\")"
-			}
-		}
-
-		internal let ptr:UnsafeMutablePointer<wg_allowedip>
-		internal init(_ av6:NetworkV6) {
-			var allowedIP = wg_allowedip()
-			allowedIP.family = UInt16(AF_INET6)
-			allowedIP.cidr = av6.subnetPrefix
-			allowedIP.ip6 = av6.RAW_access_staticbuff {
-				return $0.assumingMemoryBound(to:in6_addr.self).pointee
-			}
-			let ptr = UnsafeMutablePointer<wg_allowedip>.allocate(capacity:1)
-			ptr.initialize(to:allowedIP)
-			self.ptr = ptr
-		}
-		internal init(_ av4:NetworkV4) {
-			var allowedIP = wg_allowedip()
-			allowedIP.family = UInt16(AF_INET)
-			allowedIP.cidr = av4.subnetPrefix
-			withUnsafeMutablePointer(to:&allowedIP.ip4) { (dest:UnsafeMutablePointer<in_addr>) in
-				_ = av4.RAW_encode(dest:UnsafeMutableRawPointer(dest).assumingMemoryBound(to:UInt8.self))
-			}
-			let ptr = UnsafeMutablePointer<wg_allowedip>.allocate(capacity:1)
-			ptr.initialize(to:allowedIP)
-			self.ptr = ptr
-		}
-		internal init(ptr:UnsafeMutablePointer<wg_allowedip>) {
-			self.ptr = ptr
-		}
-		deinit {
-			free(ptr)
-		}
-		public static func == (lhs:borrowing AllowedIPsEntry, rhs:borrowing AllowedIPsEntry) -> Bool {
-			switch (lhs.isIPv4(), rhs.isIPv4()) {
-			case (true, true):
-				return lhs.addressV4() == rhs.addressV4() && lhs.ptr.pointer(to:\.cidr)!.pointee == rhs.ptr.pointer(to:\.cidr)!.pointee
-			case (false, false):
-				return lhs.addressV6() == rhs.addressV6() && lhs.ptr.pointer(to:\.cidr)!.pointee == rhs.ptr.pointer(to:\.cidr)!.pointee
-				default:
-				return false
-			}
-		}
-		public static func < (lhs:AllowedIPsEntry, rhs:AllowedIPsEntry) -> Bool {
-			switch (lhs.isIPv4(), rhs.isIPv4()) {
-			case (true, true):
-				return lhs.addressV4()! < rhs.addressV4()!
-			case (false, false):
-				return lhs.addressV6()! < rhs.addressV6()!
-			default:
-				return false
-			}
-		}
-		public func hash(into hasher:inout Swift.Hasher) {
-			switch (isIPv4()) {
-			case true:
-				hasher.combine("4")
-				hasher.combine(addressV4())
-				hasher.combine(ptr.pointer(to:\.cidr)!.pointee)
-			case false:
-				hasher.combine("6")
-				hasher.combine(addressV6())
-				hasher.combine(ptr.pointer(to:\.cidr)!.pointee)
-			}
-		}
-		private borrowing func isIPv4() -> Bool {
-			return Int32(ptr.pointee.family) == AF_INET
-		}
-		private borrowing func addressV4() -> AddressV4? {
-			guard Int32(ptr.pointer(to:\.family)!.pointee) == AF_INET else {
-				return nil
-			}
-			return AddressV4(RAW_decode:&ptr.pointee.ip4, count:MemoryLayout<in_addr>.size)
-		}
-		private borrowing func isIPv6() -> Bool {
-			return Int32(ptr.pointee.family) == AF_INET6
-		}
-		private borrowing func addressV6() -> AddressV6? {
-			guard Int32(ptr.pointer(to:\.family)!.pointee) == AF_INET6 else {
-				return nil
-			}
-			return AddressV6(RAW_decode:&ptr.pointee.ip6, count:MemoryLayout<in6_addr>.size)
-		}
-	}
-}
-
-public enum Endpoint {
-	case v4(AddressV4, UInt16)
-	case v6(AddressV6, UInt16)
-	public init?(_ ptr:UnsafeMutablePointer<wg_endpoint>) {
-		switch Int32(ptr.pointer(to:\.addr)!.pointer(to:\.sa_family)!.pointee) {
-		case AF_INET:
-			let address = AddressV4(RAW_staticbuff:ptr.pointer(to:\.addr4)!.pointer(to:\.sin_addr)!)
-			self = .v4(address, ptr.pointer(to: \.addr4)!.pointer(to:\.sin_port)!.pointee)
-		case AF_INET6:
-			let address = AddressV6(RAW_staticbuff:ptr.pointer(to:\.addr6)!)
-			self = .v6(address, ptr.pointer(to:\.addr6)!.pointer(to:\.sin6_port)!.pointee)
-		default:
-			return nil
-		}
-	}
-}
-
-public enum Error:Swift.Error {
-	case interfaceNotFound
-	case insufficientPermissions
-	case internalError
-}
-
-/// loads an existing wireguard interface by name.
-/// - parameter name: the name of the interface to load
-/// - throws: `Error.interfaceNotFound` if the interface does not exist
-/// - throws: `Error.insufficientPermissions` if the user does not have permission to access the interface
-/// - throws: `Error.internalError` if the interface could not be loaded for an unknown reason (this should not happen)
-internal func loadExistingDevice(name:String) throws -> Device {
-	let devices:UnsafeMutablePointer<CChar> = wg_list_device_names()
-	defer {
-		free(devices)
-	}
-
-	// validate that the device exists
-	var offset = 0
-	searchLoop: while true {
-		let currentName = String(cString:devices.advanced(by:offset))
-		guard currentName.isEmpty == false else {
-			throw Error.interfaceNotFound
-		}
-		guard currentName != name else {
-			break searchLoop
-		}
-		offset += currentName.utf8.count + 1 // Move past the current null-terminated string
-	}
-
-	var wgd:UnsafeMutablePointer<wg_device>? = nil
-	let interface = wg_get_device(&wgd, name)
-	guard interface == 0 else {
-		throw Error.insufficientPermissions
-	}
-	guard wgd?.pointee != nil else {
-		throw Error.internalError
-	}
-	return Device(ptr:wgd!)
-}
-
-public func createDevice(name newName:String) throws {
-	var newDevice = wg_device()
-	memcpy(&newDevice.name, newName, newName.count)
-	newDevice.flags = WGDEVICE_HAS_PRIVATE_KEY
-	wg_generate_private_key(&newDevice.private_key)
-	let addDevResult = wg_add_device(&newDevice)
-	guard addDevResult == 0 else {
-		throw Error.insufficientPermissions
-	}
-	let sedDevResult = wg_set_device(&newDevice)
-	guard sedDevResult == 0 else {
-		throw Error.internalError
-	}
-}
 
 extension NetworkV4:ExpressibleByArgument {
 	public init?(argument:String) {
@@ -332,73 +35,46 @@ extension NetworkV6:ExpressibleByArgument {
 
 
 @main
-struct InitializeInterface:AsyncParsableCommand {
+struct CLI:AsyncParsableCommand {
 	static let configuration = CommandConfiguration(
 		commandName:"wireman-wg",
-		abstract:"Manage wireguard interfaces",
+		abstract:"wireman tool helps you apply changes and build infrastructure on wireguard interfaces.",
 		subcommands:[
-			ParseNetwork.self,
-			ConfigureInterface.self,
-			ListPeerInfo.self
+			MockDaemon.self,
+			ConfigureInterface.self
 		]
 	)
 
-	struct ListPeerInfo:AsyncParsableCommand {
+	struct MockDaemon:AsyncParsableCommand {
 		static let configuration = CommandConfiguration(
-			commandName:"list",
-			abstract:"List information about a wireguard interface"
+			commandName:"mock",
+			abstract:"Mock a wireguard daemon"
 		)
 
-		@Argument(help:"The name of the wireguard interface to manage")
-		var interfaceName:String
+		@Option(help:"The path to the configuration file")
+		var configPath:String = "/etc/wireman.conf"
 
 		mutating func run() async throws {
-			let wireguardInterface = try loadExistingDevice(name:interfaceName)
-			print(" == Interface Information ==")
-			print("Interface Name: \(wireguardInterface.name)")
-			print("Interface Public Key: \(wireguardInterface.publicKey!)")
-			print(" = = = = = = = = = = = = = =")
-			print(" == Peer Information ==")
-			print("peer count: \(wireguardInterface.count)")
-			for curPeer in wireguardInterface {
-				print("Peer Public Key: \(curPeer.publicKey!)")
-				// print("Peer Preshared Key: \(curPeer.presharedKey!)")
-				for allowedIP in curPeer {
-					print(" - \(allowedIP))")
-				}
-				wireguardInterface[curPeer.publicKey!] = nil
-			}
-			let randomAddress = NetworkV6("fd00::/8")!
-			for i in 0..<10 {
-				let newPK = PublicKey(privateKey:PrivateKey())
-				let randomPeer = Device.Peer(publicKey:newPK, presharedKey:nil)
-				randomPeer.update(with:Device.Peer.AllowedIPsEntry(NetworkV6(address:try randomAddress.randomAddress(), subnetPrefix:128)))
-				wireguardInterface[newPK] = randomPeer
-			}
-			try! wireguardInterface.set()
-		}
-	}
+			let logger = makeDefaultLogger(label:"mock", logLevel:.debug)
 
-	struct ParseNetwork:AsyncParsableCommand {
-		static let configuration = CommandConfiguration(
-			commandName:"parse",
-			abstract:"Parse a network address"
-		)
-		
-		@Argument
-		var network:NetworkV6
-
-		mutating func run() async throws {
-			print("Extension Result: \(try network.randomAddress())")
+			// load the initial configuration file, or write a default configuration file if it does not exist
 			let configFD:FileDescriptor
 			do {
-				configFD = try FileDescriptor.open("/etc/wireman.conf", .readWrite, options:[], permissions:[.ownerReadWrite])
-			} catch Errno.noSuchFileOrDirectory {
-				configFD = try FileDescriptor.open("/etc/wireman.conf", .readWrite, options:[.create], permissions:[.ownerReadWrite])
-				let newConfiguration = try Configuration.generateNew()
-				let encoder = try QuickJSON.encode(newConfiguration)
-				try configFD.writeAll(encoder)
-				try configFD.seek(offset:0, from:.start)
+				do {
+					configFD = try FileDescriptor.open(configPath, .readWrite, options:[], permissions:[.ownerReadWrite])
+					logger.info("successfully opened existing configuration file at '\(configPath)'")
+				} catch Errno.noSuchFileOrDirectory {
+					logger.warning("configuration file not found! creating a new one...")
+					configFD = try FileDescriptor.open(configPath, .readWrite, options:[.create], permissions:[.ownerReadWrite])
+					logger.notice("successfully created template configuration file.")
+					let newConfiguration = try Configuration.generateNew()
+					let encoder = try QuickJSON.encode(newConfiguration)
+					try configFD.writeAll(encoder)
+					try configFD.seek(offset:0, from:.start)
+				}
+			} catch let error {
+				logger.critical("failed to open configuration file at '\(configPath)': \(error)")
+				throw error
 			}
 			defer {
 				try! configFD.close()
@@ -413,8 +89,141 @@ struct InitializeInterface:AsyncParsableCommand {
 				buildBytes.append(contentsOf:newBuffer)
 			}
 			let decodedConfiguration = try QuickJSON.decode(Configuration.self, from:buildBytes, size:buildBytes.count, flags:[.stopWhenDone])
-			print("Decoded Configuration: \(decodedConfiguration)")
+			logger.debug("loaded configuration: \(decodedConfiguration)")
+			try await Self.runDaemon(configuration:decodedConfiguration)
+		}
+		
+		enum Error:Swift.Error {
+			case invalidConfiguration
+		}
+
+		static func runDaemon(configuration:Configuration) async throws {
+			let logger = makeDefaultLogger(label:"daemon", logLevel:.debug)
 			
+			// compute the master keys
+			let masterPublicKey = PublicKey(privateKey:configuration.privateKey)
+			let masterPrivateKey = configuration.privateKey
+
+			logger.info("starting daemon", metadata:["publicKey":"\(masterPublicKey)"])
+
+			// generate the interface patterns based on the public key
+			var uniquePatternHasher = try RAW_blake2.Hasher<B, [UInt8]>(key:masterPublicKey, outputLength:3)
+			try uniquePatternHasher.update(Array("trusted_interface_iname".utf8))
+			let trustedInterfacePattern = try uniquePatternHasher.finish()
+			uniquePatternHasher = try RAW_blake2.Hasher<B, [UInt8]>(key:masterPublicKey, outputLength:3)
+			try uniquePatternHasher.update(Array("hosted_interface_iname".utf8))
+			let hostedInterfacePattern = try uniquePatternHasher.finish()
+
+			// generate the sub-keys for each interface based on the master private key
+			var secureKeyHasher = try RAW_blake2.Hasher<B, PrivateKey>(key:masterPrivateKey, outputLength:32)
+			try secureKeyHasher.update(Array("trusted_interface_privatekey".utf8))
+			let trustedInterfaceKey = try secureKeyHasher.finish()
+			secureKeyHasher = try RAW_blake2.Hasher<B, PrivateKey>(key:masterPrivateKey, outputLength:32)
+			try secureKeyHasher.update(Array("hosted_interface_privatekey".utf8))
+			let hostedInterfaceKey = try secureKeyHasher.finish()
+
+			let trustedDevName = "wmanT_" + String(RAW_hex.encode(trustedInterfacePattern))
+			let hostedDevName = "wmanH_" + String(RAW_hex.encode(hostedInterfacePattern))
+			logger.info("trusted device name: \(trustedDevName)")
+
+			// load the wireguard trust interface
+			var trustInterface:Device
+			var hostedInterface:Device
+			do {
+				let listedDeviceNames = Device.list()
+
+				// initialize the trusted interface
+				if listedDeviceNames.contains(trustedDevName) {
+					trustInterface = try Device.load(name:trustedDevName)
+					logger.info("loaded existing wireguard interface: \(trustedDevName)")
+				} else {
+					trustInterface = try Device.add(name:trustedDevName)
+				}
+
+				// initialize the hosted interface
+				if listedDeviceNames.contains(hostedDevName) {
+					hostedInterface = try Device.load(name:hostedDevName)
+					logger.info("loaded existing wireguard interface: \(hostedDevName)")
+				} else {
+					hostedInterface = try Device.add(name:hostedDevName)
+					logger.info("created new wireguard interface: \(hostedDevName)")
+				}
+			}
+			trustInterface.privateKey = trustedInterfaceKey
+			hostedInterface.privateKey = hostedInterfaceKey
+			try trustInterface.set()
+			try hostedInterface.set()
+			trustInterface = try Device.load(name:trustedDevName)
+			hostedInterface = try Device.load(name:hostedDevName)
+
+			var existingAddressesH:Set<Network> = []
+			var existingAddressesT:Set<Network> = []
+			for curAdd in try getAddressesV4() {
+				if curAdd.address != nil {
+					if curAdd.interfaceIndex == trustInterface.interfaceIndex {
+						existingAddressesT.update(with:.v4(NetworkV4(address:AddressV4(curAdd.address!)!, subnetPrefix:curAdd.prefix_length)))
+					}
+					if curAdd.interfaceIndex == hostedInterface.interfaceIndex {
+						existingAddressesH.update(with:.v4(NetworkV4(address:AddressV4(curAdd.address!)!, subnetPrefix:curAdd.prefix_length)))
+					}
+				}
+			}
+			for curAdd in try getAddressesV6() {
+				if curAdd.address != nil {
+					if curAdd.interfaceIndex == trustInterface.interfaceIndex {
+						existingAddressesT.update(with:.v6(NetworkV6(address:AddressV6(curAdd.address!)!, subnetPrefix:curAdd.prefix_length)))
+					}
+					if curAdd.interfaceIndex == hostedInterface.interfaceIndex {
+						existingAddressesH.update(with:.v6(NetworkV6(address:AddressV6(curAdd.address!)!, subnetPrefix:curAdd.prefix_length)))
+					}
+				}
+			}
+
+			var addressModifications4 = Set<AddRemove<NetworkV4>>()
+			var addressModifications6 = Set<AddRemove<NetworkV6>>()
+			for (curTrustNetInternal, curNodes) in configuration.trustedNodes {
+				logger.info("initializing trusted network: \(curTrustNetInternal)")
+				for curNode in curNodes {
+					let newPeer = Device.Peer(publicKey:curNode.publicKey, presharedKey:curNode.presharedKey)
+					switch curNode.endpoint.address {
+					case .v4(let asV4):
+						newPeer.endpoint = .v4(asV4, curNode.endpoint.port)
+					case .v6(let asV6):
+						newPeer.endpoint = .v6(asV6, curNode.endpoint.port)
+					}
+					newPeer.update(with:Device.Peer.AllowedIPsEntry(NetworkV6(address:curNode.allowedIP, subnetPrefix:128)))
+					trustInterface.update(with:newPeer)
+				}
+				if existingAddressesT.contains(.v6(curTrustNetInternal)) == false {
+					logger.info("assigning address to trusted interface: \(curTrustNetInternal)")
+					addressModifications6.update(with:.add(Int32(trustInterface.interfaceIndex), curTrustNetInternal))
+				}
+			}
+			for curExisting in existingAddressesH {
+				if configuration.hostedNetworks.contains(curExisting) == false {
+					logger.info("removing address from hosted interface: \(curExisting)")
+					switch curExisting {
+						case .v4(let asV4):
+							addressModifications4.update(with:.remove(Int32(hostedInterface.interfaceIndex), asV4))
+						case .v6(let asV6):
+							addressModifications6.update(with:.remove(Int32(hostedInterface.interfaceIndex), asV6))
+					}
+				}
+			}
+			for curHostedNet in configuration.hostedNetworks {
+				if existingAddressesH.contains(curHostedNet) == false {
+					logger.info("assigning address to hosted interface: \(curHostedNet)")
+					switch curHostedNet {
+						case .v4(let asV4):
+							addressModifications4.update(with:.add(Int32(hostedInterface.interfaceIndex), asV4))
+						case .v6(let asV6):
+							addressModifications6.update(with:.add(Int32(hostedInterface.interfaceIndex), asV6))
+					}
+				}
+			}
+			if addressModifications6.count > 0 || addressModifications4.count > 0 {
+				_ = try modifyInterface(addressV4:addressModifications4, addressV6:addressModifications6)
+			}
 		}
 	}
 
@@ -433,18 +242,14 @@ struct InitializeInterface:AsyncParsableCommand {
 		mutating func run() throws {
 			let wireguardInterface:Device
 			do {
-				wireguardInterface = try loadExistingDevice(name:interfaceName)
-			} catch Error.interfaceNotFound {
-				guard wgReadOnly == false else {
-					throw Error.interfaceNotFound
-				}
-				try createDevice(name:interfaceName)
-				wireguardInterface = try loadExistingDevice(name:interfaceName)
+				wireguardInterface = try Device.load(name:interfaceName)
+			} catch  {
+				wireguardInterface = try Device.add(name:interfaceName)
 			}
 			let intPK = wireguardInterface.publicKey
 			print(" == Interface Information ==")
 			print("Interface Name: \(wireguardInterface.name)")
-			print("Interface Public Key: \(intPK!)")
+			print("Interface Public Key: \(String(describing:intPK))")
 			print("Interface Index: \(wireguardInterface.interfaceIndex)")
 			let getInterface = try wireman_rtnetlink.getAddressesV4()
 			var interfaceAddressV4 = Set<NetworkV4>()

@@ -8,7 +8,11 @@ import CWireguardTools
 // represents a public key of a wireguard client. this is the primary UID for the client in the database
 @RAW_staticbuff(bytes:32)
 @MDB_comparable()
-public struct PublicKey:RAW_comparable, Comparable, Hashable, Equatable, CustomDebugStringConvertible, Codable {
+public struct PublicKey:RAW_comparable, Comparable, Hashable, Equatable, CustomDebugStringConvertible, LosslessStringConvertible, Codable {
+	public var description:String {
+		return String(RAW_base64.encode(self))
+	}
+	
 	public init(privateKey:borrowing PrivateKey) {
 		var newSbuf:RAW_staticbuff_storetype = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 		privateKey.RAW_access_staticbuff { (sbuf) in
@@ -47,7 +51,11 @@ public struct PublicKey:RAW_comparable, Comparable, Hashable, Equatable, CustomD
 
 @RAW_staticbuff(bytes:32)
 @MDB_comparable()
-public struct PresharedKey:RAW_comparable, Comparable, Hashable, Equatable, CustomDebugStringConvertible, Codable {
+public struct PresharedKey:RAW_comparable, Comparable, Hashable, Equatable, CustomDebugStringConvertible, LosslessStringConvertible, Codable {
+	public var description:String {
+		return String(RAW_base64.encode(self))
+	}
+
 	public init() {
 		var sbuf:RAW_staticbuff_storetype = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 		withUnsafeMutablePointer(to:&sbuf) { (sbufPtr) in
@@ -89,7 +97,11 @@ public struct PresharedKey:RAW_comparable, Comparable, Hashable, Equatable, Cust
 
 @RAW_staticbuff(bytes:32)
 @MDB_comparable()
-public struct PrivateKey:RAW_comparable, Comparable, Hashable, Equatable, CustomDebugStringConvertible, Codable {
+public struct PrivateKey:RAW_comparable, Comparable, Hashable, Equatable, CustomDebugStringConvertible, LosslessStringConvertible, Codable {
+    public var description:String {
+		return String(RAW_base64.encode(self))
+	}
+
     public init() {
 		var sbuf:RAW_staticbuff_storetype = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 		withUnsafeMutablePointer(to:&sbuf) { (sbufPtr) in
@@ -101,8 +113,7 @@ public struct PrivateKey:RAW_comparable, Comparable, Hashable, Equatable, Custom
 		let container = try decoder.singleValueContainer()
 		let string = try container.decode(String.self)
 		do {
-			let data = try RAW_base64.decode(string)
-			self = .init(RAW_staticbuff:data)
+			self = .init(RAW_staticbuff:try RAW_base64.decode(string))
 		} catch {
 			throw DecodingError.dataCorruptedError(in:container, debugDescription:"Invalid base64")
 		}
@@ -121,9 +132,7 @@ public struct PrivateKey:RAW_comparable, Comparable, Hashable, Equatable, Custom
     }
 
 	public var debugDescription:String {
-		let asString = String(RAW_base64.encode(self))
-		let redacted = asString.prefix(4) + "..." + asString.suffix(4)
-		return "PrivateKey(\"\(redacted)\")"
+		return "PrivateKey(\"...\")"
 	}
 }
 

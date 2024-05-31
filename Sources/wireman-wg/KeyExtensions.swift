@@ -21,7 +21,7 @@ extension PublicKey {
 				newBuffer.deallocate()
 			}
 			wg_generate_public_key(newBuffer.baseAddress, buff)
-			return PublicKey(RAW_decode:newBuffer.baseAddress!, count:MemoryLayout<PublicKey.RAW_staticbuff_storetype>.size)!
+			return PublicKey(RAW_staticbuff:newBuffer.baseAddress!)
 		})
 	}
 }

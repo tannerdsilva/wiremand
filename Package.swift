@@ -21,8 +21,8 @@ let package = Package(
 		.package(path:"../bedrock"),
 		.package(url:"https://github.com/tannerdsilva/rawdog.git", from:"10.1.0"),
 		.package(url:"https://github.com/apple/swift-log.git", from:"1.0.0"),
-		.package(url:"https://github.com/tannerdsilva/Crtnetlink.git", revision:"3fbb59f15872e493a556c8e9c5f924fcbadfac90"),
-		// .package(path:"../Crtnetlink"),
+		// .package(url:"https://github.com/tannerdsilva/Crtnetlink.git", revision:"3fbb59f15872e493a556c8e9c5f924fcbadfac90"),
+		.package(path:"../Crtnetlink"),
 		.package(url:"https://github.com/tannerdsilva/CWireguardTools.git", branch:"wiremand-prep"),
 		.package(url:"https://github.com/tannerdsilva/QuickJSON.git", from:"1.0.0")
 
@@ -54,6 +54,7 @@ let package = Package(
 				.product(name:"ArgumentParser", package:"swift-argument-parser"),
 				"wireman-rtnetlink",
 				"QuickJSON",
+				.product(name:"Logging", package:"swift-log")
 			]),
 		.target(name:"wireman-rtnetlink",
 			dependencies:[
@@ -71,6 +72,7 @@ let package = Package(
 			.product(name:"RAW", package:"rawdog"),
 			.product(name:"RAW_blake2", package:"rawdog"),
 			.product(name:"RAW_base64", package:"rawdog"),
+			.product(name:"RAW_hex", package:"rawdog"),
 			.product(name:"Logging", package:"swift-log"),
 			.product(name:"SystemPackage", package:"swift-system"),
 			.product(name:"ArgumentParser", package:"swift-argument-parser"),

@@ -19,14 +19,6 @@
       }
     },
     {
-      "identity" : "crtnetlink",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tannerdsilva/Crtnetlink.git",
-      "state" : {
-        "revision" : "3fbb59f15872e493a556c8e9c5f924fcbadfac90"
-      }
-    },
-    {
       "identity" : "cwireguardtools",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/CWireguardTools.git",
@@ -59,7 +51,7 @@
       "location" : "https://github.com/tannerdsilva/QuickLMDB.git",
       "state" : {
         "branch" : "v3-dev",
-        "revision" : "d9f5191c6f7204001ea33a78534d2e97f7c5e1c9"
+        "revision" : "efe2e5b2d71b40628c06eab8c0f5479d7a7dcd5d"
       }
     },
     {
@@ -220,8 +212,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swift-server/swift-service-lifecycle.git",
       "state" : {
-        "revision" : "12a031bcc1284c64d6b847f5013ffe6dcca964d0",
-        "version" : "2.5.0"
+        "revision" : "05d3852a55895cfbcdcf27a71fc69e291a61934c",
+        "version" : "2.5.1"
       }
     },
     {
