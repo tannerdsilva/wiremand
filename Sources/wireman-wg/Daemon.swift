@@ -19,7 +19,7 @@ import Darwin
 internal struct Daemon:Service {
 	internal let configuration:Configuration
  	internal func run() async throws {
-		let logger = makeDefaultLogger(label:"daemon", logLevel:.debug)
+		let logger = makeDefaultLogger(label:"daemon", logLevel:.info)
 		
 		// compute the master keys
 		let masterPublicKey = PublicKey(privateKey:configuration.privateKey)

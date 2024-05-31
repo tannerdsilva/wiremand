@@ -24,7 +24,9 @@ let package = Package(
 		// .package(url:"https://github.com/tannerdsilva/Crtnetlink.git", revision:"3fbb59f15872e493a556c8e9c5f924fcbadfac90"),
 		.package(path:"../Crtnetlink"),
 		.package(url:"https://github.com/tannerdsilva/CWireguardTools.git", branch:"wiremand-prep"),
-		.package(url:"https://github.com/tannerdsilva/QuickJSON.git", from:"1.0.0")
+		// .package(url:"https://github.com/tannerdsilva/QuickJSON.git", from:"1.0.0"),
+		.package(path:"../QuickJSON"),
+		.package(path:"../ws-kit")
 
 		// .package(path:"../CWireguardTools")
     ],
@@ -54,9 +56,10 @@ let package = Package(
 				"wireman-db",
 				.product(name:"ArgumentParser", package:"swift-argument-parser"),
 				"wireman-rtnetlink",
-				"QuickJSON",
+				.product(name: "QuickJSON", package:"QuickJSON"),
 				.product(name:"Logging", package:"swift-log"),
 				"wireman-cnftables",
+				.product(name:"WebSocket", package:"ws-kit")
 			]),
 		.target(name:"wireman-rtnetlink",
 			dependencies:[

@@ -8,6 +8,7 @@ import SystemPackage
 import QuickJSON
 import bedrock
 import RAW_hex
+import class Foundation.JSONEncoder
 
 #if os(Linux)
 import Glibc
@@ -43,67 +44,6 @@ struct CLI:AsyncParsableCommand {
 			DaemonCLI.self
 		]
 	)
-	struct ConfigureInterface:AsyncParsableCommand {
-		static let configuration = CommandConfiguration(
-			commandName:"configure",
-			abstract:"Configure a wireguard interface"
-		)
-
-		@Argument(help:"The name of the wireguard interface to manage")
-		var interfaceName:String
-
-		@Flag(name:.long, help:"do not create or set the wireguard interface.")
-		var wgReadOnly:Bool = false
-
-		mutating func run() throws {
-			let wireguardInterface:Device
-			do {
-				wireguardInterface = try Device.load(name:interfaceName)
-			} catch  {
-				wireguardInterface = try Device.add(name:interfaceName)
-			}
-			let intPK = wireguardInterface.publicKey
-			print(" == Interface Information ==")
-			print("Interface Name: \(wireguardInterface.name)")
-			print("Interface Public Key: \(String(describing:intPK))")
-			print("Interface Index: \(wireguardInterface.interfaceIndex)")
-			let getInterface = try wireman_rtnetlink.getAddressesV4()
-			var interfaceAddressV4 = Set<NetworkV4>()
-			var remove4 = Set<AddRemove<NetworkV4>>()
-			for address in getInterface {
-				if address.interfaceIndex == wireguardInterface.interfaceIndex && address.address != nil {
-					let asAddr = AddressV4(address.address!)
-					guard asAddr != nil else {
-						continue
-					}
-					let asNetwork = NetworkV4(address:asAddr!, subnetPrefix:address.prefix_length)
-					interfaceAddressV4.update(with:asNetwork)
-					remove4.update(with:.remove(Int32(address.interfaceIndex), asNetwork))
-					print("found matching address: \(asNetwork)")
-				}
-			}
-			var interfaceAddressV6 = Set<NetworkV6>()
-			var remove6 = Set<AddRemove<NetworkV6>>()
-			for address in try wireman_rtnetlink.getAddressesV6() {
-				if address.interfaceIndex == wireguardInterface.interfaceIndex && address.address != nil{
-					let asAddr = AddressV6(address.address!)
-					guard asAddr != nil else {
-						continue
-					}
-
-					let asNetwork = NetworkV6(address:asAddr!, subnetPrefix:address.prefix_length)
-					interfaceAddressV6.update(with:asNetwork)
-					remove6.update(with:.remove(Int32(address.interfaceIndex), asNetwork))
-					print("found matching address: \(String(asNetwork.address))")
-				}
-			}
-			if interfaceAddressV4.count > 0 || interfaceAddressV6.count > 0 {
-				_ = try modifyInterface(addressV4:remove4, addressV6:remove6)
-			} else {
-				print("No existing addresses to remove")
-			}
-		}
-	}
 
 	struct DaemonCLI:AsyncParsableCommand {
 		static let configuration = CommandConfiguration(
@@ -128,8 +68,8 @@ struct CLI:AsyncParsableCommand {
 					configFD = try FileDescriptor.open(configPath, .readWrite, options:[.create], permissions:[.ownerReadWrite])
 					logger.notice("successfully created template configuration file.")
 					let newConfiguration = try Configuration.generateNew()
-					let encoder = try QuickJSON.encode(newConfiguration)
-					try configFD.writeAll(encoder)
+					let bytes = try QuickJSON.encode(newConfiguration, flags:[.pretty])
+					try configFD.writeAll(bytes)
 					try configFD.seek(offset:0, from:.start)
 				}
 			} catch let error {
