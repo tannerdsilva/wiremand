@@ -1,5 +1,7 @@
 import Crtnetlink
 import bedrock_ip
+import bedrock
+import Logging
 
 public enum AddressFamily:UInt8 {
 	case v4 = 4
@@ -265,6 +267,39 @@ extension UInt32 {
 			let rhsInt = rhs.interfaceIndex()
 			return lhsAddr == rhsAddr && lhsInt == rhsInt
 		}
+	}
+
+	public func modifyInterface(_ interface:[Int32:Delta<Network>], logger:Logger?) throws {
+		var v4 = Set<AddRemove<NetworkV4>>()
+		var v6 = Set<AddRemove<NetworkV6>>()
+		for (iid, deltas) in interface {
+			logger?.trace("evaluating address deltas for interface id \(iid)")
+			if deltas.exclusiveEnd.count > 0 {
+				for cur in deltas.exclusiveEnd {
+					switch cur {
+						case .v4(let asV4):
+							logger?.trace("adding v4 address \(asV4) from interface id \(iid)")
+							v4.update(with:.add(iid, asV4))
+						case .v6(let asV6):
+							logger?.trace("adding v6 address \(asV6) from interface id \(iid)")
+							v6.update(with:.add(iid, asV6))
+					}
+				}
+			}
+			if deltas.exclusiveStart.count > 0 {
+				for cur in deltas.exclusiveStart {
+					switch cur {
+						case .v4(let asV4):
+							logger?.trace("removing v4 address \(asV4) to interface id \(iid)")
+							v4.update(with:.remove(iid, asV4))
+						case .v6(let asV6):
+							logger?.trace("removing v6 address \(asV6) to interface id \(iid)")
+							v6.update(with:.remove(iid, asV6))
+					}
+				}
+			}
+		}
+		try modifyInterface(addressV4:v4, addressV6:v6)
 	}
 	public func modifyInterface(addressV4:Set<AddRemove<NetworkV4>>, addressV6:Set<AddRemove<NetworkV6>>) throws {
 		guard addressV4.count > 0 || addressV6.count > 0 else {

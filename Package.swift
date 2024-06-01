@@ -7,25 +7,21 @@ let package = Package(
     	.macOS(.v14)
     ],
     dependencies: [
-        .package(url:"https://github.com/apple/swift-argument-parser.git", .upToNextMinor(from:"1.2.1")),
+        .package(url:"https://github.com/apple/swift-argument-parser.git", "1.0.0"..<"2.0.0"),
 		.package(url:"https://github.com/tannerdsilva/SwiftSlash.git", .upToNextMinor(from:"3.1.0")),
-		.package(url:"https://github.com/tannerdsilva/QuickLMDB.git", from:"4.0.0"),
-		// .package(path:"../QuickLMDB"),
-		// .package(url:"https://github.com/tannerdsilva/AddressKit.git", .upToNextMinor(from:"1.1.0")),
+		.package(url:"https://github.com/tannerdsilva/QuickLMDB.git", "5.0.0"..<"6.0.0"),
 		.package(url:"https://github.com/hummingbird-project/hummingbird.git", exact:"2.0.0-beta.5"),
 		// .package(url:"https://github.com/tannerdsilva/SignalStack.git", .upToNextMinor(from:"1.1.1")),
 		// .package(url:"https://github.com/tannerdsilva/swift-smtp.git", .revision("ba82aa3b56e75a798b155524fcb083a9f012a844")),
 		// .package(url:"https://github.com/swift-server/async-http-client.git", from:"1.0.0"),
-		.package(url:"https://github.com/apple/swift-system.git", from:"1.0.0"),
+		.package(url:"https://github.com/apple/swift-system.git", "1.0.0"..<"2.0.0"),
 		// .package(url:"https://github.com/tannerdsilva/bedrock.git", revision:"606b258fc0aad46d84b7621c33851e32377cd5e0"),
 		.package(path:"../bedrock"),
-		.package(url:"https://github.com/tannerdsilva/rawdog.git", from:"11.0.0"),
-		.package(url:"https://github.com/apple/swift-log.git", from:"1.0.0"),
-		// .package(url:"https://github.com/tannerdsilva/Crtnetlink.git", revision:"3fbb59f15872e493a556c8e9c5f924fcbadfac90"),
+		.package(url:"https://github.com/tannerdsilva/rawdog.git", "11.0.0"..<"12.0.0"),
+		.package(url:"https://github.com/apple/swift-log.git", "1.0.0"..<"2.0.0"),
 		.package(path:"../Crtnetlink"),
 		.package(url:"https://github.com/tannerdsilva/CWireguardTools.git", branch:"wiremand-prep"),
-		// .package(url:"https://github.com/tannerdsilva/QuickJSON.git", from:"1.0.0"),
-		.package(path:"../QuickJSON"),
+		.package(url:"https://github.com/tannerdsilva/QuickJSON.git", from:"1.1.1"),
 		.package(path:"../ws-kit")
 
 		// .package(path:"../CWireguardTools")
@@ -59,7 +55,8 @@ let package = Package(
 				.product(name: "QuickJSON", package:"QuickJSON"),
 				.product(name:"Logging", package:"swift-log"),
 				"wireman-cnftables",
-				.product(name:"WebSocket", package:"ws-kit")
+				.product(name:"WebSocket", package:"ws-kit"),
+				.product(name:"Hummingbird", package:"hummingbird"),
 			]),
 		.target(name:"wireman-rtnetlink",
 			dependencies:[
@@ -71,7 +68,6 @@ let package = Package(
 		.target(name:"wireman-db", dependencies:[
 			.product(name:"SwiftSlash", package:"SwiftSlash"),
 			.product(name:"QuickLMDB", package:"QuickLMDB"),
-			.product(name:"Hummingbird", package:"hummingbird"),
 			.product(name:"bedrock", package:"bedrock"),
 			.product(name:"bedrock_ip", package:"bedrock"),
 			.product(name:"RAW", package:"rawdog"),

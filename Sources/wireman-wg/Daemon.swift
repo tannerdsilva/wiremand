@@ -2,6 +2,7 @@ import CWireguardTools
 import ArgumentParser
 import wireman_db
 import bedrock_ip
+import bedrock
 import RAW_blake2
 import wireman_rtnetlink
 import SystemPackage
@@ -9,6 +10,7 @@ import QuickJSON
 import bedrock
 import RAW_hex
 import ServiceLifecycle
+import Logging
 
 #if os(Linux)
 import Glibc
@@ -19,7 +21,7 @@ import Darwin
 internal struct Daemon:Service {
 	internal let configuration:Configuration
  	internal func run() async throws {
-		let logger = makeDefaultLogger(label:"daemon", logLevel:.info)
+		let logger = makeDefaultLogger(label:"daemon", logLevel:.trace)
 		
 		// compute the master keys
 		let masterPublicKey = PublicKey(privateKey:configuration.privateKey)
@@ -109,10 +111,20 @@ internal struct Daemon:Service {
 				}
 			}
 
-			// assign trust interface addresses and peers based on the configuration
-			var addressModifications4 = Set<AddRemove<NetworkV4>>()
-			var addressModifications6 = Set<AddRemove<NetworkV6>>()
-			for (curTrustNetInternal, curNodes) in configuration.trustedNodes {
+			var expectingAddressesH = Set<Network>()
+			var expectingAddressesT = Set<Network>()
+			for curHostedNet in configuration.hostedNetworks {
+				expectingAddressesH.update(with:curHostedNet)
+			}
+			for (curTrustNetInternal, _) in configuration.trustedNodes {
+				expectingAddressesT.update(with:.v6(curTrustNetInternal))
+			}
+
+			let hostInterfaceDelta = Delta(start:existingAddressesH, end:expectingAddressesH)
+			let trustInterfaceDelta = Delta(start:existingAddressesT, end:expectingAddressesT)
+
+			// assign trust interface peers based on the configuration
+			for (_, curNodes) in configuration.trustedNodes {
 				for curNode in curNodes {
 					let newPeer = Device.Peer(publicKey:curNode.publicKey, presharedKey:curNode.presharedKey)
 					switch curNode.endpoint.address {
@@ -124,38 +136,9 @@ internal struct Daemon:Service {
 					newPeer.update(with:Device.Peer.AllowedIPsEntry(NetworkV6(address:curNode.allowedIP, subnetPrefix:128)))
 					trustInterface.update(with:newPeer)
 				}
-				if existingAddressesT.contains(.v6(curTrustNetInternal)) == false {
-					logger.info("assigning address to trusted interface: \(curTrustNetInternal)")
-					addressModifications6.update(with:.add(Int32(trustInterface.interfaceIndex), curTrustNetInternal))
-				}
 			}
 			
-			// remove any addresses that are not in the configuration
-			for curExisting in existingAddressesH {
-				if configuration.hostedNetworks.contains(curExisting) == false {
-					logger.info("removing address from hosted interface: \(curExisting)")
-					switch curExisting {
-						case .v4(let asV4):
-							addressModifications4.update(with:.remove(Int32(hostedInterface.interfaceIndex), asV4))
-						case .v6(let asV6):
-							addressModifications6.update(with:.remove(Int32(hostedInterface.interfaceIndex), asV6))
-					}
-				}
-			}
-			for curHostedNet in configuration.hostedNetworks {
-				if existingAddressesH.contains(curHostedNet) == false {
-					logger.info("assigning address to hosted interface: \(curHostedNet)")
-					switch curHostedNet {
-						case .v4(let asV4):
-							addressModifications4.update(with:.add(Int32(hostedInterface.interfaceIndex), asV4))
-						case .v6(let asV6):
-							addressModifications6.update(with:.add(Int32(hostedInterface.interfaceIndex), asV6))
-					}
-				}
-			}
-			if addressModifications6.count > 0 || addressModifications4.count > 0 {
-				_ = try modifyInterface(addressV4:addressModifications4, addressV6:addressModifications6)
-			}
+			try modifyInterface([Int32(trustInterface.interfaceIndex):trustInterfaceDelta, Int32(hostedInterface.interfaceIndex):hostInterfaceDelta], logger:logger)
 			try await Task.sleep(nanoseconds:1000000000*5)
 		} while true
 	}

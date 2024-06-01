@@ -37,12 +37,21 @@
       }
     },
     {
+      "identity" : "quickjson",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/QuickJSON.git",
+      "state" : {
+        "revision" : "faaee3778d4f715f74078628c11e9a366384c8ae",
+        "version" : "1.1.1"
+      }
+    },
+    {
       "identity" : "quicklmdb",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/QuickLMDB.git",
       "state" : {
-        "revision" : "016883a3135c9f864114f982703b17c2788b5b47",
-        "version" : "4.0.0"
+        "revision" : "ea4bce44074485b77a3d980e58e52b42752cc908",
+        "version" : "5.0.0"
       }
     },
     {
