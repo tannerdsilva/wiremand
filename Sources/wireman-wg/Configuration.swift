@@ -14,6 +14,7 @@ public struct Configuration:Codable, Sendable {
 		public var allowedIP:AddressV6 // only ipv6 endpoints are supported with wireman peers.
 	}
 	public var privateKey:PrivateKey
+	public var port:UInt16
 	public var trustedNodes:[NetworkV6:Set<TrustedNode>]
 	public var hostedNetworks:Set<Network>
 }
@@ -21,8 +22,7 @@ public struct Configuration:Codable, Sendable {
 extension Configuration {
 	public static func generateNew() throws -> Self {
 		let privateKey = PrivateKey()
-		let trustedNodeNetwork = NetworkV6(address:try NetworkV6("fd00::/8")!.randomAddress(), subnetPrefix:96)
-		return Self(privateKey:privateKey, trustedNodes:[trustedNodeNetwork:[]], hostedNetworks:[])
+		return Self(privateKey:privateKey, port:UInt16.random(in: 49152...65535), trustedNodes:[:], hostedNetworks:[])
 	}
 }
 
