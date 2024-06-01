@@ -189,6 +189,7 @@ struct CLI:AsyncParsableCommand {
 				} catch Errno.noSuchFileOrDirectory {
 					logger.warning("configuration file not found! creating a new one...")
 					configFD = try FileDescriptor.open(configPath, .readWrite, options:[.create], permissions:[.ownerReadWrite])
+					initializeTrustNetwork = NetworkV6(address:try initializeTrustNetwork.randomAddress(), subnetPrefix:initializeTrustNetwork.subnetPrefix)
 					logger.notice("successfully created template configuration file.", metadata:["trust_network":"\(initializeTrustNetwork)"])
 					var newConfiguration = try Configuration.generateNew()
 					newConfiguration.trustedNodes[initializeTrustNetwork] = []
