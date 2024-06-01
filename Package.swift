@@ -15,14 +15,13 @@ let package = Package(
 		// .package(url:"https://github.com/tannerdsilva/swift-smtp.git", .revision("ba82aa3b56e75a798b155524fcb083a9f012a844")),
 		// .package(url:"https://github.com/swift-server/async-http-client.git", from:"1.0.0"),
 		.package(url:"https://github.com/apple/swift-system.git", "1.0.0"..<"2.0.0"),
-		// .package(url:"https://github.com/tannerdsilva/bedrock.git", revision:"606b258fc0aad46d84b7621c33851e32377cd5e0"),
-		.package(path:"../bedrock"),
+		.package(url:"https://github.com/tannerdsilva/bedrock.git", revision:"669b16b90b210a8f798c7c2be02622c1ca100720"),
 		.package(url:"https://github.com/tannerdsilva/rawdog.git", "11.0.0"..<"12.0.0"),
 		.package(url:"https://github.com/apple/swift-log.git", "1.0.0"..<"2.0.0"),
-		.package(path:"../Crtnetlink"),
+		.package(url:"https://github.com/tannerdsilva/Crtnetlink.git", revision:"ffc78c736f1d82e5e5f85914a4bf492b9064db15"),
 		.package(url:"https://github.com/tannerdsilva/CWireguardTools.git", branch:"wiremand-prep"),
 		.package(url:"https://github.com/tannerdsilva/QuickJSON.git", from:"1.1.1"),
-		.package(path:"../ws-kit")
+		.package(url:"https://github.com/tannerdsilva/ws-kit.git", revision:"56d73c7e64019c3f3b488b9221ab5b5d4d30b5be")
 
 		// .package(path:"../CWireguardTools")
     ],
