@@ -102,13 +102,13 @@ struct CLI:AsyncParsableCommand {
 		abstract:"wireman tool helps you apply changes and build infrastructure on wireguard interfaces.",
 		subcommands:[
 			DaemonCLI.self,
-			Trust.self
+			AddTrustedNode.self
 		]
 	)
 
-	struct Trust:AsyncParsableCommand {
+	struct AddTrustedNode:AsyncParsableCommand {
 		static let configuration = CommandConfiguration(
-			commandName:"trust",
+			commandName:"add-trusted-node",
 			abstract:"Trust a new node on the network"
 		)
 
@@ -119,7 +119,7 @@ struct CLI:AsyncParsableCommand {
 		var publicKey:PublicKey
 
 		@Option(help:"preshared key of the new node")
-		var presharedKey:PresharedKey?
+		var presharedKey:PresharedKey? = nil
 
 		@Argument(help:"endpoint address of the new node")
 		var physicalEndpoint:Configuration.TrustedNode.Endpoint
@@ -131,7 +131,7 @@ struct CLI:AsyncParsableCommand {
 			let logger = makeDefaultLogger(label:"daemon", logLevel:.debug)
 
 			// load the initial configuration file, or write a default configuration file if it does not exist
-			let configFD:FileDescriptor
+			var configFD:FileDescriptor
 			do {
 				configFD = try FileDescriptor.open(configPath, .readWrite, options:[], permissions:[.ownerReadWrite])
 				logger.info("successfully opened existing configuration file at '\(configPath)'")
@@ -148,17 +148,40 @@ struct CLI:AsyncParsableCommand {
 			while try configFD.read(into:newBuffer) > 0 {
 				buildBytes.append(contentsOf:newBuffer)
 			}
+			try configFD.seek(offset:0, from:.start)
 			var decodedConfiguration = try QuickJSON.decode(Configuration.self, from:buildBytes, size:buildBytes.count, flags:[.stopWhenDone])
-			for trustNet in decodedConfiguration.trustedNodes.keys {
-				if trustNet.contains(allowedIP) {
-					decodedConfiguration.trustedNodes[trustNet]?.insert(try Configuration.TrustedNode.generateNew(publicKey:publicKey, presharedKey:&presharedKey, endpoint:physicalEndpoint, allowedIP:allowedIP))
-					let bytes = try QuickJSON.encode(decodedConfiguration, flags:[.pretty])
-					try configFD.writeAll(bytes)
-					try configFD.seek(offset:0, from:.start)
-					logger.notice("successfully trusted new node with public key '\(publicKey)' on network '\(trustNet)'")
-					return
+			let newNode = try Configuration.TrustedNode.generateNew(publicKey:publicKey, presharedKey:&presharedKey, endpoint:physicalEndpoint, allowedIP:allowedIP)
+
+			// verify that this instance is already configured to operate on the same trust network
+			for var trustObj in decodedConfiguration.trusted {
+				// verify that the current instance has a trusted network scope that this IP falls within
+				guard trustObj.network.contains(allowedIP) else {
+					logger.trace("node with public key '\(publicKey)' not trusted on network '\(trustObj.network)'")
+					continue
 				}
+				trustObj.nodes.update(with:newNode)
+				decodedConfiguration.trusted.update(with:trustObj)
+
+				configFD = try FileDescriptor.open(configPath, .readWrite, options:[.truncate], permissions:[.ownerReadWrite])
+				let bytes = try QuickJSON.encode(decodedConfiguration, flags:[.pretty])
+				try configFD.writeAll(bytes)
+				try configFD.close()
+				logger.notice("successfully trusted new node with public key '\(publicKey)' on network '\(trustObj.network)'")
+				return
 			}
+			logger.error("failed to trust new node with public key '\(publicKey)': no network found for allowed IP '\(allowedIP)'")
+			throw DaemonCLI.Error.invalidConfiguration
+
+			// for trustNet in decodedConfiguration.trustedNodes.keys {
+			// 	if trustNet.contains(allowedIP) {
+			// 		decodedConfiguration.trustedNodes[trustNet]?.insert(try Configuration.TrustedNode.generateNew(publicKey:publicKey, presharedKey:&presharedKey, endpoint:physicalEndpoint, allowedIP:allowedIP))
+			// 		let bytes = try QuickJSON.encode(decodedConfiguration, flags:[.pretty])
+			// 		try configFD.writeAll(bytes)
+			// 		try configFD.seek(offset:0, from:.start)
+			// 		logger.notice("successfully trusted new node with public key '\(publicKey)' on network '\(trustNet)'")
+			// 		return
+			// 	}
+			// }
 
 			logger.error("failed to trust new node with public key '\(publicKey)': no network found for allowed IP '\(allowedIP)'")
 			throw DaemonCLI.Error.invalidConfiguration
@@ -192,7 +215,7 @@ struct CLI:AsyncParsableCommand {
 					initializeTrustNetwork = NetworkV6(address:try initializeTrustNetwork.randomAddress(), subnetPrefix:initializeTrustNetwork.subnetPrefix)
 					logger.notice("successfully created template configuration file.", metadata:["trust_network":"\(initializeTrustNetwork)"])
 					var newConfiguration = try Configuration.generateNew()
-					newConfiguration.trustedNodes[initializeTrustNetwork] = []
+					newConfiguration.trusted = []
 					let bytes = try QuickJSON.encode(newConfiguration, flags:[.pretty])
 					try configFD.writeAll(bytes)
 					try configFD.seek(offset:0, from:.start)

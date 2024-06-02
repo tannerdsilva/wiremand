@@ -14,7 +14,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/bedrock.git",
       "state" : {
-        "revision" : "2725d5899fc8786b4c79751ac165dd5aeda48be0"
+        "revision" : "402fa70ae770068804180669671a6f1647f9d5e7"
       }
     },
     {
@@ -66,8 +66,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/QuickLMDB.git",
       "state" : {
-        "revision" : "ea4bce44074485b77a3d980e58e52b42752cc908",
-        "version" : "5.0.0"
+        "revision" : "6630238df90bc15c42fabdd38f91e41b7da0948b",
+        "version" : "5.0.1"
       }
     },
     {
@@ -75,8 +75,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/rawdog.git",
       "state" : {
-        "revision" : "b3dbb7b7f96d0d9f09d26e75e7c4312c94d45166",
-        "version" : "11.0.0"
+        "revision" : "0b33de443b4f13ad7133a3e7a1b480f8ae79c79b",
+        "version" : "12.0.0"
       }
     },
     {

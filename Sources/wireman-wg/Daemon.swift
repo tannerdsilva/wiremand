@@ -44,10 +44,10 @@ internal struct Daemon:Service {
 		logger.debug("hosted device name: \(hostedDevName)")
 
 		// generate the sub-keys for each interface based on the master private key
-		var secureKeyHasher = try RAW_blake2.Hasher<B, PrivateKey>(key:masterPrivateKey, outputLength:32)
+		var secureKeyHasher = try RAW_blake2.Hasher<B, PrivateKey>(key:masterPrivateKey)
 		try secureKeyHasher.update(Array("trusted_interface_privatekey".utf8))
 		let trustedInterfaceKey = try secureKeyHasher.finish()
-		secureKeyHasher = try RAW_blake2.Hasher<B, PrivateKey>(key:masterPrivateKey, outputLength:32)
+		secureKeyHasher = try RAW_blake2.Hasher<B, PrivateKey>(key:masterPrivateKey)
 		try secureKeyHasher.update(Array("hosted_interface_privatekey".utf8))
 		let hostedInterfaceKey = try secureKeyHasher.finish()
 
@@ -113,29 +113,29 @@ internal struct Daemon:Service {
 
 			var expectingAddressesH = Set<Network>()
 			var expectingAddressesT = Set<Network>()
-			for curHostedNet in configuration.hostedNetworks {
+			for curHostedNet in configuration.hosted {
 				expectingAddressesH.update(with:curHostedNet)
 			}
-			for (curTrustNetInternal, _) in configuration.trustedNodes {
-				expectingAddressesT.update(with:.v6(curTrustNetInternal))
+			for curTrustNetInternal in configuration.trusted {
+				expectingAddressesT.update(with:.v6(curTrustNetInternal.network))
 			}
 
 			let hostInterfaceDelta = Delta(start:existingAddressesH, end:expectingAddressesH)
 			let trustInterfaceDelta = Delta(start:existingAddressesT, end:expectingAddressesT)
 
 			// assign trust interface peers based on the configuration
-			for (_, curNodes) in configuration.trustedNodes {
-				for curNode in curNodes {
-					let newPeer = Device.Peer(publicKey:curNode.publicKey, presharedKey:curNode.presharedKey)
-					switch curNode.endpoint.address {
-					case .v4(let asV4):
-						newPeer.endpoint = .v4(asV4, curNode.endpoint.port)
-					case .v6(let asV6):
-						newPeer.endpoint = .v6(asV6, curNode.endpoint.port)
-					}
-					newPeer.update(with:Device.Peer.AllowedIPsEntry(NetworkV6(address:curNode.allowedIP, subnetPrefix:128)))
-					trustInterface.update(with:newPeer)
-				}
+			for curNode in configuration.trusted {
+				// for curNode in curNodes {
+				// 	let newPeer = Device.Peer(publicKey:curNode.publicKey, presharedKey:curNode.presharedKey)
+				// 	switch curNode.endpoint.address {
+				// 	case .v4(let asV4):
+				// 		newPeer.endpoint = .v4(asV4, curNode.endpoint.port)
+				// 	case .v6(let asV6):
+				// 		newPeer.endpoint = .v6(asV6, curNode.endpoint.port)
+				// 	}
+				// 	newPeer.update(with:Device.Peer.AllowedIPsEntry(NetworkV6(address:curNode.allowedIP, subnetPrefix:128)))
+				// 	trustInterface.update(with:newPeer)
+				// }
 			}
 			
 			try modifyInterface([Int32(trustInterface.interfaceIndex):trustInterfaceDelta, Int32(hostedInterface.interfaceIndex):hostInterfaceDelta], logger:logger)
