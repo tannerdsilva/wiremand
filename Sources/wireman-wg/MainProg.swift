@@ -215,7 +215,7 @@ struct CLI:AsyncParsableCommand {
 					initializeTrustNetwork = NetworkV6(address:try initializeTrustNetwork.randomAddress(), subnetPrefix:initializeTrustNetwork.subnetPrefix)
 					logger.notice("successfully created template configuration file.", metadata:["trust_network":"\(initializeTrustNetwork)"])
 					var newConfiguration = try Configuration.generateNew()
-					newConfiguration.trusted = []
+					newConfiguration.trusted = [Configuration.TrustedNetworkScope(network:initializeTrustNetwork, nodes:[])]
 					let bytes = try QuickJSON.encode(newConfiguration, flags:[.pretty])
 					try configFD.writeAll(bytes)
 					try configFD.seek(offset:0, from:.start)
