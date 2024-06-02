@@ -9,17 +9,51 @@ import Glibc
 import Darwin
 #endif
 
+extension Network {
+	internal init?(_ aip:Device.Peer.AllowedIPsEntry) {
+		if aip.ptr.pointer(to:\.family)!.pointee == AF_INET {
+			self = .v4((NetworkV4(address:AddressV4(RAW_staticbuff:&aip.ptr.pointee.ip4), subnetPrefix:aip.ptr.pointer(to:\.cidr)!.pointee)))
+		} else if aip.ptr.pointer(to:\.family)!.pointee == AF_INET6 {
+			self = .v6((NetworkV6(address:AddressV6(RAW_staticbuff:&aip.ptr.pointee.ip6), subnetPrefix:aip.ptr.pointer(to:\.cidr)!.pointee)))
+		} else {
+			return nil
+		}
+	}
+}
+
+extension NetworkV4 {
+	internal init?(_ aip:Device.Peer.AllowedIPsEntry) {
+		guard aip.ptr.pointer(to:\.family)!.pointee == AF_INET else {
+			return nil
+		}
+		let asAddress = AddressV4(RAW_staticbuff:&aip.ptr.pointee.ip4)
+		self = NetworkV4(address:asAddress, subnetPrefix:aip.ptr.pointer(to:\.cidr)!.pointee)
+	}
+}
+
+extension NetworkV6 {
+	internal init?(_ aip:Device.Peer.AllowedIPsEntry) {
+		guard aip.ptr.pointer(to:\.family)!.pointee == AF_INET6 else {
+			return nil
+		}
+		let asAddress = AddressV6(RAW_staticbuff:&aip.ptr.pointee.ip6)
+		self = NetworkV6(address:asAddress, subnetPrefix:aip.ptr.pointer(to:\.cidr)!.pointee)
+	}
+}
+
 extension Device.Peer {
 	public final class AllowedIPsEntry:Hashable, Equatable, Comparable, CustomDebugStringConvertible {
 		private static let logger = makeDefaultLogger(label:"Device.Peer.AllowedIPsEntry", logLevel:.trace)
 		private var logger = AllowedIPsEntry.logger
 
 	    public var debugDescription:String {
-			switch (isIPv4()) {
-			case true:
-				return "AllowedIPsEntry(\"\(String(addressV4()!))/\(ptr.pointer(to:\.cidr)!.pointee)\")"
-			case false:
-				return "AllowedIPsEntry(\"\(String(addressV6()!))/\(ptr.pointer(to:\.cidr)!.pointee)\")"
+			switch Int32(ptr.pointer(to:\.family)!.pointee) {
+			case AF_INET:
+				return "AllowedIPsEntry(\"\(String(NetworkV4(self)!.address))/\(ptr.pointer(to:\.cidr)!.pointee)\")"
+			case AF_INET6:
+				return "AllowedIPsEntry(\"\(String(NetworkV6(self)!.address))/\(ptr.pointer(to:\.cidr)!.pointee)\")"
+			default:
+				fatalError()
 			}
 		}
 
@@ -61,55 +95,41 @@ extension Device.Peer {
 			logger.trace("deinitialized instance")
 			free(ptr)
 		}
-		public static func == (lhs:borrowing AllowedIPsEntry, rhs:borrowing AllowedIPsEntry) -> Bool {
-			switch (lhs.isIPv4(), rhs.isIPv4()) {
-			case (true, true):
-				return lhs.addressV4() == rhs.addressV4() && lhs.ptr.pointer(to:\.cidr)!.pointee == rhs.ptr.pointer(to:\.cidr)!.pointee
-			case (false, false):
-				return lhs.addressV6() == rhs.addressV6() && lhs.ptr.pointer(to:\.cidr)!.pointee == rhs.ptr.pointer(to:\.cidr)!.pointee
-				default:
+		public static func == (lhs:AllowedIPsEntry, rhs:AllowedIPsEntry) -> Bool {
+			guard lhs.ptr.pointer(to:\.family)!.pointee == rhs.ptr.pointer(to:\.family)!.pointee else {
+				return false
+			}
+			if lhs.ptr.pointer(to:\.family)!.pointee == AF_INET {
+				return NetworkV4(lhs)! == NetworkV4(rhs)!
+			} else if lhs.ptr.pointer(to:\.family)!.pointee == AF_INET6 {
+				return NetworkV6(lhs)! == NetworkV6(rhs)!
+			} else {
 				return false
 			}
 		}
-		public static func < (lhs:borrowing AllowedIPsEntry, rhs:borrowing AllowedIPsEntry) -> Bool {
-			switch (lhs.isIPv4(), rhs.isIPv4()) {
-			case (true, true):
-				return lhs.addressV4()! < rhs.addressV4()!
-			case (false, false):
-				return lhs.addressV6()! < rhs.addressV6()!
-			default:
+		public static func < (lhs:AllowedIPsEntry, rhs:AllowedIPsEntry) -> Bool {
+			switch (Int32(lhs.ptr.pointer(to:\.family)!.pointee), Int32(rhs.ptr.pointer(to:\.family)!.pointee)) {
+			case (AF_INET, AF_INET):
+				return NetworkV4(lhs)! < NetworkV4(rhs)!
+			case (AF_INET6, AF_INET6):
+				return NetworkV6(lhs)! < NetworkV6(rhs)!
+			case (AF_INET, AF_INET6):
+				return true
+			case (AF_INET6, AF_INET):
 				return false
+			default:
+				fatalError("unknown values for family")
 			}
 		}
 		public func hash(into hasher:inout Swift.Hasher) {
-			switch (isIPv4()) {
-			case true:
-				hasher.combine("4")
-				hasher.combine(addressV4())
-				hasher.combine(ptr.pointer(to:\.cidr)!.pointee)
-			case false:
-				hasher.combine("6")
-				hasher.combine(addressV6())
-				hasher.combine(ptr.pointer(to:\.cidr)!.pointee)
+			switch Int32(ptr.pointer(to:\.family)!.pointee) {
+			case AF_INET:
+				NetworkV4(self)!.hash(into:&hasher)
+			case AF_INET6:
+				NetworkV6(self)!.hash(into:&hasher)
+			default:
+				fatalError("unknown values for family")
 			}
-		}
-		private borrowing func isIPv4() -> Bool {
-			return Int32(ptr.pointee.family) == AF_INET
-		}
-		private borrowing func addressV4() -> AddressV4? {
-			guard Int32(ptr.pointer(to:\.family)!.pointee) == AF_INET else {
-				return nil
-			}
-			return AddressV4(RAW_decode:&ptr.pointee.ip4, count:MemoryLayout<in_addr>.size)
-		}
-		private borrowing func isIPv6() -> Bool {
-			return Int32(ptr.pointee.family) == AF_INET6
-		}
-		private borrowing func addressV6() -> AddressV6? {
-			guard Int32(ptr.pointer(to:\.family)!.pointee) == AF_INET6 else {
-				return nil
-			}
-			return AddressV6(RAW_decode:&ptr.pointee.ip6, count:MemoryLayout<in6_addr>.size)
 		}
 	}
 }

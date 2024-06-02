@@ -137,8 +137,9 @@ internal struct Daemon:Service {
 					trustInterface.update(with:newPeer)
 				}
 			}
-			
+			trustInterface.listeningPort = configuration.port
 			try modifyInterface([Int32(trustInterface.interfaceIndex):trustInterfaceDelta, Int32(hostedInterface.interfaceIndex):hostInterfaceDelta], logger:logger)
+			try trustInterface.set()
 			try await Task.sleep(nanoseconds:1000000000*5)
 		} while true
 	}

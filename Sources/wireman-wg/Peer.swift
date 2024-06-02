@@ -103,6 +103,24 @@ extension Device {
 			}
 		}
 
+		public var persistentKeepalive:Int? {
+			get {
+				if ptr.pointer(to:\.flags)!.pointee.rawValue & WGPEER_HAS_PERSISTENT_KEEPALIVE_INTERVAL.rawValue != 0 {
+					return Int(ptr.pointer(to:\.persistent_keepalive_interval)!.pointee)
+				} else {
+					return nil
+				}
+			}
+			set {
+				if newValue != nil {
+					ptr.pointer(to:\.flags)!.pointee = wg_peer_flags(rawValue:ptr.pointer(to:\.flags)!.pointee.rawValue | WGPEER_HAS_PERSISTENT_KEEPALIVE_INTERVAL.rawValue)
+					ptr.pointer(to:\.persistent_keepalive_interval)!.pointee = UInt16(newValue!)
+				} else {
+					ptr.pointer(to:\.flags)!.pointee = wg_peer_flags(rawValue:ptr.pointer(to:\.flags)!.pointee.rawValue & ~WGPEER_HAS_PERSISTENT_KEEPALIVE_INTERVAL.rawValue)
+				}
+			}
+		}
+
 		
 		internal init(peer:UnsafeMutablePointer<wg_peer>) {
 			#if DEBUG
@@ -248,17 +266,17 @@ extension Device {
 		fileprivate func encode(to destEndpoint:UnsafeMutablePointer<wg_endpoint>) {
 			switch self {
 				case let .v4(address, port):
-					destEndpoint.pointer(to:\.addr)!.pointee.sa_family = sa_family_t(AF_INET)
-					destEndpoint.pointer(to:\.addr4)!.pointee.sin_addr = address.RAW_access_staticbuff({
+					destEndpoint.pointee.addr.sa_family = sa_family_t(AF_INET)
+					destEndpoint.pointee.addr4.sin_addr = address.RAW_access_staticbuff({
 						return $0.assumingMemoryBound(to:in_addr.self).pointee
 					})
-					destEndpoint.pointer(to:\.addr4)!.pointee.sin_port = port
+					destEndpoint.pointee.addr4.sin_port = port
 				case let .v6(address, port):
-					destEndpoint.pointer(to:\.addr)!.pointee.sa_family = sa_family_t(AF_INET6)
-					destEndpoint.pointer(to:\.addr6)!.pointee.sin6_addr = address.RAW_access_staticbuff({
+					destEndpoint.pointee.addr.sa_family = sa_family_t(AF_INET6)
+					destEndpoint.pointee.addr6.sin6_addr = address.RAW_access_staticbuff({
 						return $0.assumingMemoryBound(to:in6_addr.self).pointee
 					})
-					destEndpoint.pointer(to:\.addr6)!.pointee.sin6_port = port
+					destEndpoint.pointee.addr6.sin6_port = port
 			}
 		}
 	}

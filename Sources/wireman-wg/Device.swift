@@ -43,6 +43,7 @@ public struct Device:~Copyable {
 	}
 
 	private mutating func setPeer(peerKey:PublicKey, to newValue:Peer?) {
+		// replacePeers = true
 		if newValue != nil {
 			newValue!.removeMe = false
 			installed_peers[peerKey] = newValue!
@@ -274,6 +275,14 @@ extension Device {
 				return ptr.pointee.listen_port
 			} else {
 				return nil
+			}
+		}
+		set {
+			if newValue != nil {
+				ptr.pointer(to:\.flags)!.pointee = wg_device_flags(rawValue:ptr.pointer(to:\.flags)!.pointee.rawValue | WGDEVICE_HAS_LISTEN_PORT.rawValue)
+				ptr.pointer(to:\.listen_port)!.pointee = newValue!
+			} else {
+				ptr.pointee.flags = wg_device_flags(rawValue:ptr.pointer(to:\.flags)!.pointee.rawValue & ~WGDEVICE_HAS_LISTEN_PORT.rawValue)
 			}
 		}
 	}
