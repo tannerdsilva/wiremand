@@ -94,6 +94,15 @@ extension AddressV6:ExpressibleByArgument {
 	}
 }
 
+extension Address:ExpressibleByArgument {
+	public init?(argument:String) {
+		guard let asAddr = Address(argument) else {
+			return nil
+		}
+		self = asAddr
+	}
+}
+
 
 @main
 struct CLI:AsyncParsableCommand {
@@ -122,7 +131,10 @@ struct CLI:AsyncParsableCommand {
 		var presharedKey:PresharedKey? = nil
 
 		@Argument(help:"endpoint address of the new node")
-		var physicalEndpoint:Configuration.TrustedNode.Endpoint
+		var physicalEndpoint:Address
+
+		@Option(help:"port of the new node. if a port is not specified, the default port will be derrived from the peers public key.")
+		var port:UInt16? = nil
 
 		@Argument(help:"allowed IP address (in tunnel) of the new node")
 		var allowedIP:AddressV6
@@ -152,7 +164,18 @@ struct CLI:AsyncParsableCommand {
 				buildBytes.append(contentsOf:newBuffer)
 			}
 			var decodedConfiguration = try QuickJSON.decode(Configuration.self, from:buildBytes, size:buildBytes.count, flags:[.stopWhenDone])
-			var newNode = try Configuration.TrustedNode.generateNew(publicKey:publicKey, presharedKey:&presharedKey, endpoint:physicalEndpoint, allowedIP:allowedIP)
+
+			if port == nil {
+				port = try publicKey.computeDefaultEndpointPort()
+				logger.debug("computed default port for new node: \(port!)")
+			}
+
+			if presharedKey == nil {
+				presharedKey = PresharedKey()
+				logger.critical("generating new preshared key for trust relationship: \(presharedKey!)")
+			}
+
+			let newNode = try Configuration.TrustedNode.generateNew(publicKey:publicKey, presharedKey:presharedKey!, endpoint:Configuration.TrustedNode.Endpoint(address:physicalEndpoint, port:port!), allowedIP:allowedIP)
 
 			// verify that this instance is already configured to operate on the same trust network
 			for var trustObj in decodedConfiguration.trusted {
@@ -162,12 +185,6 @@ struct CLI:AsyncParsableCommand {
 					continue
 				}
 				trustObj.nodes.update(with:newNode)
-
-				if presharedKey == nil {
-					let newPSK = PresharedKey()
-					newNode.presharedKey = newPSK
-					logger.critical("generating new preshared key for trust relationship: \(newPSK)")
-				}
 
 				decodedConfiguration.trusted.update(with:trustObj)
 
@@ -191,7 +208,7 @@ struct CLI:AsyncParsableCommand {
 		@Option(help:"path to the configuration file")
 		var configPath:String = "/etc/wireman.conf"
 
-		@Option(help:"only valid if the configuration file does not exist. specify your existing trusted address space to use when initializing the daemon for the first time.")
+		@Option(help:"only valid if the configuration file does not exist. specify your existing tqrusted address space to use when initializing the daemon for the first time.")
 		var initializeTrustNetwork:NetworkV6? = nil
 
 		mutating func run() async throws {

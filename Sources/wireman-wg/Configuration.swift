@@ -56,11 +56,8 @@ extension Configuration {
 }
 
 extension Configuration.TrustedNode:Equatable, Hashable {
-	public static func generateNew(publicKey:consuming PublicKey, presharedKey:inout PresharedKey?, endpoint:Endpoint, allowedIP:AddressV6) throws -> Self {
-		if (presharedKey == nil) {
-			presharedKey = PresharedKey()
-		}
-		return Self(publicKey:publicKey, presharedKey:presharedKey!, endpoint:endpoint, allowedIP:allowedIP)
+	public static func generateNew(publicKey:consuming PublicKey, presharedKey:consuming PresharedKey, endpoint:Endpoint, allowedIP:AddressV6) throws -> Self {
+		return Self(publicKey:publicKey, presharedKey:presharedKey, endpoint:endpoint, allowedIP:allowedIP)
 	}
 
 	public func hash(into hasher:inout Swift.Hasher) {

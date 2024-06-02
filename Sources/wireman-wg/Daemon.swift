@@ -124,18 +124,18 @@ internal struct Daemon:Service {
 			let trustInterfaceDelta = Delta(start:existingAddressesT, end:expectingAddressesT)
 
 			// assign trust interface peers based on the configuration
-			for curNode in configuration.trusted {
-				// for curNode in curNodes {
-				// 	let newPeer = Device.Peer(publicKey:curNode.publicKey, presharedKey:curNode.presharedKey)
-				// 	switch curNode.endpoint.address {
-				// 	case .v4(let asV4):
-				// 		newPeer.endpoint = .v4(asV4, curNode.endpoint.port)
-				// 	case .v6(let asV6):
-				// 		newPeer.endpoint = .v6(asV6, curNode.endpoint.port)
-				// 	}
-				// 	newPeer.update(with:Device.Peer.AllowedIPsEntry(NetworkV6(address:curNode.allowedIP, subnetPrefix:128)))
-				// 	trustInterface.update(with:newPeer)
-				// }
+			for curTrustSpace in configuration.trusted {
+				for curNode in curTrustSpace.nodes {
+					let newPeer = Device.Peer(publicKey:curNode.publicKey, presharedKey:curNode.presharedKey)
+					switch curNode.endpoint.address {
+					case .v4(let asV4):
+						newPeer.endpoint = .v4(asV4, curNode.endpoint.port)
+					case .v6(let asV6):
+						newPeer.endpoint = .v6(asV6, curNode.endpoint.port)
+					}
+					newPeer.update(with:Device.Peer.AllowedIPsEntry(NetworkV6(address:curNode.allowedIP, subnetPrefix:128)))
+					trustInterface.update(with:newPeer)
+				}
 			}
 			
 			try modifyInterface([Int32(trustInterface.interfaceIndex):trustInterfaceDelta, Int32(hostedInterface.interfaceIndex):hostInterfaceDelta], logger:logger)
