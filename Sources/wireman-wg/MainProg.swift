@@ -139,6 +139,9 @@ struct CLI:AsyncParsableCommand {
 				logger.critical("failed to open configuration file at '\(configPath)': \(error)")
 				throw error
 			}
+			defer {
+				try! configFD.close()
+			}
 
 			var buildBytes = [UInt8]()
 			let newBuffer = UnsafeMutableRawBufferPointer.allocate(byteCount:1024*4, alignment:1)
@@ -148,9 +151,8 @@ struct CLI:AsyncParsableCommand {
 			while try configFD.read(into:newBuffer) > 0 {
 				buildBytes.append(contentsOf:newBuffer)
 			}
-			try configFD.seek(offset:0, from:.start)
 			var decodedConfiguration = try QuickJSON.decode(Configuration.self, from:buildBytes, size:buildBytes.count, flags:[.stopWhenDone])
-			let newNode = try Configuration.TrustedNode.generateNew(publicKey:publicKey, presharedKey:&presharedKey, endpoint:physicalEndpoint, allowedIP:allowedIP)
+			var newNode = try Configuration.TrustedNode.generateNew(publicKey:publicKey, presharedKey:&presharedKey, endpoint:physicalEndpoint, allowedIP:allowedIP)
 
 			// verify that this instance is already configured to operate on the same trust network
 			for var trustObj in decodedConfiguration.trusted {
@@ -160,29 +162,21 @@ struct CLI:AsyncParsableCommand {
 					continue
 				}
 				trustObj.nodes.update(with:newNode)
+
+				if presharedKey == nil {
+					let newPSK = PresharedKey()
+					newNode.presharedKey = newPSK
+					logger.critical("generating new preshared key for trust relationship: \(newPSK)")
+				}
+
 				decodedConfiguration.trusted.update(with:trustObj)
 
-				configFD = try FileDescriptor.open(configPath, .readWrite, options:[.truncate], permissions:[.ownerReadWrite])
 				let bytes = try QuickJSON.encode(decodedConfiguration, flags:[.pretty])
+				try configFD.seek(offset:0, from:.start)
 				try configFD.writeAll(bytes)
-				try configFD.close()
 				logger.notice("successfully trusted new node with public key '\(publicKey)' on network '\(trustObj.network)'")
 				return
 			}
-			logger.error("failed to trust new node with public key '\(publicKey)': no network found for allowed IP '\(allowedIP)'")
-			throw DaemonCLI.Error.invalidConfiguration
-
-			// for trustNet in decodedConfiguration.trustedNodes.keys {
-			// 	if trustNet.contains(allowedIP) {
-			// 		decodedConfiguration.trustedNodes[trustNet]?.insert(try Configuration.TrustedNode.generateNew(publicKey:publicKey, presharedKey:&presharedKey, endpoint:physicalEndpoint, allowedIP:allowedIP))
-			// 		let bytes = try QuickJSON.encode(decodedConfiguration, flags:[.pretty])
-			// 		try configFD.writeAll(bytes)
-			// 		try configFD.seek(offset:0, from:.start)
-			// 		logger.notice("successfully trusted new node with public key '\(publicKey)' on network '\(trustNet)'")
-			// 		return
-			// 	}
-			// }
-
 			logger.error("failed to trust new node with public key '\(publicKey)': no network found for allowed IP '\(allowedIP)'")
 			throw DaemonCLI.Error.invalidConfiguration
 		}
@@ -198,7 +192,7 @@ struct CLI:AsyncParsableCommand {
 		var configPath:String = "/etc/wireman.conf"
 
 		@Option(help:"only valid if the configuration file does not exist. specify your existing trusted address space to use when initializing the daemon for the first time.")
-		var initializeTrustNetwork:NetworkV6 = NetworkV6(address:try! NetworkV6("fd00::/8")!.randomAddress(), subnetPrefix:96)
+		var initializeTrustNetwork:NetworkV6? = nil
 
 		mutating func run() async throws {
 			let logger = makeDefaultLogger(label:"daemon", logLevel:.debug)
@@ -207,15 +201,24 @@ struct CLI:AsyncParsableCommand {
 			let configFD:FileDescriptor
 			do {
 				do {
-					configFD = try FileDescriptor.open(configPath, .readWrite, options:[], permissions:[.ownerReadWrite])
+					let localFD = try FileDescriptor.open(configPath, .readWrite, options:[], permissions:[.ownerReadWrite])
 					logger.info("successfully opened existing configuration file at '\(configPath)'")
+					guard initializeTrustNetwork == nil else {
+						logger.error("trust network initialization flag used on environment with existing configuration file ('\(configPath)'). exiting...")
+						throw Error.invalidConfiguration
+					}
+					configFD = localFD
 				} catch Errno.noSuchFileOrDirectory {
 					logger.warning("configuration file not found! creating a new one...")
-					configFD = try FileDescriptor.open(configPath, .readWrite, options:[.create], permissions:[.ownerReadWrite])
-					initializeTrustNetwork = NetworkV6(address:try initializeTrustNetwork.randomAddress(), subnetPrefix:initializeTrustNetwork.subnetPrefix)
-					logger.notice("successfully created template configuration file.", metadata:["trust_network":"\(initializeTrustNetwork)"])
+					let localFD = try FileDescriptor.open(configPath, .readWrite, options:[.create], permissions:[.ownerReadWrite])
+					configFD = localFD
+					if initializeTrustNetwork == nil {
+						initializeTrustNetwork = NetworkV6(address:try! NetworkV6("fd00::/8")!.randomAddress(), subnetPrefix:96)
+					}
+					initializeTrustNetwork = NetworkV6(address:try initializeTrustNetwork!.randomAddress(), subnetPrefix:initializeTrustNetwork!.subnetPrefix)
+					logger.notice("successfully created template configuration file.", metadata:["trust_network":"\(initializeTrustNetwork!)"])
 					var newConfiguration = try Configuration.generateNew()
-					newConfiguration.trusted = [Configuration.TrustedNetworkScope(network:initializeTrustNetwork, nodes:[])]
+					newConfiguration.trusted = [Configuration.TrustedNetworkScope(network:initializeTrustNetwork!, nodes:[])]
 					let bytes = try QuickJSON.encode(newConfiguration, flags:[.pretty])
 					try configFD.writeAll(bytes)
 					try configFD.seek(offset:0, from:.start)
