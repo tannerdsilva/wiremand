@@ -46,6 +46,13 @@ public struct NetworkV6:Sendable {
 	internal init(_ netIn:bedrock_ip.NetworkV6) {
 		net = netIn
 	}
+	internal init?(_ string:String) {
+		let netIn = bedrock_ip.NetworkV6(string)
+		guard netIn != nil else {
+			return nil
+		}
+		net = netIn!
+	}
 }
 
 @RAW_convertible_string_type<UTF8>(backing:RAW_byte.self)
@@ -176,10 +183,11 @@ public struct WireguardDatabase_vX {
 	let clientPub_invalidDate:Database.Strict<PublicKey, Date.Seconds>
 	
 	// subnet info
-	/*let subnetName_networkV6:Database.Strict<EncodedString, Network>
-	let networkV6_subnetName:Database.Strict<NetworkV6, EncodedString>
+	let subnetHash_networkV6:Database.Strict<SubnetHash, NetworkV6>
+	let networkV6_subnetHash:Database.Strict<NetworkV6, SubnetHash>
 	let subnetHash_securityKey:Database.Strict<SubnetHash, EncodedString>
 	
+	/*
 	// subnet + client info
 	let subnetName_clientPub:Database.Strict<EncodedString, PublicKey>
 	let subnetName_clientNameHash:Database.Strict<EncodedString, ClientNameHash>*/

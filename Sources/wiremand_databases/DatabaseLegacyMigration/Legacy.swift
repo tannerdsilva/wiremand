@@ -185,5 +185,34 @@ extension WireguardDatabase_vX {
 				}
 			}
 		}
+
+		let oldSubnetName_networkV6 = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.subnetName_networkV6.rawValue, flags:[], tx:oldDBTrans)
+		let newSubnetName_networkV6 = try Database.Strict<SubnetHash, NetworkV6>(env:env, name:Databases.subnetName_networkV6.rawValue, flags:[], tx:newDBTrans)
+		let newNetworkV6_subnetName = try Database.Strict<NetworkV6, EncodedString>(env:env, name:Databases.networkV6_subnetName.rawValue, flags:[], tx:newDBTrans)
+		try oldSubnetName_networkV6.cursor(tx:oldDBTrans) { oldCursor in
+			try newSubnetName_networkV6.cursor(tx:newDBTrans) { newCursorName in
+				try newNetworkV6_subnetName.cursor(tx:newDBTrans) { newCursorHash in
+					for (curKey, curValue) in oldCursor {
+						let subnetName = EncodedString(curKey)!
+						let networkV6 = NetworkV6(String(EncodedString(curValue)!))!
+						let subnetHash = try SubnetHash(subnetName:subnetName)
+						try newCursorName.setEntry(key:subnetHash, value:networkV6, flags:[])
+						try newCursorHash.setEntry(key:networkV6, value:subnetName, flags:[])
+					}
+				}
+			}
+		}
+
+		let oldSubnetHash_securityKey = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.subnetHash_securityKey.rawValue, flags:[], tx:oldDBTrans)
+		let newSubnetHash_securityKey = try Database.Strict<SubnetHash, EncodedString>(env:env, name:Databases.subnetHash_securityKey.rawValue, flags:[], tx:newDBTrans)
+		try oldSubnetHash_securityKey.cursor(tx:oldDBTrans) { oldCursor in
+			try newSubnetHash_securityKey.cursor(tx:newDBTrans) { newCursor in
+				for (curKey, curValue) in oldCursor {
+					let subnetHash = SubnetHash(RAW_decode:try RAW_base64.decode(EncodedString(curKey)!))!
+					let securityKey = EncodedString(curValue)!
+					try newCursor.setEntry(key:subnetHash, value:securityKey, flags:[])
+				}
+			}
+		}
 	}
 }
