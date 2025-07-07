@@ -1,5 +1,5 @@
 {
-  "originHash" : "516e041d3e43983d315b0d92127da5c15cb1dfb43258a6ed7b990f8ad2b9f691",
+  "originHash" : "9decf90a2044347154492d16ee92ed4c12633db2a40b40120eb66ffbdaad9a70",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/bedrock.git",
       "state" : {
-        "revision" : "514cc8099026ce7de5b3396cc9ffd5055e3019d9",
-        "version" : "3.1.1"
+        "revision" : "d880a93e1bb4f3d61454a375f4c38586bab3149c",
+        "version" : "4.0.2"
       }
     },
     {

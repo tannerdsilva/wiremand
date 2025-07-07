@@ -5,6 +5,7 @@ import RAW_blake2
 import bedrock_ip
 import bedrock
 import RAW_base64
+import Logging
 
 @RAW_staticbuff(concat:RAW_dh25519.PublicKey.self)
 @MDB_comparable
@@ -108,23 +109,16 @@ public struct WireguardDatabase_vX {
 	public enum Databases:String {
 		case metadata = "wgdb_metadata_db"
 
-		// Client Databases
-		/// Maps a client public key to their respective ipv4 address assignment (intended for small uses)
-		case clientPub_ipv4 = "pub_4"	//String:AddressV4
-		/// Maps a client ipv4 address assignment to their respective public key (intended for infrequent uses)
-		case ipv4_clientPub = "4_pub"	//AddressV4:String
-		/// Maps a client public key to their respective ipv6 address assignment
-		case clientPub_ipv6 = "pub_6" //String:AddressV6
-		// Maps a client ipv6 address to their public key
-		case ipv6_clientPub = "6_pub" //AddressV6:String
-		/// Maps a client public key to their respective client name
-		case clientPub_clientName = "pub_name" //String:String
-		/// Maps a client public key to their keys respective creation date
-		case clientPub_createdOn = "pub_createDate" //String:Date
-		/// Maps a client public key to their respective subnet
-		case subnetNameHash_subnetName = "subnetNameHash_subnetName" //String:String
-		/// Maps a client public key to their respective subnet name hash
-		case clientPub_subnetNameHash = "pub_subnetNameHash" //String:SubnetHash
+		// client pub and address mappings
+		case clientPub_ipv4 = "pub_4"
+		case ipv4_clientPub = "4_pub"
+		case clientPub_ipv6 = "pub_6"
+		case ipv6_clientPub = "6_pub"
+		
+		case clientPub_clientName = "pub_name"
+		case clientPub_createdOn = "pub_createDate"
+		case subnetNameHash_subnetName = "subnetNameHash_subnetName"
+		case clientPub_subnetNameHash = "pub_subnetNameHash"
 		// Maps a client public key to their respective handshake date
 		case clientPub_handshakeDate = "wgdb_clientPub_handshakeDate" //String:Date? (optional value)
 		/// Maps a client public key to their respective endpoint address
@@ -133,7 +127,7 @@ public struct WireguardDatabase_vX {
 		case clientPub_invalidDate = "wgdb_clientPub_invalidDate" //String:Date (non-optional but not specified for the servers own public key since the server cannot invalidate itself)
 		
 		/// Maps a given subnet name to its respective IPv6 network
-		case subnetName_networkV6 = "wgdb_subnetName_networkV6" //String:NetworkV6
+		case subnetHash_networkV6 = "wgdb_subnetHash_networkV6" //String:NetworkV6
 		
 		/// Maps a given subnet CIDR to its respective subnet name
 		case networkV6_subnetName = "wgdb_networkV6_subnetName" //NetworkV6:String
@@ -143,15 +137,16 @@ public struct WireguardDatabase_vX {
 		case subnetHash_securityKey = "wgdb_subnetHash_securityKey" //String:String
 		
 		/// Maps a given subnet name to the various public keys that it encompasses
-		case subnetName_clientPub = "wgdb_subnetName_clientPub" //String:String
+		case subnetHash_clientPub = "wgdb_subnetHash_clientPub" //String:String
 		
 		/// Maps a given subnet name to the various client name that reside within it. This prevents name conflicts
-		case subnetName_clientNameHash = "wgdb_subnetName_clientNameHash" //String:Data
+		case subnetHash_clientNameHash = "wgdb_subnetHash_clientNameHash" //String:Data
 		
 		/// Maps a given client public key to the config data that may be served
 		case webServe__clientPub_configData = "wgdb___webserve_clientPub_configData" //String:String
 	}
 	
+	let log:Logger
 	
 	// basics
 	let env:Environment
@@ -187,10 +182,41 @@ public struct WireguardDatabase_vX {
 	let networkV6_subnetHash:Database.Strict<NetworkV6, SubnetHash>
 	let subnetHash_securityKey:Database.Strict<SubnetHash, EncodedString>
 	
-	/*
+	
 	// subnet + client info
-	let subnetName_clientPub:Database.Strict<EncodedString, PublicKey>
-	let subnetName_clientNameHash:Database.Strict<EncodedString, ClientNameHash>*/
+	let subnetHash_clientPub:Database.Strict<SubnetHash, PublicKey>
+	let subnetHash_clientNameHash:Database.Strict<SubnetHash, ClientNameHash>
 
-
+	public init(base:Path, logLevel:Logger.Level) throws {
+		var makeLogger = Logger(label:"\(String(describing:Self.self))")
+		makeLogger.logLevel = logLevel
+		makeLogger[metadataKey:"env_path"] = "\(base.path())"
+		log = makeLogger
+		let envPath = base.appendingPathComponent("wgdb-vx_clientinfo")
+		let fileSize = envPath.getFileSize() + (16 * 1024 * 1024 * 1024) // current + 16GB
+		env = try Environment(path:envPath.path(), flags:[.noSubDir], mapSize:Int(fileSize), maxReaders:32, maxDBs:32, mode:[.ownerReadWriteExecute, .groupReadExecute, .otherReadExecute])
+		log.debug("successfully created environment", metadata:["mmap_size":"\(fileSize)b"])
+		let someTrans = try Transaction(env:env, readOnly:false)
+		log.trace("successfully created transaction")
+		metadata = try Database(env:env, name:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
+		clientPub_ipv4 = try Database.Strict<PublicKey, AddressV4>(env:env, name:Databases.clientPub_ipv4.rawValue, flags:[.create], tx:someTrans)
+		ipv4_clientPub = try Database.Strict<AddressV4, PublicKey>(env:env, name:Databases.ipv4_clientPub.rawValue, flags:[.create], tx:someTrans)
+		clientPub_ipv6 = try Database.Strict<PublicKey, AddressV6>(env:env, name:Databases.clientPub_ipv6.rawValue, flags:[.create], tx:someTrans)
+		ipv6_clientPub = try Database.Strict<AddressV6, PublicKey>(env:env, name:Databases.ipv6_clientPub.rawValue, flags:[.create], tx:someTrans)
+		clientPub_clientName = try Database.Strict<PublicKey, EncodedString>(env:env, name:Databases.clientPub_clientName.rawValue, flags:[.create], tx:someTrans)
+		clientPub_createdOn = try Database.Strict<PublicKey, Date.Seconds>(env:env, name:Databases.clientPub_createdOn.rawValue, flags:[.create], tx:someTrans)
+		subnetNameHash_subnetName = try Database.Strict<SubnetHash, EncodedString>(env:env, name:Databases.subnetNameHash_subnetName.rawValue, flags:[.create], tx:someTrans)
+		clientPub_subnetNameHash = try Database.Strict<PublicKey, SubnetHash>(env:env, name:Databases.clientPub_subnetNameHash.rawValue, flags:[.create], tx:someTrans)
+		clientPub_handshakeDate = try Database.Strict<PublicKey, Date.Seconds>(env:env, name:Databases.clientPub_handshakeDate.rawValue, flags:[.create], tx:someTrans)
+		clientPub_endpointAddress = try Database.Strict<PublicKey, Address>(env:env, name:Databases.clientPub_endpointAddress.rawValue, flags:[.create], tx:someTrans)
+		clientPub_invalidDate = try Database.Strict<PublicKey, Date.Seconds>(env:env, name:Databases.clientPub_invalidDate.rawValue, flags:[.create], tx:someTrans)
+		subnetHash_networkV6 = try Database.Strict<SubnetHash, NetworkV6>(env:env, name:Databases.subnetHash_networkV6.rawValue, flags:[.create], tx:someTrans)
+		networkV6_subnetHash = try Database.Strict<NetworkV6, SubnetHash>(env:env, name:Databases.networkV6_subnetName.rawValue, flags:[.create], tx:someTrans)
+		subnetHash_securityKey = try Database.Strict<SubnetHash, EncodedString>(env:env, name:Databases.subnetHash_securityKey.rawValue, flags:[.create], tx:someTrans)
+		subnetHash_clientPub = try Database.Strict<SubnetHash, PublicKey>(env:env, name:Databases.subnetHash_clientPub.rawValue, flags:[.create], tx:someTrans)
+		subnetHash_clientNameHash = try Database.Strict<SubnetHash, ClientNameHash>(env:env, name:Databases.subnetHash_clientNameHash.rawValue,	 flags:[.create], tx:someTrans)
+		log.trace("successfully created databases")
+		try someTrans.commit()
+		log.info("successfully initialized WireguardDatabase_vX")
+	}
 }

@@ -4,6 +4,7 @@ import bedrock
 import RAW_base64
 import bedrock_ip
 import struct Foundation.Date
+import Logging
 
 struct DBLegacy {
 	struct Wireguard {
@@ -55,14 +56,16 @@ struct DBLegacy {
 }
 
 extension WireguardDatabase_vX {
-	public func migrate(oldWireguardDatabase:Environment) throws {
+	public func migrate(oldWireguardBase:Path, logger:Logger) throws {
+		let oldWireguardDatabase = try Environment(path:oldWireguardBase.appendingPathComponent("daemon-dbi").path(), flags:[.readOnly, .noSubDir], mapSize:32 * 1024 * 1024, maxReaders:1, maxDBs:64, mode:[.ownerReadWriteExecute,.groupReadExecute,.otherReadExecute])
 		let oldDBTrans = try Transaction(env:oldWireguardDatabase, readOnly:true)
-		let oldClientPub_ipv4 = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.clientPub_ipv4.rawValue, flags:[], tx:oldDBTrans)
 
 		// migrate the clientPub_ipv4 and ipv4_clientPub database to the new format
+		let oldClientPub_ipv4 = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.clientPub_ipv4.rawValue, flags:[], tx:oldDBTrans)
 		let newDBTrans = try Transaction(env:env, readOnly:false)
-		let newClientPub_ipv4 = try Database.Strict<PublicKey, AddressV4>(env:env, name:Databases.clientPub_ipv4.rawValue, flags:[], tx:newDBTrans)
-		let newIpv4_clientPub = try Database.Strict<AddressV4, PublicKey>(env:env, name:Databases.ipv4_clientPub.rawValue, flags:[], tx:newDBTrans)
+		
+		let newClientPub_ipv4 = try Database.Strict<PublicKey, AddressV4>(env:env, name:Databases.clientPub_ipv4.rawValue, flags:[.create], tx:newDBTrans)
+		let newIpv4_clientPub = try Database.Strict<AddressV4, PublicKey>(env:env, name:Databases.ipv4_clientPub.rawValue, flags:[.create], tx:newDBTrans)
 		try oldClientPub_ipv4.cursor(tx:oldDBTrans) { oldCursor in
 			try newClientPub_ipv4.cursor(tx:newDBTrans) { newCursor in
 				try newIpv4_clientPub.cursor(tx:newDBTrans) { newCursorInverted in
@@ -72,6 +75,10 @@ extension WireguardDatabase_vX {
 						try newCursor.setEntry(key:oldKeyDecoded, value:a4, flags:[])
 						try newCursorInverted.setEntry(key:a4, value:oldKeyDecoded, flags:[])
 					}
+					let oldDBCount = try oldClientPub_ipv4.dbStatistics(tx:oldDBTrans).ms_entries
+					let newDBCount = try newClientPub_ipv4.dbStatistics(tx:newDBTrans).ms_entries
+					let newInvertedDBCount = try newIpv4_clientPub.dbStatistics(tx:newDBTrans).ms_entries
+					logger.info("successfully migrated IPv4 & PublicKey mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)", "newDBiCount":"\(newInvertedDBCount)"])
 				}
 			}
 		}
@@ -90,6 +97,10 @@ extension WireguardDatabase_vX {
 						try newCursor.setEntry(key:oldKeyDecoded, value:a6, flags:[])
 						try newCursorInverted.setEntry(key:a6, value:oldKeyDecoded, flags:[])
 					}
+					let oldDBCount = try oldClientPub_ipv6.dbStatistics(tx:oldDBTrans).ms_entries
+					let newDBCount = try newClientPub_ipv6.dbStatistics(tx:newDBTrans).ms_entries
+					let newInvertedDBCount = try newIpv6_clientPub.dbStatistics(tx:newDBTrans).ms_entries
+					logger.info("successfully migrated IPv6 & PublicKey mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)", "newDBiCount":"\(newInvertedDBCount)"])
 				}
 			}
 		}
@@ -104,6 +115,9 @@ extension WireguardDatabase_vX {
 					let clientName = EncodedString(curValue)!
 					try newCursor.setEntry(key:oldKeyDecoded, value:clientName, flags:[])
 				}
+				let oldDBCount = try oldClientPub_clientName.dbStatistics(tx:oldDBTrans).ms_entries
+				let newDBCount = try newClientPub_clientName.dbStatistics(tx:newDBTrans).ms_entries
+				logger.info("successfully migrated ClientName & PublicKey mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)"])
 			}
 		}
 
@@ -187,7 +201,7 @@ extension WireguardDatabase_vX {
 		}
 
 		let oldSubnetName_networkV6 = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.subnetName_networkV6.rawValue, flags:[], tx:oldDBTrans)
-		let newSubnetName_networkV6 = try Database.Strict<SubnetHash, NetworkV6>(env:env, name:Databases.subnetName_networkV6.rawValue, flags:[], tx:newDBTrans)
+		let newSubnetName_networkV6 = try Database.Strict<SubnetHash, NetworkV6>(env:env, name:Databases.subnetHash_networkV6.rawValue, flags:[], tx:newDBTrans)
 		let newNetworkV6_subnetName = try Database.Strict<NetworkV6, EncodedString>(env:env, name:Databases.networkV6_subnetName.rawValue, flags:[], tx:newDBTrans)
 		try oldSubnetName_networkV6.cursor(tx:oldDBTrans) { oldCursor in
 			try newSubnetName_networkV6.cursor(tx:newDBTrans) { newCursorName in
@@ -211,6 +225,32 @@ extension WireguardDatabase_vX {
 					let subnetHash = SubnetHash(RAW_decode:try RAW_base64.decode(EncodedString(curKey)!))!
 					let securityKey = EncodedString(curValue)!
 					try newCursor.setEntry(key:subnetHash, value:securityKey, flags:[])
+				}
+			}
+		}
+
+		let oldSubnetName_clientPub = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.subnetName_clientPub.rawValue, flags:[], tx:oldDBTrans)
+		let newSubnetHash_clientPub = try Database.Strict<SubnetHash, PublicKey>(env:env, name:Databases.subnetHash_clientPub.rawValue, flags:[], tx:newDBTrans)
+		try oldSubnetName_clientPub.cursor(tx:oldDBTrans) { oldCursor in
+			try newSubnetHash_clientPub.cursor(tx:newDBTrans) { newCursorPub in
+				for (curKey, curValue) in oldCursor {
+					let subnetName = EncodedString(curKey)!
+					let subnetHash = try SubnetHash(subnetName:subnetName)
+					let clientPub = PublicKey(RAW_decode:try RAW_base64.decode(EncodedString(curValue)!))!
+					try newCursorPub.setEntry(key:subnetHash, value:clientPub, flags:[])
+				}
+			}
+		}
+
+		let oldSubnetName_clientNameHash = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.subnetName_clientNameHash.rawValue, flags:[], tx:oldDBTrans)
+		let newSubnetHash_clientNameHash = try Database.Strict<SubnetHash, ClientNameHash>(env:env, name:Databases.subnetHash_clientNameHash.rawValue, flags:[], tx:newDBTrans)
+		try oldSubnetName_clientNameHash.cursor(tx:oldDBTrans) { oldCursor in
+			try newSubnetHash_clientNameHash.cursor(tx:newDBTrans) { newCursorNameHash in
+				for (curKey, curValue) in oldCursor {
+					let subnetName = EncodedString(curKey)!
+					let subnetHash = try SubnetHash(subnetName:subnetName)
+					let clientNameHash = ClientNameHash(RAW_decode:try RAW_base64.decode(EncodedString(curValue)!))!
+					try newCursorNameHash.setEntry(key:subnetHash, value:clientNameHash, flags:[])
 				}
 			}
 		}
