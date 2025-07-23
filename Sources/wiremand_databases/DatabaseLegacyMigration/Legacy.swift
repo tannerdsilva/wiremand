@@ -78,7 +78,7 @@ extension WireguardDatabase_vX {
 					let oldDBCount = try oldClientPub_ipv4.dbStatistics(tx:oldDBTrans).ms_entries
 					let newDBCount = try newClientPub_ipv4.dbStatistics(tx:newDBTrans).ms_entries
 					let newInvertedDBCount = try newIpv4_clientPub.dbStatistics(tx:newDBTrans).ms_entries
-					logger.info("successfully migrated IPv4 & PublicKey mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)", "newDBiCount":"\(newInvertedDBCount)"])
+					logger.info("1. successfully migrated IPv4 & PublicKey mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)", "newDBiCount":"\(newInvertedDBCount)"])
 				}
 			}
 		}
@@ -100,7 +100,7 @@ extension WireguardDatabase_vX {
 					let oldDBCount = try oldClientPub_ipv6.dbStatistics(tx:oldDBTrans).ms_entries
 					let newDBCount = try newClientPub_ipv6.dbStatistics(tx:newDBTrans).ms_entries
 					let newInvertedDBCount = try newIpv6_clientPub.dbStatistics(tx:newDBTrans).ms_entries
-					logger.info("successfully migrated IPv6 & PublicKey mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)", "newDBiCount":"\(newInvertedDBCount)"])
+					logger.info("2. successfully migrated IPv6 & PublicKey mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)", "newDBiCount":"\(newInvertedDBCount)"])
 				}
 			}
 		}
@@ -117,7 +117,7 @@ extension WireguardDatabase_vX {
 				}
 				let oldDBCount = try oldClientPub_clientName.dbStatistics(tx:oldDBTrans).ms_entries
 				let newDBCount = try newClientPub_clientName.dbStatistics(tx:newDBTrans).ms_entries
-				logger.info("successfully migrated ClientName & PublicKey mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)"])
+				logger.info("3. successfully migrated ClientName & PublicKey mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)"])
 			}
 		}
 
@@ -133,6 +133,9 @@ extension WireguardDatabase_vX {
 					let referenceDate = Foundation.Date(timeIntervalSinceReferenceDate:referenceIntervalDuration)
 					let seconds = bedrock.Date.Seconds(RAW_native:UInt64(referenceDate.timeIntervalSince1970))
 					try newCursor.setEntry(key:oldKeyDecoded, value:seconds, flags:[])
+					let oldDBCount = try oldClientPub_createdOn.dbStatistics(tx:oldDBTrans).ms_entries
+					let newDBCount = try newClientPub_createdOn.dbStatistics(tx:newDBTrans).ms_entries
+					logger.info("4. successfully migrated ClientPub & Creation Date mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)"])
 				}
 			}
 		}
@@ -149,6 +152,10 @@ extension WireguardDatabase_vX {
 						let subnetHash = try SubnetHash(subnetName:subnetName)
 						try newCursorName.setEntry(key:subnetHash, value:subnetName, flags:[])
 						try newCursorHash.setEntry(key:oldKeyDecoded, value:subnetHash, flags:[])
+						let oldDBCount = try oldClientPub_subnetName.dbStatistics(tx:oldDBTrans)
+						let newDBCount = try newClientPub_subnetName.dbStatistics(tx:newDBTrans)
+						let newDBHashCount = try newClientPub_subnetNameHash.dbStatistics(tx:newDBTrans)
+						logger.info("5. successfully migrated ClientPub & Subnet Name (Hash) mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)", "newDBHashCount":"\(newDBHashCount)"])
 					}
 				}
 			}
@@ -169,6 +176,9 @@ extension WireguardDatabase_vX {
 						// if the value is nil, we just skip it
 					}
 				}
+				let oldDBCount = try oldClientPub_handshakeDate.dbStatistics(tx:oldDBTrans).ms_entries
+				let newDBCount = try newClientPub_handshakeDate.dbStatistics(tx:newDBTrans).ms_entries
+				logger.info("6. successfully migrated ClientPub & Handshake Date mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)"])
 			}
 		}
 
@@ -182,6 +192,9 @@ extension WireguardDatabase_vX {
 					let address = Address(String(addressString))!
 					try newCursor.setEntry(key:oldKeyDecoded, value:address, flags:[])
 				}
+				let oldDBCount = try oldClientPub_endpointAddress.dbStatistics(tx:oldDBTrans).ms_entries
+				let newDBCount = try newClientPub_endpointAddress.dbStatistics(tx:newDBTrans).ms_entries
+				logger.info("7. successfully migrated ClientPub & Endpoint Address mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)"])
 			}
 		}
 
@@ -197,6 +210,9 @@ extension WireguardDatabase_vX {
 					let seconds = bedrock.Date.Seconds(RAW_native:UInt64(referenceDate.timeIntervalSince1970))
 					try newCursor.setEntry(key:oldKeyDecoded, value:seconds, flags:[])
 				}
+				let oldDBCount = try oldClientPub_invalidDate.dbStatistics(tx:oldDBTrans).ms_entries
+				let newDBCount = try newClientPub_invalidDate.dbStatistics(tx:newDBTrans).ms_entries
+				logger.info("8. successfully migrated ClientPub & Invalid Date mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)"])
 			}
 		}
 
@@ -213,6 +229,10 @@ extension WireguardDatabase_vX {
 						try newCursorName.setEntry(key:subnetHash, value:networkV6, flags:[])
 						try newCursorHash.setEntry(key:networkV6, value:subnetName, flags:[])
 					}
+					let oldDBCount = try oldSubnetName_networkV6.dbStatistics(tx:oldDBTrans).ms_entries
+					let newDBCount = try newSubnetName_networkV6.dbStatistics(tx:newDBTrans).ms_entries
+					let newDBiCount = try newNetworkV6_subnetName.dbStatistics(tx:newDBTrans).ms_entries
+					logger.info("9. successfully migrated Subnet Name & NetworkV6 mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)", "newDBiCount":"\(newDBiCount)"])
 				}
 			}
 		}
@@ -226,6 +246,9 @@ extension WireguardDatabase_vX {
 					let securityKey = EncodedString(curValue)!
 					try newCursor.setEntry(key:subnetHash, value:securityKey, flags:[])
 				}
+				let oldDBCount = try oldSubnetHash_securityKey.dbStatistics(tx:oldDBTrans).ms_entries
+				let newDBCount = try newSubnetHash_securityKey.dbStatistics(tx:newDBTrans).ms_entries
+				logger.info("10. successfully migrated Subnet Hash & Security Key mappings", metadata:["oldDBCount":"\(oldDBCount)", "newDBCount":"\(newDBCount)"])
 			}
 		}
 

@@ -6,6 +6,7 @@ import bedrock_ip
 import bedrock
 import RAW_base64
 import Logging
+import class Foundation.FileManager
 
 @RAW_staticbuff(concat:RAW_dh25519.PublicKey.self)
 @MDB_comparable
@@ -193,6 +194,8 @@ public struct WireguardDatabase_vX {
 		makeLogger[metadataKey:"env_path"] = "\(base.path())"
 		log = makeLogger
 		let envPath = base.appendingPathComponent("wgdb-vx_clientinfo")
+		log.critical("the existing database will be deleted and reinitialized without any data.")
+		// try? FileManager.default.removeItem(at:envPath.path())
 		let fileSize = envPath.getFileSize() + (16 * 1024 * 1024 * 1024) // current + 16GB
 		env = try Environment(path:envPath.path(), flags:[.noSubDir], mapSize:Int(fileSize), maxReaders:32, maxDBs:32, mode:[.ownerReadWriteExecute, .groupReadExecute, .otherReadExecute])
 		log.debug("successfully created environment", metadata:["mmap_size":"\(fileSize)b"])
