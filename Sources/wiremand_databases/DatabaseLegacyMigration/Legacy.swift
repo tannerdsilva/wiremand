@@ -198,6 +198,8 @@ extension WireguardDatabase_vX {
 			}
 		}
 
+		//BREAKS AFTER THIS
+
 		let oldClientPub_invalidDate = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.clientPub_invalidDate.rawValue, flags:[], tx:oldDBTrans)
 		let newClientPub_invalidDate = try Database.Strict<PublicKey, bedrock.Date.Seconds>(env:env, name:Databases.clientPub_invalidDate.rawValue, flags:[], tx:newDBTrans)
 		try oldClientPub_invalidDate.cursor(tx:oldDBTrans) { oldCursor in
