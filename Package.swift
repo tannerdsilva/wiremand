@@ -1,4 +1,4 @@
-// swift-tools-version:6.1
+// swift-tools-version:6.3
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -13,18 +13,16 @@ let package = Package(
         // .package(url: /* package url */, from: "1.0.0"),
         .package(url:"https://github.com/apple/swift-argument-parser.git", "1.5.1"..<"2.0.0"),
 		.package(url:"https://github.com/tannerdsilva/SwiftSlash.git", "4.0.0"..<"5.0.0"),
-		.package(url:"https://github.com/tannerdsilva/QuickLMDB.git", "11.1.0"..<"12.0.0"),
-		.package(url:"https://github.com/tannerdsilva/bedrock.git", "4.0.3"..<"5.0.0"),
-		.package(url:"https://github.com/hummingbird-project/hummingbird.git", "2.14.1"..<"3.0.0"),
-		.package(url:"https://github.com/tannerdsilva/rawdog.git", "17.0.1"..<"18.0.0"),
+		.package(url:"https://github.com/tannerdsilva/QuickLMDB.git", "14.0.0"..<"15.0.0"),
+		.package(url:"https://github.com/tannerdsilva/bedrock.git", "7.0.1"..<"8.0.0"),
+		.package(url:"https://github.com/hummingbird-project/hummingbird.git", "2.9.0"..<"3.0.0"),
+		.package(url:"https://github.com/tannerdsilva/rawdog.git", "20.0.0"..<"21.0.0"),
 		.package(url:"https://github.com/swift-server/async-http-client.git", "1.26.1"..<"2.0.0"),
-		.package(url:"https://github.com/apple/swift-system.git", "1.5.0"..<"2.0.0"),
 		.package(url:"https://github.com/apple/swift-log.git", "1.6.0"..<"2.0.0"),
-		/*
-		.package(url:"https://github.com/tannerdsilva/swift-smtp.git", .revision("ba82aa3b56e75a798b155524fcb083a9f012a844")),
-		.package(url:"https://github.com/tannerdsilva/SwiftDate.git", .branch("master")),
-		.package(url:"https://github.com/apple/swift-system.git", .upToNextMajor(from:"1.0.0")),
-		*/
+		
+		.package(url:"https://github.com/swift-server/swift-service-lifecycle.git", "2.6.3"..<"3.0.0"),
+		.package(url:"https://github.com/apple/swift-nio.git", "2.81.0"..<"3.0.0"),
+		
     ],
     targets: [
     	.target(
@@ -38,6 +36,9 @@ let package = Package(
 				.product(name:"bedrock", package:"bedrock"),
 				.product(name:"RAW_base64", package:"rawdog"),
 				.product(name:"Logging", package:"swift-log"),
+				.product(name:"ServiceLifecycle", package:"swift-service-lifecycle"),
+				.product(name:"NIO", package:"swift-nio"),
+				.product(name:"AsyncHTTPClient", package:"async-http-client"),
     		]
     	),
 		.executableTarget(name:"wiremand",
@@ -52,9 +53,10 @@ let package = Package(
 				.product(name:"QuickLMDB", package:"QuickLMDB"),
 				.product(name:"ArgumentParser", package:"swift-argument-parser"),
 				.product(name:"Logging", package:"swift-log"),
+				.product(name:"Hummingbird", package:"hummingbird"),
 				"wiremand_databases"
 			],
-		)				
+		)
         /*.executableTarget(
             name: "wiremand",
             dependencies: [

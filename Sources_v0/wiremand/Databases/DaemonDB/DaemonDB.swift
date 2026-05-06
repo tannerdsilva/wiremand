@@ -111,7 +111,7 @@ class DaemonDB {
 			makeEnv = try Environment(path:makeEnvPath.path, flags:mdb_flags, mapSize:5000000000, maxDBs:128)
 			Self.logger.trace("lmdb environment initialized.")
 		} catch let error {
-			Self.logger.error("unable to initialize lmdb environment.", metadata:["error":"\(error)"])
+			Self.logger.error("unable t2o initialize lmdb environment.", metadata:["error":"\(error)"])
 			throw error
 		}
 		

@@ -1,0 +1,87 @@
+import ArgumentParser
+import wiremand_databases
+import bedrock
+import Logging
+
+extension CLI {
+	struct Domain:AsyncParsableCommand {
+		static let configuration = CommandConfiguration(
+			abstract:"manage the domains on wiremand.",
+			subcommands:[Make.self, Remove.self, List.self]
+		)
+		
+		struct Make:AsyncParsableCommand {
+			static let configuration = CommandConfiguration(
+				abstract:"install a domain on this wiremand system."
+			)
+			@Option
+			var email:String? = nil
+	
+			@Argument
+			var domainName:String
+			
+			@OptionGroup
+			var globals:GlobalCLIOptions
+			
+			mutating func run() async throws {
+				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				var appLogger = Logger(label:"wiremand")
+				appLogger.logLevel = globals.logLevel
+				try await CertbotExecute.acquireSSL(domain: domainName.lowercased(), email:email)
+				try NginxExecutor.install(domain: domainName.lowercased())
+				try await NginxExecutor.reload(logLevel: globals.logLevel)
+				let (newSubnet, newSK) = try wgdb.subnetMake(name:EncodedString(domainName.lowercased()))
+				let domainHash = try SubnetHash(subnetName: EncodedString(domainName))
+				appLogger.info("domain created successfully.", metadata:["_sk":"\(newSK)", "_dk":"\(domainHash.string)", "subnet":"\(newSubnet.cidrstring)"])
+			}
+		}
+		
+		struct Remove:AsyncParsableCommand {
+			static let configuration = CommandConfiguration(
+				abstract:"remove a domain from this system.",
+				discussion:"will instantly invalidate all users within the submet."
+			)
+
+			@Argument
+			var domainName:String
+			
+			@OptionGroup
+			var globals:GlobalCLIOptions
+			
+			mutating func run() async throws {
+				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				try wgdb.subnetRemove(name:EncodedString(domainName.lowercased()))
+				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
+				try await DNSmasqExecutor.reload()
+				try NginxExecutor.uninstall(domain:domainName.lowercased())
+				try await NginxExecutor.reload(logLevel: globals.logLevel)
+				try await CertbotExecute.removeSSL(domain:domainName)
+			}
+		}
+		
+		struct List:ParsableCommand {
+			static let configuration = CommandConfiguration(
+				abstract:"list the domains that are available on this system."
+			)
+			
+			@Flag(help:ArgumentHelp("show wiremand API keys for the domains."))
+			var apiKeys:Bool = false
+			
+			@OptionGroup
+			var globals:GlobalCLIOptions
+			
+			mutating func run() throws {
+				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				let allDomains = try wgdb.allSubnets()
+				for curDomain in allDomains {
+					print("\(curDomain.name)")
+					if (self.apiKeys == true) {
+						print(Colors.Yellow("\t- sk: \(curDomain.securityKey)"))
+						print(Colors.Cyan("\t- dk: \(try SubnetHash(subnetName: curDomain.name).string)"))
+					}
+					print(Colors.dim("\t- subnet: \(curDomain.network.cidrstring)"))
+				}
+			}
+		}
+	}
+}

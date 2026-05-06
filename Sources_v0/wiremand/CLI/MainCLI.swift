@@ -17,10 +17,10 @@ struct CLI:AsyncParsableCommand {
 	
 	struct GlobalCLIOptions:ParsableArguments {
 #if DEBUG
-		@Option
+//		@Option
 		var logLevel:Logging.Logger.Level = .debug
 #else
-		@Option(help:ArgumentHelp(visibility:.`private`))
+//		@Option(help:ArgumentHelp(visibility:.`private`))
 		var logLevel:Logging.Logger.Level = .info
 #endif
 		

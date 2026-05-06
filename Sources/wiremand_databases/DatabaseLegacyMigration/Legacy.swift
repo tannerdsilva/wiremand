@@ -55,7 +55,7 @@ struct DBLegacy {
 	}
 }
 
-extension WireguardDatabase_vX {
+extension WireguardDatabase {
 	public func migrate(oldWireguardBase:Path, logger:Logger) throws {
 		let oldWireguardDatabase = try Environment(path:oldWireguardBase.appendingPathComponent("daemon-dbi").path(), flags:[.readOnly, .noSubDir], mapSize:32 * 1024 * 1024, maxReaders:1, maxDBs:64, mode:[.ownerReadWriteExecute,.groupReadExecute,.otherReadExecute])
 		let oldDBTrans = try Transaction(env:oldWireguardDatabase, readOnly:true)
@@ -279,5 +279,6 @@ extension WireguardDatabase_vX {
 				}
 			}
 		}
+		try newDBTrans.commit()
 	}
 }

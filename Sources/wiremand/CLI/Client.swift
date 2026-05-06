@@ -1,0 +1,390 @@
+import ArgumentParser
+import Foundation
+import Logging
+import bedrock
+import wiremand_databases
+
+extension CLI {
+	struct Client:AsyncParsableCommand {
+		enum Error:Swift.Error {
+			case notFound
+		}
+		static let configuration = CommandConfiguration(
+			abstract:"manage wireguard clients.",
+			subcommands:[Punt.self, ProvisionIPv4.self, Revoke.self, Make.self, List.self, Rename.self]
+		)
+				
+		struct Punt:AsyncParsableCommand {
+			static let configuration = CommandConfiguration(
+				abstract:"'punt' a client's auto-revoke date into the future."
+			)
+
+			@OptionGroup
+			var domainName:DomainNameGroup
+
+//			@OptionGroup
+			var globals:GlobalCLIOptions = GlobalCLIOptions()
+			
+			mutating func run() async throws {
+				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				
+				try domainName.promptInteractivelyIfNecessary(db:wgdb)
+				
+				let newInvalidDate = try wgdb.puntClientInvalidation(subnet:domainName.domain!, name:domainName.name!)
+				print(Colors.Green("Client punted to \(newInvalidDate.iso8601String())"))
+			}
+		}
+		
+		struct ProvisionIPv4:AsyncParsableCommand {
+			static let configuration = CommandConfiguration(
+				commandName:"provision-ipv4",
+				abstract:"assign an IPv4 address to a client."
+			)
+
+			@OptionGroup
+			var domainName:DomainNameGroup
+		
+			@OptionGroup
+			var globals:GlobalCLIOptions
+			
+			mutating func run() async throws {
+				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				
+				try domainName.promptInteractivelyIfNecessary(db:wgdb)
+
+				let (_, _, _, _, _, interfaceName, _) = try wgdb.getWireguardConfigMetas()
+				let (newV4, curV6, publicKey) = try wgdb.clientAssignIPv4(subnet:domainName.domain!, name:domainName.name!)
+				try await WireguardExecutor.updateExistingClient(publicKey:publicKey, with:curV6, and:newV4, interfaceName:interfaceName)
+				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
+				print(Colors.Green("Client IPv4 address successfully applied!"))
+				print("Please update the client's WireGuard configuration file!\nIn the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" with the following line:\n")
+				print("AllowedIPs=\(curV6.string)/128,\(newV4.string)/32")
+			}
+		}
+		
+		struct Revoke:AsyncParsableCommand {
+			static let configuration = CommandConfiguration(
+				abstract:"revoke a client and prevent them from connecting to this server."
+			)
+
+			@OptionGroup
+			var domainName:DomainNameGroup
+
+			@OptionGroup
+			var globals:GlobalCLIOptions
+			
+			mutating func run() async throws {
+				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				
+				try domainName.promptInteractivelyIfNecessary(db:wgdb)
+
+				try wgdb.clientRemove(subnet:domainName.domain!, name:domainName.name!)
+				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
+				try await DNSmasqExecutor.reload()
+			}
+		}
+		
+		struct Make:AsyncParsableCommand {
+			static let configuration = CommandConfiguration(
+				abstract:"create a new client that is autorized to connect to this server."
+			)
+			
+			@OptionGroup
+			var domainName:DomainNameGroup
+						
+			@Option(
+				name:.shortAndLong,
+				help:ArgumentHelp(
+					"The pulbic key to use for the newly created client.",
+					discussion:"This option is useful for existing WireGuard identities that do not want a new public key."
+				)
+			)
+			var publicKey:PublicKey? = nil
+			
+			@Flag(
+				name:.long,
+				help:ArgumentHelp("Do not include DNS instructions in the configuration that is generated for this client.")
+			)
+			var noDNSService:Bool = false
+			
+			@Flag(name:[
+					.customShort("4", allowingJoined:true),
+					.customLong("ipv4", withSingleDash:false)
+				], 
+				help:ArgumentHelp(
+					"Assign an IPv4 address for this client.",
+					discussion:"This address will be randomly generated and printed in standard output."
+				)
+			)
+			var ipv4:Bool = false
+			
+			@OptionGroup
+			var globals:GlobalCLIOptions
+			
+			mutating func run() async throws {
+				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				
+				try domainName.promptInteractivelyIfNecessary(db:wgdb)
+				guard try wgdb.validateNewClientName(subnet:domainName.domain!, clientName:domainName.name!) == true else {
+					fatalError("the client name '\(domainName.name!)' cannot be used")
+				}
+				
+				let newKeys = try await WireguardExecutor.generateClient()
+				
+				var usePublicKey:PublicKey
+				if (publicKey == nil) {
+					usePublicKey = newKeys.publicKey
+				} else {
+					usePublicKey = publicKey!
+				}
+				
+				let (newClientAddress, optionalV4) = try wgdb.clientMake(name:domainName.name!, publicKey:usePublicKey, subnet:domainName.domain!, ipv4:ipv4)
+				
+				let (wg_dns_name, wg_port, wg_internal_network, serverV4, serverPub, interfaceName, ipv4Public) = try wgdb.getWireguardConfigMetas()
+
+				var buildKey = "[Interface]\n"
+				if publicKey == nil {
+					buildKey += "PrivateKey = " + newKeys.privateKey + "\n"
+				}
+				buildKey += "Address = " + newClientAddress.string + "/128\n"
+				if optionalV4 != nil {
+					buildKey += "Address = " + optionalV4!.string + "/32\n"
+				}
+				if noDNSService == false {
+					buildKey += "DNS = " + wg_internal_network.addressString + "\n"
+				}
+				buildKey += "[Peer]\n"
+				buildKey += "PublicKey = " + serverPub.string + "\n"
+				buildKey += "PresharedKey = " + newKeys.presharedKey + "\n"
+				buildKey += "AllowedIPs = " + wg_internal_network.cidrstring
+				if (optionalV4 != nil) {
+					buildKey += ", \(serverV4)/32\n"
+				} else {
+					buildKey += "\n"
+				}
+				if let hasPublicIPv4 = ipv4Public {
+					buildKey += "Endpoint = " + hasPublicIPv4.string + ":\(wg_port)" + "\n"
+				} else {
+					buildKey += "Endpoint = " + wg_dns_name + ":\(wg_port)" + "\n"
+				}
+				buildKey += "PersistentKeepalive = 25" + "\n"
+				
+				try await WireguardExecutor.install(publicKey:usePublicKey, presharedKey:newKeys.presharedKey, address:newClientAddress, addressv4:optionalV4, interfaceName:interfaceName)
+				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
+				try wgdb.serveConfiguration(EncodedString(buildKey), forPublicKey:usePublicKey)
+				let subnetHash = try SubnetHash(subnetName: domainName.domain!)
+				let buildURL = "\nhttps://\(domainName.domain!)/wg_getkey?dk=\(subnetHash.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)&pk=\(usePublicKey.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
+				print("\(buildURL)")
+				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
+				try await DNSmasqExecutor.reload()
+
+				if (ipv4) {
+					print("IPv4 address: \(newClientAddress.string)")
+				}
+			}
+		}
+		
+		struct List:ParsableCommand {
+			static let configuration = CommandConfiguration(
+				abstract:"list the clients that are authorized to connect to this server."
+			)
+			
+			@Option(
+				name:.shortAndLong,
+				help:ArgumentHelp(
+					"Filter the list to a specified domain."
+				)
+			)
+			var domain:String? = nil
+			
+			@Flag(
+				name:.shortAndLong,
+				help:ArgumentHelp("Print IPv6 addresses in a Windows-friendly format.")
+			)
+			var windowsLegacy = false
+			
+			@OptionGroup
+			var globals:GlobalCLIOptions
+			
+			mutating func run() throws {
+				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				let ipdb = try IPDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				
+				var allClients = try wgdb.allClients()
+				if (domain != nil) {
+					allClients = allClients.filter({ String($0.subnetName).lowercased() == domain!.lowercased() })
+				}
+				let subnetGroup = Dictionary(grouping:allClients, by: { $0.subnetName })
+				let iterateList = subnetGroup.sorted(by: { $0.key < $1.key })
+				let nowDate = bedrock.Date.Seconds()
+				for subnetToList in iterateList {
+					// print the domain name
+					print(Colors.Yellow("\(subnetToList.key)"))
+					
+					// print the sorted clients
+					let sortedClients = subnetToList.value.sorted(by: { $0.name < $1.name })
+					for curClient in sortedClients {
+						if (curClient.lastHandshake == nil) {
+							// print the name in dim text since the client has never successfully handshaken
+							print(Colors.dim("\t- \(curClient.name)"), terminator:"\n")
+						} else {
+							if (curClient.lastHandshake!.timeIntervalSinceNow > -150) {
+								// print the name in green text since the client is online
+								print(Colors.Green("\t- \(curClient.name)"), terminator:"")
+								
+								// endpoint info
+								if let hasEndpoint = curClient.endpoint {
+									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try ipdb.getResolveStatus(address:hasEndpoint.description) {
+										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
+											print(Colors.dim("\n\t  - Connected from \(hasCity), \(hasState) at \(hasEndpoint)"), terminator:"")
+										} else if let hasState = resInfo.region?.name {
+											print(Colors.dim("\n\t  - Connected from \(hasState) at \(hasEndpoint)"), terminator:"")
+										}
+									} else {
+										print(Colors.dim("\n\t  - Connected at \(hasEndpoint)"), terminator:"")
+									}
+								} else {
+									print(Colors.dim("\n\t  - Connected at unknown endpoint"), terminator:"")
+								}
+							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
+								// print the name in red text since the client is going to be revoked soon
+								print(Colors.Red("\t- \(curClient.name)"), terminator:"")
+							} else {
+								// print the name in white text because the client has successfully made a handshake in the past, but is currently offline
+								print("\t- \(curClient.name)", terminator:"")
+								
+								// endpoint info
+								print(Colors.dim("\n\t  - \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
+								if let hasEndpoint = curClient.endpoint {
+									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try ipdb.getResolveStatus(address:hasEndpoint.description) {
+										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
+											print(Colors.dim("from \(hasCity), \(hasState) at \(hasEndpoint)"), terminator:"")
+										} else if let hasState = resInfo.region?.name {
+											print(Colors.dim("from \(hasState) at \(hasEndpoint)"), terminator:"")
+										}
+									} else {
+										print(Colors.dim("at \(hasEndpoint)"), terminator:"")
+									}
+								} else {
+									print(Colors.dim("at unknown endpoint"), terminator:"")
+								}
+							}
+							
+							print("\n", terminator:"")
+							
+							// print the client address
+							if (windowsLegacy == false) {
+								print(Colors.dim("\t  - \(curClient.address.string)"), terminator:"")
+							} else {
+								let replaceString = curClient.address.string.replacingOccurrences(of:":", with:"-") + ".ipv6-literal.net"
+								print(Colors.cyan("\t  - \(replaceString)"), terminator:"")
+							}
+							if (curClient.addressV4 != nil) {
+								print(Colors.dim(" & \(curClient.addressV4!.string)"), terminator:"")
+							}
+							
+							// print the public key of the client
+							print(Colors.dim("\n\t  - Public key: \(curClient.publicKey)"))
+						} 
+					}
+				}
+			}
+		}
+		
+		struct Rename:AsyncParsableCommand {
+			static let configuration = CommandConfiguration(
+				abstract:"modify the name of an existing client within its domain."
+			)
+			
+			@Argument(help:ArgumentHelp(
+				"The public key of the client that is to be renamed."
+			))
+			var publicKey:PublicKey
+			
+			@Argument(help:ArgumentHelp(
+				"The new name to assign to the client."
+			))
+			var newName:EncodedString
+			
+			@OptionGroup
+			var globals:GlobalCLIOptions
+						
+			mutating func run() async throws {
+				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				
+				try wgdb.clientRename(publicKey:publicKey, name:newName)
+				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
+				try await DNSmasqExecutor.reload()
+			}
+		}
+	}
+}
+
+extension CLI.Client {
+	struct DomainNameGroup:ParsableArguments {
+		@Option(
+			name:.shortAndLong,
+			help:ArgumentHelp(
+				"The relevant domain name."
+			)
+		)
+		var domain:EncodedString? = nil
+		
+		@Option(
+			name:.shortAndLong,
+			help:ArgumentHelp(
+				"The name of the client."
+			)
+		)
+		var name:EncodedString? = nil
+		
+		mutating func promptInteractivelyIfNecessary(db wgdb:WireguardDatabase, noClientsAllowed:Bool = false) throws {
+			// determine the domain to use
+			if (domain == nil || String(domain!).count == 0) {
+				let allSubnets = try wgdb.allSubnets()
+				switch allSubnets.count {
+					case 0:
+						print(Colors.Red("There are no subnets configured (this should not be the case)"))
+					case 1:
+						domain = allSubnets.first!.name
+					default:
+						print("Please select a domain for this action:")
+						for curSub in allSubnets {
+							print(Colors.dim("  - \(curSub.name)"))
+						}
+						repeat {
+							print("Domain name: ", terminator:"")
+							let rl = readLine()
+							domain = rl == nil ? nil : EncodedString(rl!)
+						} while domain == nil || String(domain!).count == 0
+				}
+			}
+			guard try wgdb.validateSubnet(name:domain!) == true else {
+				print(Colors.Red("The domain name '\(domain!)' does not exist"))
+				throw CLI.Client.Error.notFound
+			}
+			
+			// determine the name to use
+			if (name == nil || String(name!).count == 0) {
+				let allClients = try wgdb.allClients(subnet:domain!)
+				switch allClients.count {
+					case 0:
+						print(Colors.Yellow("There are no clients on this subnet yet."))
+						if (noClientsAllowed == false) {
+							throw CLI.Client.Error.notFound
+						}
+					default:
+						print(Colors.Yellow("There are \(allClients.count) clients on this subnet:"))
+						for curClient in allClients.sorted(by: { $0.name < $1.name }) {
+							print(Colors.dim("\t-\t\(curClient.name)"))
+						}
+				}
+				repeat {
+					print("Client name: ", terminator:"")
+					let rl = readLine()
+					name = rl == nil ? nil : EncodedString(rl!)
+				} while name == nil && String(name!).count == 0
+			}
+		}
+	}
+}
