@@ -1,6 +1,10 @@
 import RAW
 import struct NIOCore.TimeAmount
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import QuickLMDB
 import Logging
 import struct Foundation.URL

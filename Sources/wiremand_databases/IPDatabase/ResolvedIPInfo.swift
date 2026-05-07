@@ -136,7 +136,10 @@ extension IPDatabase {
 						myCont.resume(throwing:Error.unrecognizedHTTPResponse)
 						return
 					}
-					guard let jsonSerialization:[String:Any] = try? JSONSerialization.jsonObject(with:responseBody) as? [String:Any] else {
+					let responseBodyData = responseBody.withUnsafeReadableBytes { ptr in
+						return Data(bytes: ptr.baseAddress!, count: ptr.count)
+					}
+					guard let jsonSerialization:[String:Any] = try? JSONSerialization.jsonObject(with:responseBodyData) as? [String:Any] else {
 						logger.error("unable to resolve IPv4 metadata. unrecognized JSON data found", metadata:["address": "\(addressString)"])
 						myCont.resume(throwing:Error.unrecognizedHTTPBody)
 						return
