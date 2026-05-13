@@ -38,14 +38,14 @@ extension CLI {
 			
 			let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 			let ipdb = try IPDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
-					
-			let interfaceName = try wgdb.primaryInterfaceName()
+			
+			let (_, _, ipv6Addresses, ipv4Address, _, interfaceName, _) = try wgdb.getWireguardConfigMetas()
 
 			let handshakeChecker = try HandshakeChecker(wgdb: wgdb, ipdb: ipdb, interfaceName: interfaceName, logLevel: globals.logLevel)
 			let ipStacker = try IPStacker(ipdb: ipdb, logLevel: globals.logLevel)
 			let renewSSLService = try RenewSSLService(logLevel: globals.logLevel)
 			let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-			let webserver = try PublicHTTPWebServer(eventLoop: .shared(eventLoopGroup), wgdb: wgdb, port: UInt16(publicHTTPPort))
+			let webserver = try PublicHTTPWebServer(eventLoop: .shared(eventLoopGroup), wgdb: wgdb, hostIPv6: ipv6Addresses.map({ $0.addressString }), hostIPv4: ipv4Address.string, port: UInt16(publicHTTPPort))
 			try await ServiceGroup(services:[webserver, renewSSLService, handshakeChecker, ipStacker], gracefulShutdownSignals:[.sigterm, .sigint], logger:Logger(label:"wiremand")).run()
 		}
 	}

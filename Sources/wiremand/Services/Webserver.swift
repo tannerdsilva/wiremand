@@ -24,46 +24,57 @@ extension PublicHTTPWebServer {
 
 
 public final actor PublicHTTPWebServer: Service {
-	let appv4:Application<RouterResponder<Context>>
-    let appv6:Application<RouterResponder<Context>>
+	let appv4: Application<RouterResponder<Context>>
+	let appv6: [Application<RouterResponder<Context>>]
 	
-	init(eventLoop:EventLoopGroupProvider, wgdb:WireguardDatabase, port:UInt16) throws {
-		
-		let logLevel:Logger.Level
+	init(eventLoop: EventLoopGroupProvider, wgdb: WireguardDatabase, hostIPv6: [String], hostIPv4: String, port: UInt16) throws {
+		let logLevel: Logger.Level
 		#if DEBUG
 		logLevel = .trace
 		#else
 		logLevel = .error
 		#endif
-		let bindAddressV4 = BindAddress.hostname("127.0.0.1", port:Int(port))
-		let bindAddressV6 = BindAddress.hostname("::1", port:Int(port))
 		
-		let appConfigurationV4 = Hummingbird.ApplicationConfiguration(address:bindAddressV4, reuseAddress:true)
-		let appConfigurationV6 = Hummingbird.ApplicationConfiguration(address:bindAddressV6, reuseAddress:true)
+		let ipV4String = hostIPv4
+		let ipV6Strings = hostIPv6.compactMap { $0 }
 		
-		let makeRouter = Router(context:Context.self)
-		let wgapi = try Wireguard_MakeKeyResponder(db:wgdb)
+		let bindAddressV4 = BindAddress.hostname(ipV4String, port: Int(port))
+		let appConfigurationV4 = Hummingbird.ApplicationConfiguration(address: bindAddressV4, reuseAddress: true)
+		
+		let makeRouter = Router(context: Context.self)
+		let wgapi = try Wireguard_MakeKeyResponder(db: wgdb)
 		let wgget = Wireguard_GetKeyResponder(db: wgdb)
 		
-		makeRouter.on("wg_makekey", method:.get, responder: wgapi)
-		makeRouter.on("wg_getkey", method:.post, responder: wgget)
+		makeRouter.on("wg_makekey", method: .get, responder: wgapi)
+		makeRouter.on("wg_getkey", method: .post, responder: wgget)
 		
-		self.appv4 = Application(router:makeRouter, configuration:appConfigurationV4, eventLoopGroupProvider: eventLoop)
-		self.appv6 = Application(router:makeRouter, configuration:appConfigurationV6, eventLoopGroupProvider: eventLoop)
-    }
+		self.appv4 = Application(router: makeRouter, configuration: appConfigurationV4, eventLoopGroupProvider: eventLoop)
+		
+		var ipv6Apps: [Application<RouterResponder<Context>>] = []
+		for ipV6String in ipV6Strings {
+			let bindAddressV6 = BindAddress.hostname(ipV6String, port: Int(port))
+			let appConfigurationV6 = Hummingbird.ApplicationConfiguration(address: bindAddressV6, reuseAddress: true)
+			let app = Application(router: makeRouter, configuration: appConfigurationV6, eventLoopGroupProvider: eventLoop)
+			ipv6Apps.append(app)
+		}
+		self.appv6 = ipv6Apps
+	}
 	
 	public func run() async throws {
-		try await withThrowingTaskGroup(of:Void.self) { tg in
+		try await withThrowingTaskGroup(of: Void.self) { tg in
 			tg.addTask { [app = appv4] in
 				try await app.run()
 			}
-			tg.addTask { [app = appv6] in
-				try await app.run()
+			for app in appv6 {
+				tg.addTask { [app] in
+					try await app.run()
+				}
 			}
 			_ = try await tg.next()
 		}
 	}
 }
+
 
 extension PublicHTTPWebServer {
 	fileprivate struct Wireguard_GetKeyResponder:HTTPResponder {
@@ -74,7 +85,6 @@ extension PublicHTTPWebServer {
 			wgdb = db
 		}
 		
-		//    public func respond(to request:HBRequest) -> EventLoopFuture<HBResponse> {
 		public func respond(to request:borrowing Request, context: Context) async throws -> Response {
 			
 			guard let hostString = request.uri.host?.lowercased() else {
