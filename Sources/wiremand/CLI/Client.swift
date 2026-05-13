@@ -30,7 +30,7 @@ extension CLI {
 				
 				try domainName.promptInteractivelyIfNecessary(db:wgdb)
 				
-				let newInvalidDate = try wgdb.puntClientInvalidation(subnet:domainName.domain!, name:domainName.name!)
+				let newInvalidDate = try wgdb.puntClientInvalidation(domain:domainName.domain!, name:domainName.name!)
 				print(Colors.Green("Client punted to \(newInvalidDate.iso8601String())"))
 			}
 		}
@@ -53,7 +53,7 @@ extension CLI {
 				try domainName.promptInteractivelyIfNecessary(db:wgdb)
 
 				let (_, _, _, _, _, interfaceName, _) = try wgdb.getWireguardConfigMetas()
-				let (newV4, curV6, publicKey) = try wgdb.clientAssignIPv4(subnet:domainName.domain!, name:domainName.name!)
+				let (newV4, curV6, publicKey) = try wgdb.clientAssignIPv4(domain:domainName.domain!, name:domainName.name!)
 				try await WireguardExecutor.updateExistingClient(publicKey:publicKey, with:curV6, and:newV4, interfaceName:interfaceName)
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
 				print(Colors.Green("Client IPv4 address successfully applied!"))
@@ -78,7 +78,7 @@ extension CLI {
 				
 				try domainName.promptInteractivelyIfNecessary(db:wgdb)
 
-				try wgdb.clientRemove(subnet:domainName.domain!, name:domainName.name!)
+				try wgdb.clientRemove(domain:domainName.domain!, name:domainName.name!)
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
 			}
@@ -125,7 +125,7 @@ extension CLI {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				
 				try domainName.promptInteractivelyIfNecessary(db:wgdb)
-				guard try wgdb.validateNewClientName(subnet:domainName.domain!, clientName:domainName.name!) == true else {
+				guard try wgdb.validateNewClientName(domain:domainName.domain!, clientName:domainName.name!) == true else {
 					fatalError("the client name '\(domainName.name!)' cannot be used")
 				}
 				
@@ -138,25 +138,28 @@ extension CLI {
 					usePublicKey = publicKey!
 				}
 				
-				let (newClientAddress, optionalV4) = try wgdb.clientMake(name:domainName.name!, publicKey:usePublicKey, subnet:domainName.domain!, ipv4:ipv4)
+				let (newClientAddresses, optionalV4) = try wgdb.clientMake(name:domainName.name!, publicKey:usePublicKey, domain:domainName.domain!, ipv4:ipv4)
 				
-				let (wg_dns_name, wg_port, wg_internal_network, serverV4, serverPub, interfaceName, ipv4Public) = try wgdb.getWireguardConfigMetas()
+				let (wg_dns_name, wg_port, wgInternalNetwork, serverV4, serverPub, interfaceName, ipv4Public) = try wgdb.getWireguardConfigMetas()
 
 				var buildKey = "[Interface]\n"
 				if publicKey == nil {
 					buildKey += "PrivateKey = " + newKeys.privateKey + "\n"
 				}
-				buildKey += "Address = " + newClientAddress.string + "/128\n"
+				let ipv6Addresses = newClientAddresses.map({ $0.string + "/128" }).joined(separator: ", ")
+				buildKey += "Address = " + ipv6Addresses + "\n"
 				if optionalV4 != nil {
 					buildKey += "Address = " + optionalV4!.string + "/32\n"
 				}
 				if noDNSService == false {
-					buildKey += "DNS = " + wg_internal_network.addressString + "\n"
+					let dnsAddresses = wgInternalNetwork.map { $0.addressString }.joined(separator: ", ")
+					buildKey += "DNS = \(dnsAddresses)\n"
 				}
 				buildKey += "[Peer]\n"
 				buildKey += "PublicKey = " + serverPub.string + "\n"
 				buildKey += "PresharedKey = " + newKeys.presharedKey + "\n"
-				buildKey += "AllowedIPs = " + wg_internal_network.cidrstring
+				let allowedIPs = wgInternalNetwork.map { $0.cidrstring }.joined(separator: ", ")
+				buildKey += "AllowedIPs = \(allowedIPs)"
 				if (optionalV4 != nil) {
 					buildKey += ", \(serverV4)/32\n"
 				} else {
@@ -169,18 +172,14 @@ extension CLI {
 				}
 				buildKey += "PersistentKeepalive = 25" + "\n"
 				
-				try await WireguardExecutor.install(publicKey:usePublicKey, presharedKey:newKeys.presharedKey, address:newClientAddress, addressv4:optionalV4, interfaceName:interfaceName)
+				try await WireguardExecutor.install(publicKey:usePublicKey, presharedKey:newKeys.presharedKey, addresses:newClientAddresses, addressv4:optionalV4, interfaceName:interfaceName)
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
 				try wgdb.serveConfiguration(EncodedString(buildKey), forPublicKey:usePublicKey)
-				let subnetHash = try SubnetHash(subnetName: domainName.domain!)
-				let buildURL = "\nhttps://\(domainName.domain!)/wg_getkey?dk=\(subnetHash.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)&pk=\(usePublicKey.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
+				let domainHash = try DomainHash(domainName: domainName.domain!)
+				let buildURL = "\nhttps://\(domainName.domain!)/wg_getkey?dk=\(domainHash.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)&pk=\(usePublicKey.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
 				print("\(buildURL)")
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
-
-				if (ipv4) {
-					print("IPv4 address: \(newClientAddress.string)")
-				}
 			}
 		}
 		
@@ -212,17 +211,17 @@ extension CLI {
 				
 				var allClients = try wgdb.allClients()
 				if (domain != nil) {
-					allClients = allClients.filter({ String($0.subnetName).lowercased() == domain!.lowercased() })
+					allClients = allClients.filter({ String($0.domainName).lowercased() == domain!.lowercased() })
 				}
-				let subnetGroup = Dictionary(grouping:allClients, by: { $0.subnetName })
-				let iterateList = subnetGroup.sorted(by: { $0.key < $1.key })
+				let domainGroup = Dictionary(grouping:allClients, by: { $0.domainName })
+				let iterateList = domainGroup.sorted(by: { $0.key < $1.key })
 				let nowDate = bedrock.Date.Seconds()
-				for subnetToList in iterateList {
+				for domainToList in iterateList {
 					// print the domain name
-					print(Colors.Yellow("\(subnetToList.key)"))
+					print(Colors.Yellow("\(domainToList.key)"))
 					
 					// print the sorted clients
-					let sortedClients = subnetToList.value.sorted(by: { $0.name < $1.name })
+					let sortedClients = domainToList.value.sorted(by: { $0.name < $1.name })
 					for curClient in sortedClients {
 						if (curClient.lastHandshake == nil) {
 							// print the name in dim text since the client has never successfully handshaken
@@ -274,9 +273,12 @@ extension CLI {
 							
 							// print the client address
 							if (windowsLegacy == false) {
-								print(Colors.dim("\t  - \(curClient.address.string)"), terminator:"")
+								let addresses = curClient.address.compactMap { $0.string }.joined(separator: ", ")
+								print(Colors.dim("\t  - \(addresses)"), terminator:"")
 							} else {
-								let replaceString = curClient.address.string.replacingOccurrences(of:":", with:"-") + ".ipv6-literal.net"
+								let replaceString = curClient.address
+									.map { $0.string.replacingOccurrences(of: ":", with: "-") + ".ipv6-literal.net" }
+									.joined(separator: ",")
 								print(Colors.cyan("\t  - \(replaceString)"), terminator:"")
 							}
 							if (curClient.addressV4 != nil) {
@@ -341,15 +343,15 @@ extension CLI.Client {
 		mutating func promptInteractivelyIfNecessary(db wgdb:WireguardDatabase, noClientsAllowed:Bool = false) throws {
 			// determine the domain to use
 			if (domain == nil || String(domain!).count == 0) {
-				let allSubnets = try wgdb.allSubnets()
-				switch allSubnets.count {
+				let allDomains = try wgdb.allDomains()
+				switch allDomains.count {
 					case 0:
-						print(Colors.Red("There are no subnets configured (this should not be the case)"))
+						print(Colors.Red("There are no domains configured (this should not be the case)"))
 					case 1:
-						domain = allSubnets.first!.name
+						domain = allDomains.first!.name
 					default:
 						print("Please select a domain for this action:")
-						for curSub in allSubnets {
+						for curSub in allDomains {
 							print(Colors.dim("  - \(curSub.name)"))
 						}
 						repeat {
@@ -359,22 +361,22 @@ extension CLI.Client {
 						} while domain == nil || String(domain!).count == 0
 				}
 			}
-			guard try wgdb.validateSubnet(name:domain!) == true else {
+			guard try wgdb.validateDomain(name:domain!) == true else {
 				print(Colors.Red("The domain name '\(domain!)' does not exist"))
 				throw CLI.Client.Error.notFound
 			}
 			
 			// determine the name to use
 			if (name == nil || String(name!).count == 0) {
-				let allClients = try wgdb.allClients(subnet:domain!)
+				let allClients = try wgdb.allClients(domain:domain!)
 				switch allClients.count {
 					case 0:
-						print(Colors.Yellow("There are no clients on this subnet yet."))
+						print(Colors.Yellow("There are no clients on this domain yet."))
 						if (noClientsAllowed == false) {
 							throw CLI.Client.Error.notFound
 						}
 					default:
-						print(Colors.Yellow("There are \(allClients.count) clients on this subnet:"))
+						print(Colors.Yellow("There are \(allClients.count) clients on this domain:"))
 						for curClient in allClients.sorted(by: { $0.name < $1.name }) {
 							print(Colors.dim("\t-\t\(curClient.name)"))
 						}

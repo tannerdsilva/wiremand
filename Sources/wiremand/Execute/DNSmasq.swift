@@ -5,14 +5,15 @@ import wiremand_databases
 
 extension WireguardDatabase.ClientInfo {
 	public func dynamicDNSLine() -> String {
-		let domainName = self.subnetName.split(separator:".", omittingEmptySubsequences:false)
+		let domainName = self.domainName.split(separator:".", omittingEmptySubsequences:false)
 		let mainName:String
 		if domainName.count == 3 {
 			mainName = self.name + "." + domainName[1] + ".wg"
 		} else {
-			mainName = self.name + "." + self.subnetName + ".wg"
+			mainName = self.name + "." + String(self.domainName) + ".wg"
 		}
-		var mainLine = self.address.string + "\t" + mainName + "\n"
+		let v6Lines = self.address.map { $0.string + "\t" + mainName + "\n" }
+		var mainLine = v6Lines.joined()
 		if addressV4 != nil {
 			mainLine += self.addressV4!.string + "\t" + mainName + "\n"
 		}

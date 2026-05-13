@@ -83,9 +83,9 @@ extension PublicHTTPWebServer {
 			}
 			let host = EncodedString(hostString)
 			
-			let httpDomainHash: SubnetHash
+			let httpDomainHash: DomainHash
 			do {
-				httpDomainHash = try SubnetHash(subnetName: host)
+				httpDomainHash = try DomainHash(domainName: host)
 			} catch {
 				logger.error("failed to hash domain: \(error)")
 				return Response(status: .badRequest)
@@ -95,7 +95,7 @@ extension PublicHTTPWebServer {
 				logger.error("no domain key provided")
 				return Response(status: .badRequest)
 			}
-			guard let inputDomainHash = SubnetHash(base64String: String(inputDomainHashString)) else {
+			guard let inputDomainHash = DomainHash(base64String: String(inputDomainHashString)) else {
 				logger.error("dk parameter is not a valid 8-byte, Base64 encoded string")
 				return Response(status: .badRequest)
 			}
@@ -116,7 +116,7 @@ extension PublicHTTPWebServer {
 				return Response(status: .badRequest)
 			}
 			
-			let config = try wgdb.getConfiguration(publicKey: publicKey, subnetName: host)
+			let config = try wgdb.getConfiguration(publicKey: publicKey, domainName: host)
 				
 			var writeBuffer = ByteBuffer()
 			writeBuffer.writeString(String(config.configuration))
@@ -144,9 +144,9 @@ extension PublicHTTPWebServer {
 			}
 			let host = EncodedString(hostString)
 			
-			let httpDomainHash: SubnetHash
+			let httpDomainHash: DomainHash
 			do {
-				httpDomainHash = try SubnetHash(subnetName: host)
+				httpDomainHash = try DomainHash(domainName: host)
 			} catch {
 				logger.error("failed to hash domain: \(error)")
 				return Response(status: .badRequest)
@@ -165,7 +165,7 @@ extension PublicHTTPWebServer {
 				logger.error("no domain key provided")
 				return Response(status: .badRequest)
 			}
-			guard let inputDomainHash = SubnetHash(base64String: String(inputDomainHashString)) else {
+			guard let inputDomainHash = DomainHash(base64String: String(inputDomainHashString)) else {
 				logger.error("dk parameter is not a valid 8-byte, Base64 encoded string")
 				return Response(status: .badRequest)
 			}
@@ -192,30 +192,33 @@ extension PublicHTTPWebServer {
 			
 			let (wgDNSName, wgPort, wgInternalNetwork, serverV4, pubKey, interfaceName, publicV4) = try wgdb.getWireguardConfigMetas()
 			
-			var client: (addressV6:AddressV6, addressV4:AddressV4?, publicKey:PublicKey?)!
+			var client: (addressV6:[AddressV6], addressV4:AddressV4?, publicKey:PublicKey?)!
 			do {
-				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(keyName), publicKey: newKeys.publicKey, subnet: host, ipv4: false)
+				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(keyName), publicKey: newKeys.publicKey, domain: host, ipv4: false)
 				client.publicKey = nil
 			} catch LMDBError.keyExists {
 				// If the key already exists, delete it first
 				logger.info("client name already exists on this subnet", metadata: ["client": "\(keyName)", "subnet": "\(String(host))"])
-				let removed = try wgdb.clientRemove(subnet: host, name: EncodedString(keyName))
+				let removed = try wgdb.clientRemove(domain: host, name: EncodedString(keyName))
 				client.publicKey = removed
 				// Re‑create the client
-				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(String(keyName)), publicKey: newKeys.publicKey, subnet: host, ipv4: false)
+				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(String(keyName)), publicKey: newKeys.publicKey, domain: host, ipv4: false)
 			}
 			
 			var buildKey = "[Interface]\n"
 			buildKey += "PrivateKey = " + newKeys.privateKey + "\n"
-			buildKey += "Address = " + client.addressV6.string + "/128\n"
+			let ipv6Addresses = client.addressV6.map({ $0.string + "/128" }).joined(separator: ", ")
+			buildKey += "Address = " + ipv6Addresses + "\n"
 			if client.addressV4 != nil {
 				buildKey += "Address = " + client.addressV4!.string + "/32\n"
 			}
-			buildKey += "DNS = " + wgInternalNetwork.addressString + "\n"
+			let dnsAddresses = wgInternalNetwork.map { $0.addressString }.joined(separator: ", ")
+			buildKey += "DNS = \(dnsAddresses)\n"
 			buildKey += "[Peer]\n"
-			buildKey += "PublicKey = " + pubKey.string + "\n"
-			buildKey += "PresharedKey = " + newKeys.presharedKey + "\n"
-			buildKey += "AllowedIPs = " + wgInternalNetwork.cidrstring
+			buildKey += "PublicKey = \(pubKey.string)\n"
+			buildKey += "PresharedKey = \(newKeys.presharedKey)\n"
+			let allowedIPs = wgInternalNetwork.map { $0.cidrstring }.joined(separator: ", ")
+			buildKey += "AllowedIPs = \(allowedIPs)"
 			if (client.addressV4 != nil) {
 				buildKey += ", \(serverV4)/32\n"
 			} else {
@@ -234,7 +237,7 @@ extension PublicHTTPWebServer {
 			if let oldKey = client.publicKey {
 				try await WireguardExecutor.uninstall(publicKey:oldKey, interfaceName:interfaceName)
 			}
-			try await WireguardExecutor.install(publicKey:newKeys.publicKey, presharedKey:newKeys.presharedKey, address:client.addressV6, addressv4:client.addressV4, interfaceName:interfaceName)
+			try await WireguardExecutor.install(publicKey:newKeys.publicKey, presharedKey:newKeys.presharedKey, addresses:client.addressV6, addressv4:client.addressV4, interfaceName:interfaceName)
 			try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 			try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: logger.logLevel)
 			try await DNSmasqExecutor.reload()

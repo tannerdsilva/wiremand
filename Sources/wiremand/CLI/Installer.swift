@@ -47,9 +47,6 @@ extension CLI {
 		
 		@Argument(help:ArgumentHelp("The email address of the primary admin for this system. This is used for SMTP."))
 		var adminEmail:String
-		
-		@Argument(help:ArgumentHelp("The full name of the primary admin for this system. This is used for SMTP."))
-		var adminName:String
 				
 		mutating func run() async throws {
 			let installUserName = "wiremand"
@@ -87,6 +84,14 @@ extension CLI {
 					ipv6Scope = asNetwork
 				}
 			} while ipv6Scope == nil
+			
+			var ipv6ScopeString:EncodedString? = nil
+			repeat {
+				print(" -> [PROMPT](required) vpn internal ipv6 block name: ", terminator:"")
+				if let asString = readLine() {
+					ipv6ScopeString = EncodedString(asString)
+				}
+			} while ipv6ScopeString == nil
 			
 			// ask for the client ipv4 scope
 			var ipv4Scope:NetworkV4? = nil
@@ -312,7 +317,7 @@ extension CLI {
 			appLogger.trace("scheduler created...")
 			
 			let wgdb = try WireguardDatabase(base: Path(homeDir.path), logLevel: logLevel)
-			try wgdb.install(wg_primaryInterfaceName: EncodedString(interfaceName), wg_serverPublicDomainName: EncodedString(endpoint!), wg_resolvedServerPublicIPv4: resExtV4!, wg_resolvedServerPublicIPv6: resExtV6!, wg_serverPublicListenPort: EncodedUInt16(RAW_native: wireguardPort), serverIPv6Block: ipv6Scope!, serverIPv4Block: ipv4Scope!, publicKey: newKeys.publicKey, defaultSubnetMask: RAW_byte(RAW_native: 112))
+			try wgdb.install(wg_primaryInterfaceName: EncodedString(interfaceName), wg_serverPublicDomainName: EncodedString(endpoint!), wg_resolvedServerPublicIPv4: resExtV4!, wg_resolvedServerPublicIPv6: resExtV6!, wg_serverPublicListenPort: EncodedUInt16(RAW_native: wireguardPort), serverIPv6Block: ipv6Scope!, serverIPv6BlockName: ipv6ScopeString!, serverIPv4Block: ipv4Scope!, publicKey: newKeys.publicKey, defaultDomainMask: RAW_byte(RAW_native: 112))
 			appLogger.trace("wireguard database created...")
 			
 			let _ = try IPDatabase(base: Path(homeDir.path), logLevel: logLevel, apiKey: ipStackKey)

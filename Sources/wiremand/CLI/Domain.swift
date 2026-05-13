@@ -30,9 +30,9 @@ extension CLI {
 				try await CertbotExecute.acquireSSL(domain: domainName.lowercased(), email:email)
 				try NginxExecutor.install(domain: domainName.lowercased())
 				try await NginxExecutor.reload(logLevel: globals.logLevel)
-				let (newSubnet, newSK) = try wgdb.subnetMake(name:EncodedString(domainName.lowercased()))
-				let domainHash = try SubnetHash(subnetName: EncodedString(domainName))
-				appLogger.info("domain created successfully.", metadata:["_sk":"\(newSK)", "_dk":"\(domainHash.string)", "subnet":"\(newSubnet.cidrstring)"])
+				let (newDomain, newSK) = try wgdb.domainMake(name:EncodedString(domainName.lowercased()))
+				let domainHash = try DomainHash(domainName: EncodedString(domainName))
+				appLogger.info("domain created successfully.", metadata:["_sk":"\(newSK)", "_dk":"\(domainHash.string)", "domain":"\(newDomain.cidrstring)"])
 			}
 		}
 		
@@ -50,7 +50,7 @@ extension CLI {
 			
 			mutating func run() async throws {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
-				try wgdb.subnetRemove(name:EncodedString(domainName.lowercased()))
+				try wgdb.domainRemove(name:EncodedString(domainName.lowercased()))
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
 				try NginxExecutor.uninstall(domain:domainName.lowercased())
@@ -72,12 +72,12 @@ extension CLI {
 			
 			mutating func run() throws {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
-				let allDomains = try wgdb.allSubnets()
+				let allDomains = try wgdb.allDomains()
 				for curDomain in allDomains {
 					print("\(curDomain.name)")
 					if (self.apiKeys == true) {
 						print(Colors.Yellow("\t- sk: \(curDomain.securityKey)"))
-						print(Colors.Cyan("\t- dk: \(try SubnetHash(subnetName: curDomain.name).string)"))
+						print(Colors.Cyan("\t- dk: \(try DomainHash(domainName: curDomain.name).string)"))
 					}
 					print(Colors.dim("\t- subnet: \(curDomain.network.cidrstring)"))
 				}

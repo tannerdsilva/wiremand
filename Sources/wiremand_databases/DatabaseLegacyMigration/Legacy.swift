@@ -141,15 +141,15 @@ extension WireguardDatabase {
 		}
 
 		let oldClientPub_subnetName = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.clientPub_subnetName.rawValue, flags:[], tx:oldDBTrans)
-		let newClientPub_subnetName = try Database.Strict<SubnetHash, EncodedString>(env:env, name:Databases.subnetNameHash_subnetName.rawValue, flags:[], tx:newDBTrans)
-		let newClientPub_subnetNameHash = try Database.Strict<PublicKey, SubnetHash>(env:env, name:Databases.clientPub_subnetNameHash.rawValue, flags:[], tx:newDBTrans)
+		let newClientPub_subnetName = try Database.Strict<DomainHash, EncodedString>(env:env, name:Databases.domainHash_domainName.rawValue, flags:[], tx:newDBTrans)
+		let newClientPub_subnetNameHash = try Database.Strict<PublicKey, DomainHash>(env:env, name:Databases.clientPub_domainHash.rawValue, flags:[], tx:newDBTrans)
 		try oldClientPub_subnetName.cursor(tx:oldDBTrans) { oldCursor in
 			try newClientPub_subnetName.cursor(tx:newDBTrans) { newCursorName in
 				try newClientPub_subnetNameHash.cursor(tx:newDBTrans) { newCursorHash in
 					for (curKey, curValue) in oldCursor {
 						let oldKeyDecoded = PublicKey(RAW_decode:try RAW_base64.decode(EncodedString(curKey)!))!
 						let subnetName = EncodedString(curValue)!
-						let subnetHash = try SubnetHash(subnetName:subnetName)
+						let subnetHash = try DomainHash(domainName:subnetName)
 						try newCursorName.setEntry(key:subnetHash, value:subnetName, flags:[])
 						try newCursorHash.setEntry(key:oldKeyDecoded, value:subnetHash, flags:[])
 						let oldDBCount = try oldClientPub_subnetName.dbStatistics(tx:oldDBTrans)
@@ -219,15 +219,15 @@ extension WireguardDatabase {
 		}
 
 		let oldSubnetName_networkV6 = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.subnetName_networkV6.rawValue, flags:[], tx:oldDBTrans)
-		let newSubnetName_networkV6 = try Database.Strict<SubnetHash, NetworkV6>(env:env, name:Databases.subnetHash_networkV6.rawValue, flags:[], tx:newDBTrans)
-		let newNetworkV6_subnetName = try Database.Strict<NetworkV6, EncodedString>(env:env, name:Databases.networkV6_subnetName.rawValue, flags:[], tx:newDBTrans)
+		let newSubnetName_networkV6 = try Database.Strict<DomainHash, NetworkV6>(env:env, name:Databases.domainHash_networkV6.rawValue, flags:[], tx:newDBTrans)
+		let newNetworkV6_subnetName = try Database.Strict<NetworkV6, EncodedString>(env:env, name:Databases.networkV6_domainName.rawValue, flags:[], tx:newDBTrans)
 		try oldSubnetName_networkV6.cursor(tx:oldDBTrans) { oldCursor in
 			try newSubnetName_networkV6.cursor(tx:newDBTrans) { newCursorName in
 				try newNetworkV6_subnetName.cursor(tx:newDBTrans) { newCursorHash in
 					for (curKey, curValue) in oldCursor {
 						let subnetName = EncodedString(curKey)!
 						let networkV6 = NetworkV6(String(EncodedString(curValue)!))!
-						let subnetHash = try SubnetHash(subnetName:subnetName)
+						let subnetHash = try DomainHash(domainName:subnetName)
 						try newCursorName.setEntry(key:subnetHash, value:networkV6, flags:[])
 						try newCursorHash.setEntry(key:networkV6, value:subnetName, flags:[])
 					}
@@ -240,11 +240,11 @@ extension WireguardDatabase {
 		}
 
 		let oldSubnetHash_securityKey = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.subnetHash_securityKey.rawValue, flags:[], tx:oldDBTrans)
-		let newSubnetHash_securityKey = try Database.Strict<SubnetHash, EncodedString>(env:env, name:Databases.subnetHash_securityKey.rawValue, flags:[], tx:newDBTrans)
+		let newSubnetHash_securityKey = try Database.Strict<DomainHash, EncodedString>(env:env, name:Databases.domainHash_securityKey.rawValue, flags:[], tx:newDBTrans)
 		try oldSubnetHash_securityKey.cursor(tx:oldDBTrans) { oldCursor in
 			try newSubnetHash_securityKey.cursor(tx:newDBTrans) { newCursor in
 				for (curKey, curValue) in oldCursor {
-					let subnetHash = SubnetHash(RAW_decode:try RAW_base64.decode(EncodedString(curKey)!))!
+					let subnetHash = DomainHash(RAW_decode:try RAW_base64.decode(EncodedString(curKey)!))!
 					let securityKey = EncodedString(curValue)!
 					try newCursor.setEntry(key:subnetHash, value:securityKey, flags:[])
 				}
@@ -255,12 +255,12 @@ extension WireguardDatabase {
 		}
 
 		let oldSubnetName_clientPub = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.subnetName_clientPub.rawValue, flags:[], tx:oldDBTrans)
-		let newSubnetHash_clientPub = try Database.Strict<SubnetHash, PublicKey>(env:env, name:Databases.subnetHash_clientPub.rawValue, flags:[], tx:newDBTrans)
+		let newSubnetHash_clientPub = try Database.Strict<DomainHash, PublicKey>(env:env, name:Databases.domainHash_clientPub.rawValue, flags:[], tx:newDBTrans)
 		try oldSubnetName_clientPub.cursor(tx:oldDBTrans) { oldCursor in
 			try newSubnetHash_clientPub.cursor(tx:newDBTrans) { newCursorPub in
 				for (curKey, curValue) in oldCursor {
 					let subnetName = EncodedString(curKey)!
-					let subnetHash = try SubnetHash(subnetName:subnetName)
+					let subnetHash = try DomainHash(domainName:subnetName)
 					let clientPub = PublicKey(RAW_decode:try RAW_base64.decode(EncodedString(curValue)!))!
 					try newCursorPub.setEntry(key:subnetHash, value:clientPub, flags:[])
 				}
@@ -268,12 +268,12 @@ extension WireguardDatabase {
 		}
 
 		let oldSubnetName_clientNameHash = try Database(env:oldWireguardDatabase, name:DBLegacy.Wireguard.Names.subnetName_clientNameHash.rawValue, flags:[], tx:oldDBTrans)
-		let newSubnetHash_clientNameHash = try Database.Strict<SubnetHash, ClientNameHash>(env:env, name:Databases.subnetHash_clientNameHash.rawValue, flags:[], tx:newDBTrans)
+		let newSubnetHash_clientNameHash = try Database.Strict<DomainHash, ClientNameHash>(env:env, name:Databases.domainHash_clientNameHash.rawValue, flags:[], tx:newDBTrans)
 		try oldSubnetName_clientNameHash.cursor(tx:oldDBTrans) { oldCursor in
 			try newSubnetHash_clientNameHash.cursor(tx:newDBTrans) { newCursorNameHash in
 				for (curKey, curValue) in oldCursor {
 					let subnetName = EncodedString(curKey)!
-					let subnetHash = try SubnetHash(subnetName:subnetName)
+					let subnetHash = try DomainHash(domainName:subnetName)
 					let clientNameHash = ClientNameHash(RAW_decode:try RAW_base64.decode(EncodedString(curValue)!))!
 					try newCursorNameHash.setEntry(key:subnetHash, value:clientNameHash, flags:[])
 				}

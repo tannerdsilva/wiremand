@@ -40,7 +40,7 @@ struct WireguardExecutor {
 		return VPNKey(privateKey:privateKey, publicKey:publicKey, presharedKey:psk)
 	}
     
-	static func install(publicKey:PublicKey, presharedKey:String, address:AddressV6, addressv4:AddressV4?, interfaceName:EncodedString) async throws {
+	static func install(publicKey:PublicKey, presharedKey:String, addresses:[AddressV6], addressv4:AddressV4?, interfaceName:EncodedString) async throws {
         let tempPath = malloc(64);
         defer {
             free(tempPath)
@@ -56,7 +56,8 @@ struct WireguardExecutor {
         _ = try newFD.closeAfter {
             try newFD.writeAll(presharedKey.utf8)
         }
-		var allowedIPs = "allowed-ips \(address.string)/128"
+		let v6Entries = addresses.map { "\($0.string)/128" }
+		var allowedIPs = "allowed-ips \(v6Entries.joined(separator: ","))"
 		if addressv4 != nil {
 			allowedIPs += ",\(addressv4!.string)/32"
 		}
