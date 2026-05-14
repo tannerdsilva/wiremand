@@ -29,6 +29,7 @@ let package = Package(
     		name:"wiremand_databases",
     		dependencies: [
     			"QuickLMDB",
+				"Clibnftables",
 				.product(name:"RAW", package:"rawdog"),
 				.product(name:"RAW_dh25519", package:"rawdog"),
 				.product(name:"bedrock_ip", package:"bedrock"),
@@ -56,7 +57,8 @@ let package = Package(
 				.product(name:"Hummingbird", package:"hummingbird"),
 				"wiremand_databases"
 			],
-		)
+		),
+		.systemLibrary(name:"Clibnftables", pkgConfig:"libnftables", providers:[.apt(["libnftables-dev"])])
         /*.executableTarget(
             name: "wiremand",
             dependencies: [
