@@ -484,6 +484,39 @@ public struct WireguardDatabase: Sendable {
 		try newTrans.commit()
 	}
 	
+	public struct DomainInfo {
+		public let name:EncodedString
+		public let networks:[NetworkV6]
+		public let securityKey:SecurityKey
+	}
+	
+	public func allDomains() throws -> [DomainInfo] {
+		let newTrans = try Transaction(env: env, readOnly: true)
+		var domains = [DomainInfo]()
+		
+		let maskNumber = try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_defaultDomainMask.rawValue), as: RAW_byte.self, tx: newTrans)!
+		
+		try addressName_hostSubnet.cursor(tx: newTrans) { hostCursor in
+			try domainHash_securityKey.cursor(tx: newTrans) { securityKeyCursor in
+				try domainHash_networkV6.cursor(tx: newTrans) { networkCursor in
+					try domainHash_domainName.cursor(tx: newTrans) { nameCursor in
+						for (hash, domainNetwork) in networkCursor.makeIterator() {
+							let securityKey = try securityKeyCursor.opSet(key: hash)
+							let name = try nameCursor.opSet(key: hash)
+							var networks = [NetworkV6]()
+							for (_, host) in hostCursor.makeIterator() {
+								let addr = AddressV6((host.net.address & host.net.subnetMask) | (domainNetwork.net.address & ~host.net.subnetMask))
+								networks.append(NetworkV6(bedrock_ip.NetworkV6(address: addr.addr, subnetPrefix: maskNumber.RAW_native())))
+							}
+							domains.append(DomainInfo(name: name, networks: networks, securityKey: securityKey))
+						}
+					}
+				}
+			}
+		}
+		return domains
+	}
+	
 	@discardableResult public func regenerateSecurityKey(domain:EncodedString) throws -> SecurityKey {
 		let newTrans = try Transaction(env: env, readOnly: false)
 		let domainHash = try DomainHash(domainName: domain)
@@ -515,30 +548,6 @@ public struct WireguardDatabase: Sendable {
 		} catch LMDBError.notFound {
 			return false
 		}
-	}
-	
-	public struct DomainInfo {
-		public let name:EncodedString
-		public let network:NetworkV6
-		public let securityKey:SecurityKey
-	}
-	
-	// get all the domains in the database
-	public func allDomains() throws -> [DomainInfo] {
-		let newTrans = try Transaction(env: env, readOnly: true)
-		var domains = [DomainInfo]()
-		try domainHash_securityKey.cursor(tx: newTrans) { securityKeyCursor in
-			try domainHash_networkV6.cursor(tx: newTrans) { networkCursor in
-				try domainHash_domainName.cursor(tx: newTrans) { nameCursor in
-					for (hash, name) in nameCursor.makeIterator() {
-						let securityKey = try securityKeyCursor.opSet(key: hash)
-						let network = try networkCursor.opSet(key: hash)
-						domains.append(DomainInfo(name: name, network: network, securityKey: securityKey))
-					}
-				}
-			}
-		}
-		return domains
 	}
 	
 	/// Returns whether the provided name exists in the database or not.

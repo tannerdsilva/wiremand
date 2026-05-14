@@ -35,6 +35,10 @@ extension CLI {
 				let (newDomain, newSK) = try wgdb.domainMake(name:EncodedString(domainName.lowercased()))
 				let domainHash = try DomainHash(domainName: EncodedString(domainName))
 				appLogger.info("domain created successfully.", metadata:["_sk":"\(newSK)", "_dk":"\(domainHash.string)", "domain":"\(newDomain.cidrstring)"])
+				
+				let nftableExecutor = try NFTables()
+				let commands = Firewall.createDomainFirewall(domains: wgdb.allDomains())
+				try nftableExecutor.run(commands: commands)
 			}
 		}
 		
@@ -58,6 +62,10 @@ extension CLI {
 				try NginxExecutor.uninstall(domain:domainName.lowercased())
 				try await NginxExecutor.reload(logLevel: globals.logLevel)
 				try await SelfSignedCertExecutor.removeCert(domain: domainName)
+				
+				let nftableExecutor = try NFTables()
+				let commands = Firewall.createDomainFirewall(domains: wgdb.allDomains())
+				try nftableExecutor.run(commands: commands)
 			}
 		}
 		
@@ -81,7 +89,7 @@ extension CLI {
 						print(Colors.Yellow("\t- sk: \(curDomain.securityKey)"))
 						print(Colors.Cyan("\t- dk: \(try DomainHash(domainName: curDomain.name).string)"))
 					}
-					print(Colors.dim("\t- subnet: \(curDomain.network.cidrstring)"))
+					print(Colors.dim("\t- subnets: \(curDomain.networks.map(\.cidrstring).joined(separator: ", "))"))
 				}
 			}
 		}

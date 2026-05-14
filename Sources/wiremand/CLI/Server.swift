@@ -89,22 +89,17 @@ extension CLI {
 				// Add network to WGDB
 				try wgdb.addNetwork(name: ipv6ScopeString!, network: ipv6Scope!)
 				
-				// Reload wg-quick with the new interface
-				appLogger.info("Taking down wg interface")
-				let downCmd = try await Command("sudo wg-quick down \(interfaceName)").runSync()
-				guard downCmd.succeeded else {
-					throw NSError(domain: "WireGuardReload", code: 1, userInfo: [
-						NSLocalizedDescriptionKey: "Failed to bring down interface \(interfaceName)"
+				appLogger.info("Adding IPv6 address \(ipv6Scope!.cidrstring) to \(interfaceName)")
+				let ipCmd = try await Command("sudo ip addr add \(ipv6Scope!.cidrstring) dev \(interfaceName)").runSync()
+				guard ipCmd.succeeded else {
+					throw NSError(domain: "IPAddFailed", code: 1, userInfo: [
+						NSLocalizedDescriptionKey: "Failed to add address to interface \(interfaceName)"
 					])
 				}
 				
-				appLogger.info("Bringing up wg interface")
-				let upCmd = try await Command("sudo wg-quick up \(interfaceName)").runSync()
-				guard upCmd.succeeded else {
-					throw NSError(domain: "WireGuardReload", code: 1, userInfo: [
-						NSLocalizedDescriptionKey: "Failed to bring up interface \(interfaceName)"
-					])
-				}
+				let nftableExecutor = try NFTables()
+				let commands = Firewall.createDomainFirewall(domains: wgdb.allDomains())
+				try nftableExecutor.run(commands: commands)
 			}
 		}
 	}

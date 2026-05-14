@@ -343,6 +343,11 @@ extension CLI {
 				appLogger.critical("unable to reload the systemctl daemon")
 				throw Error.daemonReloadError
 			}
+			
+			let nftableExecutor = try NFTables()
+			let commands = Firewall.createDomainFirewall(domains: wgdb.allDomains())
+			try nftableExecutor.run(commands: commands)
+			
 			appLogger.info("Installation complete. Please restart this machine.")
 		}
 	}

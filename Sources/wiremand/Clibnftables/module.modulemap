@@ -1,0 +1,5 @@
+module Clibnftables [system] {
+	header "/usr/include/nftables/libnftables.h"
+	link "nftables"
+	export *
+}
