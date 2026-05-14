@@ -854,14 +854,6 @@ public struct WireguardDatabase: Sendable {
 		return try _allClients(domain:domain, tx:newTrans)
 	}
 	
-//	fileprivate func allClientsWithImmutableDomain(domain:String? = nil) throws -> (Set<ClientInfo>, EncodedString, bedrock.Date.Seconds) {
-//		let newTrans = try Transaction(env: env, readOnly: true)
-//		let clients = try _allClients(tx:newTrans)
-//		let domain = try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicDomainName.rawValue), as: EncodedString.self, tx: newTrans)!
-//		let invalidateTime = try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_handshakeInvalidationInterval.rawValue), as: bedrock.Date.Seconds.self, tx: newTrans)!
-//		return (clients, domain, invalidateTime)
-//	}
-	
 	/// Returns whether the provided client name exists in the provided domain.
 	/// - Parameters
 	/// 	- domain: The name of the domain.

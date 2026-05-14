@@ -27,6 +27,11 @@ extension CLI {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				var appLogger = Logger(label:"wiremand")
 				appLogger.logLevel = globals.logLevel
+				
+				try await SelfSignedCertExecutor.generateCert(domain: domainName.lowercased(), logLevel: globals.logLevel)
+				try NginxExecutor.install(domain: domainName.lowercased())
+				try await NginxExecutor.reload(logLevel: globals.logLevel)
+				
 				let (newDomain, newSK) = try wgdb.domainMake(name:EncodedString(domainName.lowercased()))
 				let domainHash = try DomainHash(domainName: EncodedString(domainName))
 				appLogger.info("domain created successfully.", metadata:["_sk":"\(newSK)", "_dk":"\(domainHash.string)", "domain":"\(newDomain.cidrstring)"])
@@ -50,6 +55,9 @@ extension CLI {
 				try wgdb.domainRemove(name:EncodedString(domainName.lowercased()))
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
+				try NginxExecutor.uninstall(domain:domainName.lowercased())
+				try await NginxExecutor.reload(logLevel: globals.logLevel)
+				try await SelfSignedCertExecutor.removeCert(domain: domainName)
 			}
 		}
 		

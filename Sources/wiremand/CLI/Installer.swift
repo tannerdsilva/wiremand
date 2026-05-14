@@ -333,6 +333,11 @@ extension CLI {
 				appLogger.critical("unable to modify access bits (chmod) /var/lib/wiremand/ directory")
 				throw Error.chmodError
 			}
+			appLogger.info("acquiring self-signed SSL certificates", metadata:["endpoint":"\(endpoint!)"])
+			
+			try await SelfSignedCertExecutor.generateCert(domain: endpoint!.lowercased(), logLevel: logLevel)
+			try NginxExecutor.install(domain:endpoint!.lowercased())
+			try await NginxExecutor.reload(logLevel: logLevel)
 			
 			guard try await Command("systemctl daemon-reload").runSync().succeeded == true else {
 				appLogger.critical("unable to reload the systemctl daemon")

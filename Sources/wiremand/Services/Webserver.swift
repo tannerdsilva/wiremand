@@ -198,27 +198,34 @@ extension PublicHTTPWebServer {
 			}
 			let keyName = String(keyNameSubstring)
 			
+			guard let publicKeyString = request.uri.queryParameters["client_public_key"] else {
+				logger.error("client_public_key query parameter missing")
+				return Response(status: .badRequest)
+			}
+			guard let clientPublicKey = PublicKey(argument: String(publicKeyString)) else {
+				logger.error("provided client_public_key is not a valid 32-byte Base64 string")
+				return Response(status: .badRequest)
+			}
+			
 			let newKeys = try await WireguardExecutor.generateClient()
 			
 			let (wgDNSName, wgPort, wgInternalNetwork, serverV4, pubKey, interfaceName, publicV4) = try wgdb.getWireguardConfigMetas()
 			
 			var client: (addressV6:[AddressV6], addressV4:AddressV4?, publicKey:PublicKey?)!
 			do {
-				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(keyName), publicKey: newKeys.publicKey, domain: host, ipv4: false)
+				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(keyName), publicKey: clientPublicKey, domain: host, ipv4: false)
 				client.publicKey = nil
 			} catch LMDBError.keyExists {
-				// If the key already exists, delete it first
 				logger.info("client name already exists on this subnet", metadata: ["client": "\(keyName)", "subnet": "\(String(host))"])
 				let removed = try wgdb.clientRemove(domain: host, name: EncodedString(keyName))
 				client.publicKey = removed
-				// Re‑create the client
-				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(String(keyName)), publicKey: newKeys.publicKey, domain: host, ipv4: false)
+				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(keyName), publicKey: clientPublicKey, domain: host, ipv4: false)
 			}
 			
-			var buildKey = "[Interface]\n"
-			buildKey += "PrivateKey = " + newKeys.privateKey + "\n"
+//			var buildKey = "[Interface]\n"
+			//mbuildKey += "PrivateKey = " + newKeys.privateKey + "\n"
 			let ipv6Addresses = client.addressV6.map({ $0.string + "/128" }).joined(separator: ", ")
-			buildKey += "Address = " + ipv6Addresses + "\n"
+			var buildKey = "Address = " + ipv6Addresses + "\n"
 			if client.addressV4 != nil {
 				buildKey += "Address = " + client.addressV4!.string + "/32\n"
 			}
@@ -247,7 +254,7 @@ extension PublicHTTPWebServer {
 			if let oldKey = client.publicKey {
 				try await WireguardExecutor.uninstall(publicKey:oldKey, interfaceName:interfaceName)
 			}
-			try await WireguardExecutor.install(publicKey:newKeys.publicKey, presharedKey:newKeys.presharedKey, addresses:client.addressV6, addressv4:client.addressV4, interfaceName:interfaceName)
+			try await WireguardExecutor.install(publicKey:clientPublicKey, presharedKey:newKeys.presharedKey, addresses:client.addressV6, addressv4:client.addressV4, interfaceName:interfaceName)
 			try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 			try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: logger.logLevel)
 			try await DNSmasqExecutor.reload()
