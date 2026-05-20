@@ -7,6 +7,7 @@ struct Firewall {
 		var commands: [String] = []
 		
 		// Table and IPv6 Domain Sets
+		commands.append("add table inet domain_firewall")
 		commands.append("flush table inet domain_firewall")
 		commands.append("add table inet domain_firewall")
 		

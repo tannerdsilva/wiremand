@@ -1,59 +1,25 @@
-import XCTest
-import class Foundation.Bundle
-import SwiftSlash
+import Testing
+import Foundation
+import wiremand_databases
 import wiremand
+import Logging
+import bedrock
+import RAW
 
-final class wiremandTests: XCTestCase {
-	func testIPAddressResolver() async throws {
-		let getIP = try await Command(bash:"curl ifconfig.me").runSync()
-		guard getIP.exitCode == 0 else {
-			exit(1)
-		}
-	}
-	func testDNSResolver() async throws {
-		let testResult = try await DigExecutor.resolveAddresses(for:"google.com")
-		print("\(testResult) ")
-	}
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct
-        // results.
+@Suite("wiremand tests", .serialized)
+struct WiremandTests {}
 
-        // Some of the APIs that we use below are available in macOS 10.13 and above.
-        guard #available(macOS 10.13, *) else {
-            return
-        }
+extension WiremandTests {
+  @Suite("WDGB Tests", .serialized)
+  struct WGDBTests {
+    @Test func testDomainMake() throws {
 
-        // Mac Catalyst won't have `Process`, but it is supported for executables.
-        #if !targetEnvironment(macCatalyst)
-
-        let fooBinary = productsDirectory.appendingPathComponent("wiremand")
-
-        let process = Process()
-        process.executableURL = fooBinary
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: data, encoding: .utf8)
-
-        XCTAssertEqual(output, "Hello, world!\n")
-        #endif
+      let path = FileManager.default.homeDirectoryForCurrentUser.path
+      WireguardDatabase.deleteDB(base: Path(path))
+      let wgdb = try WireguardDatabase(base: Path(path), logLevel: .info)
+      let publicKey = PublicKey(argument: "OO+P8R1Q2WewkZNjFvuTECqWzJPYiIc+PCUW9EFVEBg=")!
+			try wgdb.install(wg_primaryInterfaceName: EncodedString("exampleInterface"), wg_serverPublicDomainName: EncodedString("exampleDomainName"), wg_resolvedServerPublicIPv4: AddressV4("127.0.0.1")!, wg_resolvedServerPublicIPv6: AddressV6("::1")!, wg_serverPublicListenPort: EncodedUInt16(RAW_native: 2930), serverIPv6Block: NetworkV6("1111:1111:1111:1111::/64")!, serverIPv6BlockName: EncodedString("host_block"), serverIPv4Block: NetworkV4("0.0.0.0/24")!, publicKey: publicKey, defaultDomainMask: RAW_byte(RAW_native: 112))
+      try wgdb.domainMake(name: EncodedString("exampleDomain"))
     }
-
-    /// Returns path to the built products directory.
-    var productsDirectory: URL {
-      #if os(macOS)
-        for bundle in Bundle.allBundles where bundle.bundlePath.hasSuffix(".xctest") {
-            return bundle.bundleURL.deletingLastPathComponent()
-        }
-        fatalError("couldn't find the products directory")
-      #else
-        return Bundle.main.bundleURL
-      #endif
-    }
+  }
 }

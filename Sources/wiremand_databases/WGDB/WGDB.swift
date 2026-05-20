@@ -20,7 +20,7 @@ public struct PublicKey:Sendable, Hashable {
 
 @RAW_staticbuff(concat:bedrock_ip.AddressV4.self)
 @MDB_comparable
-public struct AddressV4:Sendable, Hashable {
+public struct AddressV4:Sendable, Hashable, Comparable {
 	fileprivate let addr:bedrock_ip.AddressV4
 	public var string:String {
 		String(self.addr)
@@ -39,7 +39,7 @@ public struct AddressV4:Sendable, Hashable {
 
 @RAW_staticbuff(concat:bedrock_ip.NetworkV4.self)
 @MDB_comparable
-public struct NetworkV4:Sendable {
+public struct NetworkV4:Sendable, Hashable, Comparable {
 	fileprivate let net:bedrock_ip.NetworkV4
 	public var cidrstring:String {
 		self.net.description
@@ -61,7 +61,7 @@ public struct NetworkV4:Sendable {
 
 @RAW_staticbuff(concat:bedrock_ip.AddressV6.self)
 @MDB_comparable
-public struct AddressV6:Sendable, Hashable {
+public struct AddressV6:Sendable, Hashable, Comparable {
 	fileprivate let addr:bedrock_ip.AddressV6
 	public var string:String {
 		String(self.addr)
@@ -80,7 +80,7 @@ public struct AddressV6:Sendable, Hashable {
 
 @RAW_staticbuff(concat:bedrock_ip.NetworkV6.self)
 @MDB_comparable
-public struct NetworkV6:Sendable {
+public struct NetworkV6:Sendable, Hashable, Comparable {
 	fileprivate let net:bedrock_ip.NetworkV6
 	public var cidrstring:String {
 		self.net.description
@@ -150,6 +150,12 @@ public struct SecurityKey:Sendable, Comparable {
 			return nil
 		}
 		self = Self(RAW_staticbuff: bytes)
+	}
+	public init?(randomBytes: [UInt8]) {
+		guard randomBytes.count == MemoryLayout<Self>.size else {
+			return nil
+		}
+		self = Self(RAW_staticbuff: randomBytes)
 	}
 	public var string:String {
 		String(RAW_base64.encode(self))
@@ -309,8 +315,6 @@ public struct WireguardDatabase: Sendable {
 		makeLogger[metadataKey:"env_path"] = "\(base.path())"
 		log = makeLogger
 		let envPath = base.appendingPathComponent("wgdb_clientinfo")
-		log.critical("the existing database will be deleted and reinitialized without any data.")
-		// try? FileManager.default.removeItem(at:envPath.path())
 		let fileSize = envPath.getFileSize() + (16 * 1024 * 1024 * 1024) // current + 16GB
 		env = try Environment(path:envPath.path(), flags:[.noSubDir], mapSize:Int(fileSize), maxReaders:32, maxDBs:32, mode:[.ownerReadWriteExecute, .groupReadExecute, .otherReadExecute])
 		log.debug("successfully created environment", metadata:["mmap_size":"\(fileSize)b"])
@@ -339,6 +343,11 @@ public struct WireguardDatabase: Sendable {
 		try someTrans.commit()
 		log.info("successfully initialized WireguardDatabase")
 	}
+
+	static public func deleteDB(base: Path) {
+		let envPath = base.appendingPathComponent("wgdb_clientinfo")
+		try? FileManager.default.removeItem(at:URL(filePath: envPath.path()))
+	}
 	
 	/// The setup function for a new host. Creates new databases for the host.
 	/// Adds necessary metadata values for the host to the metadata database.
@@ -363,9 +372,11 @@ public struct WireguardDatabase: Sendable {
 		
 		try domainHash_networkV6.setEntry(key:myDomainHash, value:myDomain, flags: [], tx:newTrans)
 		try networkV6_domainHash.setEntry(key:myDomain, value:myDomainHash, flags: [], tx:newTrans)
-		try domainHash_securityKey.setEntry(key:myDomainHash, value:try generateSecureRandomBytes(as: SecurityKey.self), flags:[], tx:newTrans)
+
+		try domainHash_securityKey.setEntry(key:myDomainHash, value:SecurityKey(randomBytes: try generateRandomBytes(count: MemoryLayout<SecurityKey>.size))!, flags:[], tx:newTrans)
 		try domainHash_clientPub.setEntry(key:myDomainHash, value:publicKey, flags:[], tx:newTrans)
 		try domainHash_clientNameHash.setEntry(key: myDomainHash, value: ClientNameHash(clientName: myClientName), flags: [], tx: newTrans)
+		try domainHash_domainName.setEntry(key: myDomainHash, value: myDomainName, flags: [], tx: newTrans)
 		
 		try addressName_hostSubnet.setEntry(key: serverIPv6BlockName, value: serverIPv6Block, flags: [], tx: newTrans)
 		
@@ -453,7 +464,7 @@ public struct WireguardDatabase: Sendable {
 		try self.domainHash_networkV6.setEntry(key: domainHash, value: suggestedDomainSubnet, flags: [.noOverwrite], tx: newTrans)
 		try self.networkV6_domainHash.setEntry(key: suggestedDomainSubnet, value: domainHash, flags: [.noOverwrite], tx: newTrans)
 		
-		let securityKey = try generateSecureRandomBytes(as: SecurityKey.self)
+		let securityKey = SecurityKey(randomBytes: try generateRandomBytes(count: MemoryLayout<SecurityKey>.size))!
 		try self.domainHash_securityKey.setEntry(key: domainHash, value: securityKey, flags: [], tx: newTrans)
 		
 		try newTrans.commit()
@@ -522,9 +533,9 @@ public struct WireguardDatabase: Sendable {
 		let domainHash = try DomainHash(domainName: domain)
 		
 		let existingSecurityKey = try self.domainHash_securityKey.loadEntry(key: domainHash, tx: newTrans)
-		var newSecurityKey = try generateSecureRandomBytes(as: SecurityKey.self)
+		var newSecurityKey = SecurityKey(randomBytes: try generateRandomBytes(count: MemoryLayout<SecurityKey>.size))!
 		while newSecurityKey == existingSecurityKey {
-			newSecurityKey = try generateSecureRandomBytes(as: SecurityKey.self)
+			newSecurityKey = SecurityKey(randomBytes: try generateRandomBytes(count: MemoryLayout<SecurityKey>.size))!
 		}
 		try self.domainHash_securityKey.setEntry(key: domainHash, value: newSecurityKey, flags: [], tx: newTrans)
 		

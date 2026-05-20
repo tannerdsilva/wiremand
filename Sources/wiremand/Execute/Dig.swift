@@ -12,7 +12,7 @@ public struct DigExecutor {
 		log.logLevel = logLevel
 		let v4Addr:AddressV4?
 		do {
-			guard let digItV4 = try await Command("dig \(dnsName) A +short").runSync().stdout.first, let asString = String(data:Data(digItV4), encoding:.utf8), digItV4.count > 0, let asAddr = AddressV4(asString) else {
+			guard let digItV4 = try await Command("dig", arguments: ["\(dnsName)", "A", "+short"]).runSync().stdout.first, let asString = String(data:Data(digItV4), encoding:.utf8), digItV4.count > 0, let asAddr = AddressV4(asString) else {
 				throw Error.noAddressesFound
 			}
 			v4Addr = asAddr
@@ -21,7 +21,7 @@ public struct DigExecutor {
 		}
 		let v6Addr:AddressV6?
 		do {
-			guard let digItV6 = try await Command("dig \(dnsName) AAAA +short").runSync().stdout.first, let asString = String(data:Data(digItV6), encoding:.utf8), digItV6.count > 0, let asAddr = AddressV6(asString) else {
+			guard let digItV6 = try await Command("dig", arguments: ["\(dnsName)", "AAAA", "+short"]).runSync().stdout.first, let asString = String(data:Data(digItV6), encoding:.utf8), digItV6.count > 0, let asAddr = AddressV6(asString) else {
 				throw Error.noAddressesFound
 			}
 			v6Addr = asAddr

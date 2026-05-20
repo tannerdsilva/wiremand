@@ -34,7 +34,7 @@ struct DNSmasqExecutor {
 		})
 	}
 	static func reload() async throws {
-		guard try await Command("sudo systemctl reload dnsmasq").runSync().succeeded == true else {
+		guard try await Command(sh: "sudo systemctl reload dnsmasq", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
 			throw Error.reloadError
 		}
 	}

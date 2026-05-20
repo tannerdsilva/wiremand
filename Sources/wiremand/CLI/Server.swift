@@ -28,6 +28,7 @@ extension CLI {
 				appLogger.logLevel = globals.logLevel
 				
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				appLogger.info("getting interface name")
 				let interfaceName = String(try wgdb.primaryInterfaceName())
 				
 				var ipv6Scope:NetworkV6? = nil
@@ -90,7 +91,7 @@ extension CLI {
 				try wgdb.addNetwork(name: ipv6ScopeString!, network: ipv6Scope!)
 				
 				appLogger.info("Adding IPv6 address \(ipv6Scope!.cidrstring) to \(interfaceName)")
-				let ipCmd = try await Command("sudo ip addr add \(ipv6Scope!.cidrstring) dev \(interfaceName)").runSync()
+				let ipCmd = try await Command(sh: "sudo ip addr add \(ipv6Scope!.cidrstring) dev \(interfaceName)", environment: CurrentEnvironment.environmentVariables()).runSync()
 				guard ipCmd.succeeded else {
 					throw NSError(domain: "IPAddFailed", code: 1, userInfo: [
 						NSLocalizedDescriptionKey: "Failed to add address to interface \(interfaceName)"

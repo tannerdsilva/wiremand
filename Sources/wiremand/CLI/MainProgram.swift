@@ -4,7 +4,7 @@ import wiremand_databases
 import Logging
 
 @main
-struct CLI:ParsableCommand {
+struct CLI:AsyncParsableCommand {
 	struct GlobalCLIOptions:ParsableArguments {
 #if DEBUG
 //		@Option
@@ -22,7 +22,12 @@ struct CLI:ParsableCommand {
 		commandName: "wiremand",
 		abstract: "A command-line tool for managing WireGuard configurations.",
 		subcommands: [
+			Installer.self,
 			TestMigration.self,
+			Server.self,
+			Domain.self,
+			Client.self,
+			Run.self,
 		]
 	)
 

@@ -20,17 +20,18 @@ struct SelfSignedCertExecutor {
 		let fullchainPath = "\(domainDir)/fullchain.pem"
 		let privkeyPath = "\(domainDir)/privkey.pem"
 		
-		let mkdirCmd = try await Command("sudo mkdir -p '\(domainDir)'").runSync()
+		let mkdirCmd = try await Command(sh: "sudo mkdir -p '\(domainDir)'", environment: CurrentEnvironment.environmentVariables()).runSync()
 		guard mkdirCmd.succeeded else {
 			throw Error.unableToCreateDir
 		}
 		
 		// Generate a self-signed certificate valid for 10 years
 		// -x509: self-signed, -nodes: no passphrase, -days 3650: 10 years
-		let certCmd = try await Command(
+		let certCmd = try await Command(sh:
 			"sudo openssl req -x509 -nodes -days 3650 -newkey rsa:2048 " +
 			"-keyout '\(privkeyPath)' -out '\(fullchainPath)' " +
-			"-subj \"/CN=\(domain)\" -addext \"subjectAltName=DNS:\(domain)\""
+			"-subj \"/CN=\(domain)\" -addext \"subjectAltName=DNS:\(domain)\"",
+			environment: CurrentEnvironment.environmentVariables()
 		).runSync()
 		
 		guard certCmd.succeeded else {
@@ -39,14 +40,14 @@ struct SelfSignedCertExecutor {
 			throw Error.unableToGenerateCert
 		}
 		
-		let _ = try await Command("sudo chmod 644 '\(fullchainPath)' '\(privkeyPath)'").runSync()
+		let _ = try await Command(sh: "sudo chmod 644 '\(fullchainPath)' '\(privkeyPath)'", environment: CurrentEnvironment.environmentVariables()).runSync()
 		
 		log.info("self-signed certificate generated", metadata: ["domain": "\(domain)"])
 	}
 
 	static func removeCert(domain: String) async throws {
 		let domainDir = "\(certBaseDir)/\(domain)"
-		let rmCmd = try await Command("sudo rm -rf '\(domainDir)'").runSync()
+		let rmCmd = try await Command(sh: "sudo rm -rf '\(domainDir)'", environment: CurrentEnvironment.environmentVariables()).runSync()
 		guard rmCmd.succeeded else {
 			throw Error.unableToCreateDir
 		}

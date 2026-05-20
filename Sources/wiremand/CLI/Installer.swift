@@ -27,7 +27,7 @@ extension CLI {
 			case daemonReloadError
 			case unableToGenerateBashCompletions
 		}
-		static let configuration = CommandConfiguration(
+		public static let configuration = CommandConfiguration(
 			commandName:"install",
 			abstract:"installs wiremand on this system.",
 			shouldDisplay:false
@@ -44,9 +44,6 @@ extension CLI {
 		
 		@Option
 		var publicHTTPPort:UInt16 = 8080
-		
-		@Argument(help:ArgumentHelp("The email address of the primary admin for this system. This is used for SMTP."))
-		var adminEmail:String
 				
 		mutating func run() async throws {
 			let installUserName = "wiremand"
@@ -64,7 +61,8 @@ extension CLI {
 				endpoint = readLine()
 			} while (endpoint == nil || endpoint!.count == 0)
 
-			let (resExtV4, resExtV6) = try await DigExecutor.resolveAddresses(for:endpoint!, logLevel: logLevel)
+			// let (resExtV4, resExtV6) = try await DigExecutor.resolveAddresses(for:endpoint!, logLevel: logLevel)
+			let (resExtV4, resExtV6) = (AddressV4("192.168.100.1"), AddressV6("fd00::1"))
 			
 			guard resExtV4 != nil else {
 				appLogger.error("there is no A record", metadata:["dns_name":"\(endpoint!)"])
@@ -114,7 +112,7 @@ extension CLI {
 			appLogger.info("installing software...")
 			
 			// install software
-			let installCommand = try await Command("apt-get update && apt-get install wireguard resolvconf dnsmasq stubby nginx certbot -y").runSync()
+			let installCommand = try await Command(sh: "apt-get update && apt-get install wireguard resolvconf dnsmasq stubby nginx certbot -y", environment: CurrentEnvironment.environmentVariables()).runSync()
 			guard installCommand.succeeded == true else {
 				appLogger.critical("unable to install dnsmasq and wireguard")
 				throw Error.unableToInstallDependencies
@@ -122,7 +120,7 @@ extension CLI {
 
 			appLogger.info("disabling systemd service 'dnsmasq'")
 			
-			let dnsMasqDisable = try await Command("systemctl disable dnsmasq && systemctl stop dnsmasq").runSync()
+			let dnsMasqDisable = try await Command(sh: "systemctl disable dnsmasq && systemctl stop dnsmasq", environment: CurrentEnvironment.environmentVariables()).runSync()
 			guard dnsMasqDisable.succeeded == true else {
 				appLogger.critical("unable to disable dnsmasq service")
 				throw Error.unableToStopDnsmasq
@@ -165,21 +163,21 @@ extension CLI {
 			appLogger.info("determining tool paths...")
 			
 			// find wireguard and wg-quick
-			let whichCertbot = try await Command("which certbot").runSync().stdout.compactMap { String(data:Data($0), encoding:.utf8) }.first!
-			let whichWg = try await Command("which wg").runSync().stdout.compactMap { String(data:Data($0), encoding:.utf8) }.first!
-			let whichWgQuick = try await Command("which wg-quick").runSync().stdout.compactMap { String(data:Data($0), encoding:.utf8) }.first!
-			let whichSystemcCTL = try await Command("which systemctl").runSync().stdout.compactMap { String(data:Data($0), encoding:.utf8) }.first!
+			let whichCertbot = try await Command("which", arguments: ["certbot"]).runSync().stdout.compactMap { String(data:Data($0), encoding:.utf8) }.first!
+			let whichWg = try await Command("which", arguments: ["wg"]).runSync().stdout.compactMap { String(data:Data($0), encoding:.utf8) }.first!
+			let whichWgQuick = try await Command("which", arguments:["wg-quick"]).runSync().stdout.compactMap { String(data:Data($0), encoding:.utf8) }.first!
+			let whichSystemcCTL = try await Command("which", arguments:["systemctl"]).runSync().stdout.compactMap { String(data:Data($0), encoding:.utf8) }.first!
 
 			appLogger.info("enabling wg-quick@\(interfaceName).service...")
 
-			guard try await Command("systemctl enable wg-quick@\(interfaceName).service").runSync().succeeded == true else {
+			guard try await Command(sh: "systemctl enable wg-quick@\(interfaceName).service", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
 				appLogger.critical("unable to enable wg-quick@\(interfaceName).service")
 				throw Error.unableToEnableWireguardInterface
 			}
 			
 			appLogger.info("enabling dnsmasq.service...")
 
-			guard try await Command("systemctl enable dnsmasq.service").runSync().succeeded == true else {
+			guard try await Command(sh: "systemctl enable dnsmasq.service", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
 				print("unable to enable dnsmasq.service")
 				throw Error.unableToEnableDnsmasq
 			}
@@ -196,11 +194,19 @@ extension CLI {
 
 			appLogger.info("making user `wiremand`...")
 			
-			// make the user
-			let makeUser = try await Command("useradd -md /var/lib/\(installUserName) \(installUserName)").runSync()
-			guard makeUser.succeeded == true else {
-				appLogger.critical("unable to create `wiremand` user on the system")
-				throw Error.unableToAddUser
+			// make the user if doesn't exist
+			let idUser = try await Command(sh: "id \(installUserName)", environment: CurrentEnvironment.environmentVariables()).runSync()
+			switch idUser.exit {
+				case .code(let exitCode):
+					if exitCode == 1 {
+						let makeUser = try await Command(sh: "useradd -md /var/lib/\(installUserName) \(installUserName)", environment: CurrentEnvironment.environmentVariables()).runSync()
+						guard makeUser.succeeded == true else {
+							appLogger.critical("unable to create `wiremand` user on the system")
+							throw Error.unableToAddUser
+						}
+					}
+				default:
+					throw Error.unableToAddUser
 			}
 			
 			// get the uid and gid of our new user
@@ -240,14 +246,14 @@ extension CLI {
 			try exeFD.writeAll(exeData)
 			try exeFD.close()
 			appLogger.info("applying effective CAP_KILL capabilities to executable.")
-			let setCapResult = try await Command("sudo setcap CAP_KILL+ep '/opt/wiremand'").runSync()
+			let setCapResult = try await Command(sh: "sudo setcap CAP_KILL+ep '/opt/wiremand'", environment: CurrentEnvironment.environmentVariables()).runSync()
 			guard setCapResult.succeeded == true else {
 				appLogger.critical("unable to set effective CAP_KILL capabilities to executable")
 				throw Error.capApplyError
 			}
 			
 			appLogger.info("copying bash completions to /opt...")
-			guard try await Command("/opt/wiremand --generate-completion-script bash > /opt/wiremand.bash").runSync().succeeded == true else {
+			guard try await Command(sh: "/opt/wiremand --generate-completion-script bash > /opt/wiremand.bash", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
 				appLogger.critical("unable to generate bash completion scripts")
 				throw Error.unableToGenerateBashCompletions
 			}
@@ -275,7 +281,7 @@ extension CLI {
 			
 			appLogger.info("enabling wiremand.service...")
 
-			guard try await Command("systemctl enable wiremand.service").runSync().succeeded == true else {
+			guard try await Command(sh: "systemctl enable wiremand.service", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
 				appLogger.critical("unable to enable wiremand.service")
 				throw Error.unableToEnableService
 			}
@@ -283,12 +289,12 @@ extension CLI {
 			appLogger.info("configuring nginx...")
 
 			// begin configuring nginx
-			var nginxOwn = try await Command("chown root:\(installUserName) /etc/nginx && chown root:\(installUserName) /etc/nginx/conf.d && chown root:\(installUserName) /etc/nginx/sites-enabled").runSync()
+			var nginxOwn = try await Command(sh: "chown root:\(installUserName) /etc/nginx && chown root:\(installUserName) /etc/nginx/conf.d && chown root:\(installUserName) /etc/nginx/sites-enabled", environment: CurrentEnvironment.environmentVariables()).runSync()
 			guard nginxOwn.succeeded == true else {
 				appLogger.critical("unable to change ownership of nginx directories to include wiremand in group")
 				throw Error.unableToConfigureNginx
 			}
-			nginxOwn = try await Command("chmod 775 /etc/nginx && chmod 775 /etc/nginx/conf.d && chmod 775 /etc/nginx/sites-enabled").runSync()
+			nginxOwn = try await Command(sh: "chmod 775 /etc/nginx && chmod 775 /etc/nginx/conf.d && chmod 775 /etc/nginx/sites-enabled", environment: CurrentEnvironment.environmentVariables()).runSync()
 			guard nginxOwn.succeeded == true else {
 				appLogger.critical("unable to change mode of nginx directories to include wiremand in group")
 				throw Error.unableToConfigureNginx
@@ -316,6 +322,7 @@ extension CLI {
 			let _ = try Scheduler(base: homeDir, log: appLogger)
 			appLogger.trace("scheduler created...")
 			
+			WireguardDatabase.deleteDB(base: Path(homeDir.path))
 			let wgdb = try WireguardDatabase(base: Path(homeDir.path), logLevel: logLevel)
 			try wgdb.install(wg_primaryInterfaceName: EncodedString(interfaceName), wg_serverPublicDomainName: EncodedString(endpoint!), wg_resolvedServerPublicIPv4: resExtV4!, wg_resolvedServerPublicIPv6: resExtV6!, wg_serverPublicListenPort: EncodedUInt16(RAW_native: wireguardPort), serverIPv6Block: ipv6Scope!, serverIPv6BlockName: ipv6ScopeString!, serverIPv4Block: ipv4Scope!, publicKey: newKeys.publicKey, defaultDomainMask: RAW_byte(RAW_native: 112))
 			appLogger.trace("wireguard database created...")
@@ -323,12 +330,12 @@ extension CLI {
 			let _ = try IPDatabase(base: Path(homeDir.path), logLevel: logLevel, apiKey: ipStackKey)
 			appLogger.trace("ip database created...")
 			
-			let ownIt = try await Command("chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/").runSync()
+			let ownIt = try await Command(sh: "chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/", environment: CurrentEnvironment.environmentVariables()).runSync()
 			guard ownIt.succeeded == true else {
 				appLogger.critical("unable to change ownership of /var/lib/\(installUserName)/ directory")
 				throw Error.chownError
 			}
-			let modIt = try await Command("chmod 775 /var/lib/wiremand").runSync()
+			let modIt = try await Command(sh: "chmod 775 /var/lib/wiremand", environment: CurrentEnvironment.environmentVariables()).runSync()
 			guard modIt.succeeded == true else {
 				appLogger.critical("unable to modify access bits (chmod) /var/lib/wiremand/ directory")
 				throw Error.chmodError
@@ -339,13 +346,19 @@ extension CLI {
 			try NginxExecutor.install(domain:endpoint!.lowercased())
 			try await NginxExecutor.reload(logLevel: logLevel)
 			
-			guard try await Command("systemctl daemon-reload").runSync().succeeded == true else {
+			guard try await Command(sh: "systemctl daemon-reload", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
 				appLogger.critical("unable to reload the systemctl daemon")
 				throw Error.daemonReloadError
 			}
 			
+			appLogger.info("creating firewall rules")
 			let nftableExecutor = try NFTables()
-			let commands = Firewall.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
+			appLogger.trace("aquiring domains")
+			let domains = try wgdb.allDomains()
+			let commands = Firewall.createDomainFirewall(domains: domains, interfaceName: interfaceName, wgListenPort: try wgdb.getPublicListenPort().RAW_native())
+			for command in commands {
+				print(command)
+			}
 			try nftableExecutor.run(commands: commands)
 			
 			appLogger.info("Installation complete. Please restart this machine.")

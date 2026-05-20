@@ -16,23 +16,21 @@ struct WireguardExecutor {
 	}
 	
 	static func generateClient() async throws -> VPNKey {
-		let makePriKey = try await Command("wg genkey").runSync()
+		let makePriKey = try await Command("wg", arguments:["genkey"]).runSync()
 		guard makePriKey.succeeded == true, let privateKey = makePriKey.stdout.compactMap({ String(data:Data($0), encoding:.utf8) }).first else {
 			throw Error.wireguardCmdError
 		}
-        
-		let makePubKey = try await Command("echo \(privateKey) | wg pubkey").runSync()
-        guard makePubKey.succeeded == true, let keyData = makePubKey.stdout.first else {
+		
+		let makePubKey = try await Command(sh: "echo \(privateKey) | wg pubkey", environment: CurrentEnvironment.environmentVariables()).runSync()
+        guard makePubKey.succeeded == true, let keyData = makePubKey.stdout.first, let pubKeyString = String(data:Data(keyData), encoding:.utf8) else {
 			throw Error.wireguardCmdError
 		}
-		let publicKey = keyData.withUnsafeBytes { buffer in
-			return PublicKey(RAW_decode: buffer.baseAddress!, count: buffer.count)
-		}
+
+		let publicKey = PublicKey(argument: pubKeyString)
 		guard let publicKey = publicKey else {
 			throw Error.wireguardCmdError
 		}
-		
-		let makePsk = try await Command("wg genpsk").runSync()
+		let makePsk = try await Command("wg", arguments: ["genpsk"]).runSync()
 		guard makePsk.succeeded == true, let psk = makePsk.stdout.compactMap({ String(data:Data($0), encoding:.utf8) }).first else {
 			throw Error.wireguardCmdError
 		}
@@ -61,7 +59,8 @@ struct WireguardExecutor {
 		if addressv4 != nil {
 			allowedIPs += ",\(addressv4!.string)/32"
 		}
-		let installKey = try await Command("sudo wg set \(String(interfaceName)) peer \(publicKey.string) \(allowedIPs) preshared-key \(pathAsString)").runSync()
+		
+		let installKey = try await Command(sh: "sudo wg set \(String(interfaceName)) peer \(publicKey.string) \(allowedIPs) preshared-key \(pathAsString)", environment: CurrentEnvironment.environmentVariables()).runSync()
         guard installKey.succeeded == true else {
             throw Error.wireguardCmdError
         }
@@ -72,14 +71,15 @@ struct WireguardExecutor {
 		if (newIPv4Address != nil) {
 			allowedIPs += ",\(newIPv4Address!.string)/32"
 		}
-		let installNewAddress = try await Command("sudo wg set \(String(interfaceName)) peer \(publicKey.string) \(allowedIPs)").runSync()
+		
+		let installNewAddress = try await Command(sh: "sudo wg set \(String(interfaceName)) peer \(publicKey.string) \(allowedIPs)", environment: CurrentEnvironment.environmentVariables()).runSync()
     	guard installNewAddress.succeeded == true else {
     		throw Error.wireguardCmdError
     	}
     }
     
     static func uninstall(publicKey:PublicKey, interfaceName:EncodedString) async throws {
-		let removeKey = try await Command("sudo wg set \(String(interfaceName)) peer \(publicKey.string) remove").runSync()
+		let removeKey = try await Command(sh: "sudo wg set \(String(interfaceName)) peer \(publicKey.string) remove", environment: CurrentEnvironment.environmentVariables()).runSync()
         guard removeKey.succeeded == true else {
             throw Error.wireguardCmdError
         }
@@ -88,7 +88,7 @@ struct WireguardExecutor {
 	static func saveConfiguration(interfaceName:EncodedString, logLevel:Logger.Level) async throws {
 		var log = Logger(label: "wireguard-executor")
 		log.logLevel = logLevel
-		guard try await Command("sudo wg-quick save \(String(interfaceName))").runSync().succeeded == true else {
+		guard try await Command(sh: "sudo wg-quick save \(String(interfaceName))", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
 			log.error("unable to save current wireguard configuration with `wg-quick`")
 			throw Error.wireguardQuickCmdError
 		}

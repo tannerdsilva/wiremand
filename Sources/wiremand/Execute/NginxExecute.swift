@@ -49,7 +49,7 @@ server {
 	static func reload(logLevel: Logger.Level) async throws {
 		var log = Logger(label:"nginx-executor")
 		log.logLevel = logLevel
-		let result = try await Command("sudo systemctl reload nginx").runSync()
+		let result = try await Command(sh: "sudo systemctl reload nginx", environment: CurrentEnvironment.environmentVariables()).runSync()
 		guard result.succeeded == true else {
 			fatalError("unable to reload nginx")
 		}

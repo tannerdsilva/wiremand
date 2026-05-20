@@ -58,7 +58,18 @@ let package = Package(
 				"wiremand_databases"
 			],
 		),
-		.systemLibrary(name:"Clibnftables", pkgConfig:"libnftables", providers:[.apt(["libnftables-dev"])])
+		.systemLibrary(name:"Clibnftables", pkgConfig:"libnftables", providers:[.apt(["libnftables-dev"])]),
+		.testTarget(
+			name: "wiremandTests",
+			dependencies: [
+				"wiremand_databases",
+				"Clibnftables",
+				"wiremand",
+				.product(name:"SwiftSlash", package:"SwiftSlash"),
+				.product(name:"bedrock", package:"bedrock"),
+				.product(name:"RAW", package:"rawdog"),
+			],
+		)
         /*.executableTarget(
             name: "wiremand",
             dependencies: [
