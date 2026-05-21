@@ -98,9 +98,9 @@ extension CLI {
 					])
 				}
 				
-				let nftableExecutor = try NFTables()
-				let commands = Firewall.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
-				try nftableExecutor.run(commands: commands)
+				// let nftableExecutor = try NFTables()
+				// let commands = Firewall.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
+				// try nftableExecutor.run(commands: commands)
 			}
 		}
 	}

@@ -89,7 +89,7 @@ public struct Scheduler:Sendable {
 		
 		// logging rituals
 		var mutateLogger = log
-		mutateLogger[metadataKey:"name"] = "\(name)"
+		mutateLogger[metadataKey:"name"] = "\(String(name))"
 		mutateLogger[metadataKey:"interval"] = "\(interval.nanoseconds / 1_000_000_000)s"
 		mutateLogger.info("task launched")
 		defer {
@@ -153,7 +153,7 @@ public struct Scheduler:Sendable {
 						mutateLogger.trace("next target date \(nextTargetDate.timeIntervalSinceUnixDate()) is in the past, incrementing by \(Int(interval.nanoseconds)) seconds")
 					}
 					// continue the main loop
-					mutateLogger.debug("task \(name) will fire next at \(nextTargetDate.timeIntervalSinceUnixDate()), which is ahead of \(nowDate.timeIntervalSinceUnixDate())")
+					mutateLogger.debug("task \(String(name)) will fire next at \(nextTargetDate.timeIntervalSinceUnixDate()), which is ahead of \(nowDate.timeIntervalSinceUnixDate())")
 				}
 			} catch LMDBError.notFound {
 				mutateLogger.warning("task \(name) is no longer scheduled with this pid")

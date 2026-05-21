@@ -126,7 +126,7 @@ extension CLI {
 				
 				try domainName.promptInteractivelyIfNecessary(db:wgdb)
 				guard try wgdb.validateNewClientName(domain:domainName.domain!, clientName:domainName.name!) == true else {
-					fatalError("the client name '\(domainName.name!)' cannot be used")
+					fatalError("the client name '\(String(domainName.name!))' cannot be used")
 				}
 				
 				let newKeys = try await WireguardExecutor.generateClient()
@@ -176,7 +176,7 @@ extension CLI {
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
 				try wgdb.serveConfiguration(EncodedString(buildKey), forPublicKey:usePublicKey)
 				let domainHash = try DomainHash(domainName: domainName.domain!)
-				let buildURL = "\nhttps://\(domainName.domain!)/wg_getkey?dk=\(domainHash.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)&pk=\(usePublicKey.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
+				let buildURL = "\nhttps://\(String(domainName.domain!))/wg_getkey?dk=\(domainHash.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)&pk=\(usePublicKey.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
 				print("\(buildURL)")
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
@@ -218,18 +218,18 @@ extension CLI {
 				let nowDate = bedrock.Date.Seconds()
 				for domainToList in iterateList {
 					// print the domain name
-					print(Colors.Yellow("\(domainToList.key)"))
+					print(Colors.Yellow("\(String(domainToList.key))"))
 					
 					// print the sorted clients
 					let sortedClients = domainToList.value.sorted(by: { $0.name < $1.name })
 					for curClient in sortedClients {
 						if (curClient.lastHandshake == nil) {
 							// print the name in dim text since the client has never successfully handshaken
-							print(Colors.dim("\t- \(curClient.name)"), terminator:"\n")
+							print(Colors.dim("\t- \(String(curClient.name))"), terminator:"\n")
 						} else {
 							if (curClient.lastHandshake!.timeIntervalSinceNow > -150) {
 								// print the name in green text since the client is online
-								print(Colors.Green("\t- \(curClient.name)"), terminator:"")
+								print(Colors.Green("\t- \(String(curClient.name))"), terminator:"")
 								
 								// endpoint info
 								if let hasEndpoint = curClient.endpoint {
@@ -247,10 +247,10 @@ extension CLI {
 								}
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
 								// print the name in red text since the client is going to be revoked soon
-								print(Colors.Red("\t- \(curClient.name)"), terminator:"")
+								print(Colors.Red("\t- \(String(curClient.name))"), terminator:"")
 							} else {
 								// print the name in white text because the client has successfully made a handshake in the past, but is currently offline
-								print("\t- \(curClient.name)", terminator:"")
+								print("\t- \(String(curClient.name))", terminator:"")
 								
 								// endpoint info
 								print(Colors.dim("\n\t  - \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
@@ -286,7 +286,7 @@ extension CLI {
 							}
 							
 							// print the public key of the client
-							print(Colors.dim("\n\t  - Public key: \(curClient.publicKey)"))
+							print(Colors.dim("\n\t  - Public key: \(curClient.publicKey.string)"))
 						} 
 					}
 				}

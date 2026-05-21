@@ -1,5 +1,5 @@
 {
-  "originHash" : "5fb449296646a1b659d82fb00887b89cbbc281995447154d8e4d3b681a838695",
+  "originHash" : "d26eb78e16088718d49f781127712bddcd334e385ec6f5e42483672e202c67d8",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -8,15 +8,6 @@
       "state" : {
         "revision" : "3a5b74a58782c3b4c1f0bc75e9b67b10c2494e8f",
         "version" : "1.33.1"
-      }
-    },
-    {
-      "identity" : "bedrock",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tannerdsilva/bedrock.git",
-      "state" : {
-        "revision" : "2bfa90251ccb094592ce0ddf1e38b0075f96af7d",
-        "version" : "7.1.0"
       }
     },
     {
@@ -42,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/QuickLMDB.git",
       "state" : {
-        "revision" : "980d58655a9535ef8f88e1215f998cf96239b848",
-        "version" : "14.0.0"
+        "branch" : "master",
+        "revision" : "ec4f5414b8555a8d0ae00fe99e7368742fd564b7"
       }
     },
     {

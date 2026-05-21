@@ -130,7 +130,7 @@ public struct DomainHash:Sendable, Comparable {
 
 @RAW_staticbuff(bytes:16)
 @MDB_comparable
-public struct ClientNameHash:Sendable {
+public struct ClientNameHash:Sendable, Hashable {
 	public init(clientName:EncodedString) throws {
 		var hasher = try RAW_blake2.Hasher<B, Self>()
 		try hasher.update(clientName)
@@ -466,6 +466,7 @@ public struct WireguardDatabase: Sendable {
 		
 		let securityKey = SecurityKey(randomBytes: try generateRandomBytes(count: MemoryLayout<SecurityKey>.size))!
 		try self.domainHash_securityKey.setEntry(key: domainHash, value: securityKey, flags: [], tx: newTrans)
+		try self.domainHash_domainName.setEntry(key: domainHash, value: name, flags: [.noOverwrite], tx: newTrans)
 		
 		try newTrans.commit()
 		return (suggestedDomainSubnet, securityKey)
@@ -484,6 +485,7 @@ public struct WireguardDatabase: Sendable {
 		try domainHash_networkV6.deleteEntry(key:domainHash, tx:newTrans)
 		try networkV6_domainHash.deleteEntry(key:domain, tx:newTrans)
 		try domainHash_securityKey.deleteEntry(key:domainHash, tx:newTrans)
+		try domainHash_domainName.deleteEntry(key:domainHash, tx:newTrans)
 		
 		// remove any clients that may have belonged to this domain
 		try domainHash_clientPub.cursor(tx: newTrans) { cursor in
@@ -641,12 +643,12 @@ public struct WireguardDatabase: Sendable {
 		
 		if noHandshakeInvalidation != nil {
 			try self.clientPub_invalidDate.setEntry(key: publicKey, value: noHandshakeInvalidation!, flags: [.noOverwrite], tx: tx)
-			log.info("new client invalidation date explicitly provided", metadata:["date":"\(noHandshakeInvalidation!)"])
+			log.info("new client invalidation date explicitly provided", metadata:["date":"\(noHandshakeInvalidation!.iso8601String())"])
 		} else {
 			let defaultInvalidation = try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_noHandshakeInvalidationInterval.rawValue), as: EncodedTimeInterval.self, tx: tx)!
 			let targetDate = bedrock.Date.Seconds().addingTimeInterval(defaultInvalidation.RAW_native())
 			try self.clientPub_invalidDate.setEntry(key: publicKey, value: targetDate, flags: [.noOverwrite], tx: tx)
-			log.info("new client invalidation date defined as a default value", metadata:["time_interval":"\(defaultInvalidation)", "target_date":"\(targetDate)"])
+			log.info("new client invalidation date defined as a default value", metadata:["time_interval":"\(defaultInvalidation.timeInterval.description)", "target_date":"\(targetDate.iso8601String())"])
 		}
 		
 		try self.domainHash_clientPub.setEntry(key: domainHash, value: publicKey, flags: [.noDupData], tx: tx)
@@ -874,19 +876,24 @@ public struct WireguardDatabase: Sendable {
 		return try _allClients(domain:domain, tx:newTrans)
 	}
 	
-	/// Returns whether the provided client name exists in the provided domain.
+	/// Returns whether the provided client name can be added to the domain.
 	/// - Parameters
 	/// 	- domain: The name of the domain.
 	/// 	- clientName: The name of the client to be validated.
 	public func validateNewClientName(domain:EncodedString, clientName:EncodedString) throws -> Bool {
 		let newTrans = try Transaction(env: env, readOnly: true)
 		let domainHash = try DomainHash(domainName: domain)
+		let clientNameHash = try ClientNameHash(clientName: clientName)
 		if try domainHash_networkV6.containsEntry(key: domainHash, tx: newTrans) {
-			if try domainHash_clientNameHash.containsEntry(key: domainHash, value: ClientNameHash(clientName: clientName), tx: newTrans) {
-				return true
+			return try domainHash_clientNameHash.cursor(tx:newTrans) { cursor in 
+				if try cursor.containsEntry(key: domainHash, value: clientNameHash) {
+					return false
+				} else {
+					return true
+				}
 			}
 		}
-		return false
+		return true
 	}
 	
 	fileprivate func _puntClientInvalidation(to newInvalidationDate:bedrock.Date.Seconds? = nil, publicKey:PublicKey, tx:borrowing Transaction) throws -> bedrock.Date.Seconds {

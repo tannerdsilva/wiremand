@@ -31,10 +31,10 @@ extension CLI {
 			var appLogger = Logger(label:"wiremand")
 			appLogger.logLevel = globals.logLevel
 
-			guard getCurrentUser() == "wiremand" else {
-				print("this function must be run as the wiremand user")
-				throw Error.invalidUser
-			}
+			// guard getCurrentUser() == "wiremand" else {
+			// 	print("this function must be run as the wiremand user")
+			// 	throw Error.invalidUser
+			// }
 			
 			let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 			let ipdb = try IPDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
@@ -44,7 +44,8 @@ extension CLI {
 			let handshakeChecker = try HandshakeChecker(wgdb: wgdb, ipdb: ipdb, interfaceName: interfaceName, logLevel: globals.logLevel)
 			let ipStacker = try IPStacker(ipdb: ipdb, logLevel: globals.logLevel)
 			let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-			let webserver = try PublicHTTPWebServer(eventLoop: .shared(eventLoopGroup), wgdb: wgdb, hostIPv6: ipv6Addresses.map({ $0.addressString }), hostIPv4: ipv4Address.string, port: UInt16(publicHTTPPort))
+			// let webserver = try PublicHTTPWebServer(eventLoop: .shared(eventLoopGroup), wgdb: wgdb, hostIPv6: ipv6Addresses.map({ $0.addressString }), hostIPv4: ipv4Address.string, port: UInt16(publicHTTPPort))
+			let webserver = try PublicHTTPWebServer(eventLoop: .shared(eventLoopGroup), wgdb: wgdb, hostIPv6: ["::1"], hostIPv4: "127.0.0.1", port: UInt16(publicHTTPPort))
 			try await ServiceGroup(services:[webserver, handshakeChecker, ipStacker], gracefulShutdownSignals:[.sigterm, .sigint], logger:Logger(label:"wiremand")).run()
 		}
 	}

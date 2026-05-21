@@ -34,7 +34,7 @@ extension CLI {
 				
 				let (newDomain, newSK) = try wgdb.domainMake(name:EncodedString(domainName.lowercased()))
 				let domainHash = try DomainHash(domainName: EncodedString(domainName))
-				appLogger.info("domain created successfully.", metadata:["_sk":"\(newSK)", "_dk":"\(domainHash.string)", "domain":"\(newDomain.cidrstring)"])
+				appLogger.info("domain created successfully.", metadata:["_sk":"\(newSK.string)", "_dk":"\(domainHash.string)", "domain":"\(newDomain.cidrstring)"])
 				
 				let nftableExecutor = try NFTables()
 				let commands = Firewall.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
@@ -84,9 +84,9 @@ extension CLI {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				let allDomains = try wgdb.allDomains()
 				for curDomain in allDomains {
-					print("\(curDomain.name)")
+					print("\(String(curDomain.name))")
 					if (self.apiKeys == true) {
-						print(Colors.Yellow("\t- sk: \(curDomain.securityKey)"))
+						print(Colors.Yellow("\t- sk: \(curDomain.securityKey.string)"))
 						print(Colors.Cyan("\t- dk: \(try DomainHash(domainName: curDomain.name).string)"))
 					}
 					print(Colors.dim("\t- subnets: \(curDomain.networks.map(\.cidrstring).joined(separator: ", "))"))
