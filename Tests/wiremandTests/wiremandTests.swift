@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftSlash
 import wiremand_databases
 import wiremand
 import Logging
@@ -28,6 +29,36 @@ extension WiremandTests {
       try wgdb.clientMake(name: EncodedString("newClient"), publicKey: clientPublicKey, domain: EncodedString("exampleDomain"))
       let bool = try wgdb.validateNewClientName(domain: EncodedString("exampleDomain"), clientName: EncodedString("invalid"))
       print(bool)
+    }
+  }
+}
+
+extension WiremandTests {
+  @Suite("Netlink Tests", .serialized)
+  struct NetlinkTests {
+    @Test func testGetInterface() async throws {
+      let interfaces = try RTNetlink.getInterfaces()
+      let sortedInterfaces = Array(interfaces).sorted { $0.interfaceIndex < $1.interfaceIndex }
+
+      let result = try await Command(sh: "ip link show", environment: CurrentEnvironment.environmentVariables()).runSync()
+      guard result.succeeded == true else {
+        print("failed command")
+        throw fatalError()
+      }
+
+      #expect(interfaces.count == result.stdout.count / 2)
+
+      for res in result.stdout {
+        print(String(data:Data(res), encoding:.utf8)!)
+      }
+
+      for iface in sortedInterfaces {
+        print("""
+        • \(iface.interfaceName) (index: \(iface.interfaceIndex))
+          MAC: \(iface.address ?? "N/A")
+          Broadcast: \(iface.broadcast ?? "N/A")
+        """)
+      }
     }
   }
 }

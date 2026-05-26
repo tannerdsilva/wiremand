@@ -28,6 +28,7 @@ struct CLI:AsyncParsableCommand {
 			Domain.self,
 			Client.self,
 			Run.self,
+			Netlink.self,
 		]
 	)
 

@@ -57,9 +57,11 @@ let package = Package(
 				.product(name:"ArgumentParser", package:"swift-argument-parser"),
 				.product(name:"Logging", package:"swift-log"),
 				.product(name:"Hummingbird", package:"hummingbird"),
-				"wiremand_databases"
+				"wiremand_databases",
+				"Crtnetlink"
 			],
 		),
+		.target(name:"Crtnetlink", dependencies: []),
 		.systemLibrary(name:"Clibnftables", pkgConfig:"libnftables", providers:[.apt(["libnftables-dev"])]),
 		.testTarget(
 			name: "wiremandTests",
@@ -72,21 +74,5 @@ let package = Package(
 				.product(name:"RAW", package:"rawdog"),
 			],
 		)
-        /*.executableTarget(
-            name: "wiremand",
-            dependencies: [
-            	.product(name:"SwiftSlash", package:"SwiftSlash"),
-            	.product(name:"QuickLMDB", package:"QuickLMDB"),
-            	.product(name:"AddressKit", package:"AddressKit"),
-            	.product(name:"Hummingbird", package:"hummingbird"),
-            	.product(name:"SignalStack", package:"SignalStack"),
-				.product(name:"SwiftSMTP", package:"swift-smtp"),
-				.product(name:"AsyncHTTPClient", package:"async-http-client"),
-				.product(name:"SwiftDate", package:"SwiftDate"),
-				.product(name:"SystemPackage", package:"swift-system"),
-				.product(name:"SwiftBlake2", package:"SwiftBlake2"),
-				.product(name:"ArgumentParser", package:"swift-argument-parser"),
-				.product(name:"bedrock", package:"bedrock")
-            ]),*/
     ]
 )
