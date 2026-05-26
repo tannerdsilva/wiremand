@@ -60,5 +60,43 @@ extension WiremandTests {
         """)
       }
     }
+
+    @Test func testGetAddress() throws {
+      let addressesV4 = try RTNetlink.getAddressesV4()
+      for addr in addressesV4 {
+        let scopeDesc = switch addr.scope {
+          case 0: "UNIVERSE"
+          case 1: "LINK"
+          case 255: "HOST"
+          default: "UNKNOWN(\(addr.scope))"
+        }
+        print("  \(addr.interfaceName): \(addr.address ?? "nil")/\(addr.prefix_length) [scope: \(scopeDesc)]")
+      }
+
+      let addressesV6 = try RTNetlink.getAddressesV6()
+      for addr in addressesV6 {
+        print("  \(addr.interfaceName): \(addr.address ?? "nil")/\(addr.prefix_length)")
+      }
+    }
+
+    @Test func testGetRoutes() throws {
+      let routesV4 = try RTNetlink.getRoutesV4()
+      for route in routesV4 {
+        let dst = route.destination ?? "*"
+        let gw = route.gateway ?? "*"
+        let iif = route.inputInterfaceName ?? "-"
+        let oif = route.outputInterfaceName ?? "-"
+        print("  \(dst) via \(gw) dev \(oif) (iif: \(iif)) table: \(route.table)")
+      }
+
+      let routesV6 = try RTNetlink.getRoutesV6()
+      for route in routesV6 {
+        let dst = route.destination ?? "*"
+        let gw = route.gateway ?? "*"
+        let iif = route.inputInterfaceName ?? "-"
+        let oif = route.outputInterfaceName ?? "-"
+        print("  \(dst) via \(gw) dev \(oif) (iif: \(iif)) table: \(route.table)")
+      }
+    }
   }
 }

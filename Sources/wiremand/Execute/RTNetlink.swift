@@ -2,11 +2,11 @@ import Foundation
 import Crtnetlink
 import Logging
 
-enum AddressFamily:UInt8, Codable {
+public enum AddressFamily:UInt8, Codable {
 	case v4 = 4
 	case v6 = 6
 	
-	init(from decoder:Decoder) throws {
+	public init(from decoder:Decoder) throws {
 		var container = try decoder.singleValueContainer()
 		switch try container.decode(UInt8.self) {
 			case 4:
@@ -18,7 +18,7 @@ enum AddressFamily:UInt8, Codable {
 		}
 	}
 	
-	func encode(to encoder:Encoder) throws {
+	public func encode(to encoder:Encoder) throws {
 		var container = try encoder.singleValueContainer()
 		try container.encode(self)
 	}
@@ -78,16 +78,16 @@ extension RTNetlink {
 }
 
 extension RTNetlink {
-	struct AddressRecord:Hashable, Codable {
-		let family:AddressFamily
-		let interfaceIndex:Int32
-		let interfaceName:String
-		let prefix_length:UInt8
-		let scope:UInt8
-		let address:String?
-		let local:String?
-		let broadcast:String?
-		let anycast:String?
+	public struct AddressRecord:Hashable, Codable {
+		public let family:AddressFamily
+		public let interfaceIndex:Int32
+		public let interfaceName:String
+		public let prefix_length:UInt8
+		public let scope:UInt8
+		public let address:String?
+		public let local:String?
+		public let broadcast:String?
+		public let anycast:String?
 		
 		init(_ r:UnsafeMutablePointer<ifaddrmsg>, _ tb:UnsafeMutablePointer<UnsafeMutablePointer<rtattr>?>?) {
 			switch r.pointee.ifa_family {
@@ -154,19 +154,19 @@ extension RTNetlink {
 }
 
 extension RTNetlink {
-	struct RouteRecord:Hashable, Codable {
-		let family:AddressFamily
-		let destination:String?
-		let destination_length:UInt8
-		let source:String?
-		let source_length:UInt8
-		let inputInterfaceIndex:UInt32?
-		let inputInterfaceName:String?
-		let outputInterfaceIndex:UInt32?
-		let outputInterfaceName:String?
-		let gateway:String?
-		let priority:UInt32?
-		let table:UInt32
+	public struct RouteRecord:Hashable, Codable {
+		public let family:AddressFamily
+		public let destination:String?
+		public let destination_length:UInt8
+		public let source:String?
+		public let source_length:UInt8
+		public let inputInterfaceIndex:UInt32?
+		public let inputInterfaceName:String?
+		public let outputInterfaceIndex:UInt32?
+		public let outputInterfaceName:String?
+		public let gateway:String?
+		public let priority:UInt32?
+		public let table:UInt32
 		
 		init(_ r:UnsafeMutablePointer<rtmsg>, _ tb:UnsafeMutablePointer<UnsafeMutablePointer<rtattr>?>?) {
 			switch r.pointee.rtm_family {
@@ -297,7 +297,7 @@ public class RTNetlink {
 		return interfaces
 	}
 	
-	static func getAddressesV4() throws -> Set<AddressRecord> {
+	public static func getAddressesV4() throws -> Set<AddressRecord> {
 		let nl_sock = open_netlink()
 		defer {
 			close(nl_sock)
@@ -319,7 +319,7 @@ public class RTNetlink {
 		return returnRecords
 	}
 	
-	static func getAddressesV6() throws -> Set<AddressRecord> {
+	public static func getAddressesV6() throws -> Set<AddressRecord> {
 		let nl_sock = open_netlink()
 		defer {
 			close(nl_sock)
@@ -341,7 +341,7 @@ public class RTNetlink {
 		return returnRecords
 	}
 	
-	static func getRoutesV4() throws -> Set<RouteRecord> {
+	public static func getRoutesV4() throws -> Set<RouteRecord> {
 		let nl_sock = open_netlink()
 		defer {
 			close(nl_sock)
@@ -369,7 +369,7 @@ public class RTNetlink {
 	}
 
 	
-	static func getRoutesV6() throws -> Set<RouteRecord> {
+	public static func getRoutesV6() throws -> Set<RouteRecord> {
 		let nl_sock = open_netlink()
 		defer {
 			close(nl_sock)

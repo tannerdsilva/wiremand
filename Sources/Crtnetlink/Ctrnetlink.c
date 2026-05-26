@@ -84,46 +84,6 @@ int do_interface_dump_request(int sock) {
 	return send(sock, &request, sizeof(request), 0);
 }
 
-// int get_interface_dump_response(int sock, void(^hndlr)(struct nlmsghdr *)) {
-// 	struct sockaddr_nl nladdr;
-// 	struct iovec iov;
-// 	struct msghdr msg = {
-// 		.msg_name = &nladdr,
-// 		.msg_namelen = sizeof(nladdr),
-// 		.msg_iov = &iov,
-// 		.msg_iovlen = 1,
-// 	};
-	
-// 	char *buf;
-// 	int dump_intr = 0;
-	
-// 	int status = rtnl_recvmsg(sock, &msg, &buf);
-	
-// 	struct nlmsghdr *h = (struct nlmsghdr*)buf;
-// 	int msglen = status;
-// 	while (NLMSG_OK(h, msglen)) {
-// 		if (h->nlmsg_flags & NLM_F_DUMP_INTR) {
-// 			free(buf);
-// 			return -1;
-// 		}
-		
-// 		if (nladdr.nl_pid != 0) {
-// 			continue;
-// 		}
-		
-// 		if (h->nlmsg_type == NLMSG_ERROR) {
-// 			free(buf);
-// 			return -2;
-// 		}
-		
-// 		hndlr(h);
-		
-// 		h = NLMSG_NEXT(h, msglen);
-// 	}
-// 	free(buf);
-// 	return status;
-// }
-
 int get_interface_dump_response(int sock, void(^hndlr)(struct nlmsghdr *)) {
     struct sockaddr_nl nladdr;
     struct iovec iov;
@@ -170,21 +130,6 @@ int get_interface_dump_response(int sock, void(^hndlr)(struct nlmsghdr *)) {
     }
 }
 
-// int read_interface(struct nlmsghdr *nl_header_answer, void(^hndlr)(struct ifinfomsg *ifin, struct rtattr *attrs[RTA_MAX+1])) {
-// 	struct ifinfomsg *ifin = NLMSG_DATA(nl_header_answer);
-// 	int len = nl_header_answer->nlmsg_len;
-// 	struct rtattr *tb[IFLA_MAX+1];
-// 	char buf[256];
-// 	len -= NLMSG_LENGTH(sizeof(*ifin));
-// 	if (len < 0) {
-// 		return -1;
-// 	}
-	
-// 	parse_rtattr(tb, IFLA_MAX, IFLA_RTA(ifin), len);
-	
-// 	hndlr(ifin, tb);
-// 	return 0;
-// }
 int read_interface(struct nlmsghdr *nl_header_answer, void(^hndlr)(struct ifinfomsg *ifin, struct rtattr *attrs[IFLA_MAX+1])) {
     if (nl_header_answer->nlmsg_type != RTM_NEWLINK) {
         return -1;
@@ -245,43 +190,27 @@ int do_address_dump_request_v6(int sock) {
 }
 
 int get_address_dump_response(int sock, void(^hndlr)(struct nlmsghdr *)) {
-	struct sockaddr_nl nladdr;
-	struct iovec iov;
-	struct msghdr msg = {
-		.msg_name = &nladdr,
-		.msg_namelen = sizeof(nladdr),
-		.msg_iov = &iov,
-		.msg_iovlen = 1,
-	};
-	
-	char *buf;
-	int dump_intr = 0;
-	
-	int status = rtnl_recvmsg(sock, &msg, &buf);
-	
-	struct nlmsghdr *h = (struct nlmsghdr*)buf;
-	int msglen = status;
-	while (NLMSG_OK(h, msglen)) {
-		if (h->nlmsg_flags & NLM_F_DUMP_INTR) {
-			free(buf);
-			return -1;
-		}
-		
-		if (nladdr.nl_pid != 0) {
-			continue;
-		}
-		
-		if (h->nlmsg_type == NLMSG_ERROR) {
-			free(buf);
-			return -2;
-		}
-		
-		hndlr(h);
-		
-		h = NLMSG_NEXT(h, msglen);
-	}
-	free(buf);
-	return status;
+    struct sockaddr_nl nladdr;
+    struct iovec iov;
+    struct msghdr msg = { .msg_name = &nladdr, .msg_namelen = sizeof(nladdr), .msg_iov = &iov, .msg_iovlen = 1 };
+    char buf[65536];
+    iov.iov_base = buf;
+    iov.iov_len = sizeof(buf);
+
+    while (1) {
+        int len = rtnl_receive(sock, &msg, 0);
+        if (len < 0) return (int)len;
+        struct nlmsghdr *h = (struct nlmsghdr*)buf;
+        int msglen = len;
+        while (NLMSG_OK(h, msglen)) {
+            if (h->nlmsg_flags & NLM_F_DUMP_INTR) return -1;
+            if (nladdr.nl_pid != 0) { h = NLMSG_NEXT(h, msglen); continue; }
+            if (h->nlmsg_type == NLMSG_ERROR) return -2;
+            if (h->nlmsg_type == NLMSG_DONE) return 0;
+            if (h->nlmsg_type == RTM_NEWADDR) hndlr(h);
+            h = NLMSG_NEXT(h, msglen);
+        }
+    }
 }
 
 int read_address(struct nlmsghdr *nl_header_answer, void(^hndlr)(struct ifaddrmsg *ifa, struct rtattr *attrs[RTA_MAX+1])) {
