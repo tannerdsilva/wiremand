@@ -148,11 +148,17 @@ extension PublicHTTPWebServer {
 		}
 		
 		public func respond(to request: Request,context: Context) async throws -> Response {
-			guard let hostString = request.uri.host?.lowercased() else {
-				logger.error("no host was found in the uri")
+			// guard let hostString = request.uri.host?.lowercased() else {
+			// 	logger.error("no host was found in the uri")
+			// 	return Response(status: .badRequest)
+			// }
+			// let host = EncodedString(hostString)
+
+			guard let inputDomain = request.uri.queryParameters["domain"] else {
+				logger.error("no domain")
 				return Response(status: .badRequest)
 			}
-			let host = EncodedString(hostString)
+			let host = EncodedString(String(inputDomain))
 			
 			let httpDomainHash: DomainHash
 			do {
@@ -179,7 +185,7 @@ extension PublicHTTPWebServer {
 				logger.error("dk parameter is not a valid 8-byte, Base64 encoded string")
 				return Response(status: .badRequest)
 			}
-			
+
 			guard httpDomainHash == inputDomainHash else {
 				logger.error(
 					"input domain hash does not match the domain hash derived from the host header."
@@ -211,7 +217,7 @@ extension PublicHTTPWebServer {
 			
 			let (wgDNSName, wgPort, wgInternalNetwork, serverV4, pubKey, interfaceName, publicV4) = try wgdb.getWireguardConfigMetas()
 			
-			var client: (addressV6:[AddressV6], addressV4:AddressV4?, publicKey:PublicKey?)!
+			var client: (addressV6:[AddressV6], addressV4:AddressV4?, publicKey:PublicKey?) = ([], nil, nil)
 			do {
 				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(keyName), publicKey: clientPublicKey, domain: host, ipv4: false)
 				client.publicKey = nil
@@ -222,7 +228,7 @@ extension PublicHTTPWebServer {
 				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(keyName), publicKey: clientPublicKey, domain: host, ipv4: false)
 			}
 			
-//			var buildKey = "[Interface]\n"
+			// var buildKey = "[Interface]\n"
 			//mbuildKey += "PrivateKey = " + newKeys.privateKey + "\n"
 			let ipv6Addresses = client.addressV6.map({ $0.string + "/128" }).joined(separator: ", ")
 			var buildKey = "Address = " + ipv6Addresses + "\n"
@@ -237,14 +243,14 @@ extension PublicHTTPWebServer {
 			let allowedIPs = wgInternalNetwork.map { $0.cidrstring }.joined(separator: ", ")
 			buildKey += "AllowedIPs = \(allowedIPs)"
 			if (client.addressV4 != nil) {
-				buildKey += ", \(serverV4)/32\n"
+				buildKey += ", \(serverV4.string)/32\n"
 			} else {
 				buildKey += "\n"
 			}
 			if let publicV4 = publicV4 {
-				buildKey += "Endpoint = \(publicV4.string):\(wgPort)\n"
+				buildKey += "Endpoint = \(publicV4.string):\(wgPort.RAW_native())\n"
 			} else {
-				buildKey += "Endpoint = \(wgDNSName):\(wgPort)\n"
+				buildKey += "Endpoint = \(String(wgDNSName)):\(wgPort.RAW_native())\n"
 			}
 			buildKey += "PersistentKeepalive = 25" + "\n"
 			

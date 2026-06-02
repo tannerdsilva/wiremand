@@ -35,10 +35,6 @@ extension CLI {
 				let (newDomain, newSK) = try wgdb.domainMake(name:EncodedString(domainName.lowercased()))
 				let domainHash = try DomainHash(domainName: EncodedString(domainName))
 				appLogger.info("domain created successfully.", metadata:["_sk":"\(newSK.string)", "_dk":"\(domainHash.string)", "domain":"\(newDomain.cidrstring)"])
-				
-				let nftableExecutor = try NFTables()
-				let commands = Firewall.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
-				try nftableExecutor.run(commands: commands)
 			}
 		}
 		
@@ -62,10 +58,6 @@ extension CLI {
 				try NginxExecutor.uninstall(domain:domainName.lowercased())
 				try await NginxExecutor.reload(logLevel: globals.logLevel)
 				try await SelfSignedCertExecutor.removeCert(domain: domainName)
-				
-				let nftableExecutor = try NFTables()
-				let commands = Firewall.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
-				try nftableExecutor.run(commands: commands)
 			}
 		}
 		

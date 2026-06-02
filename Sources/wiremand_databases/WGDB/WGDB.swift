@@ -423,7 +423,7 @@ public struct WireguardDatabase: Sendable {
 		let publicInterfaceName = try metadata.loadEntry(key: EncodedString(Metadatas.wg_primaryInterfaceName.rawValue), as: EncodedString.self, tx: newTrans)!
 		let publicIPv4Interface:AddressV4?
 		do {
-			publicIPv4Interface = try metadata.loadEntry(key: EncodedString(Metadatas.wg_primaryInterfaceName.rawValue), as: AddressV4.self, tx: newTrans)
+			publicIPv4Interface = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicIPv4Address.rawValue), as: AddressV4.self, tx: newTrans)
 		} catch LMDBError.notFound {
 			publicIPv4Interface = nil
 		}
@@ -637,6 +637,10 @@ public struct WireguardDatabase: Sendable {
 			}
 		}
 		
+		for address in v6Addresses {
+			try self.ipv6_clientPub.setEntry(key: address, value: publicKey, flags: [.noOverwrite], tx: tx)
+			try self.clientPub_ipv6.setEntry(key: publicKey, value: address, flags: [], tx: tx)
+		}
 		try self.clientPub_clientName.setEntry(key: publicKey, value: name, flags: [.noOverwrite], tx: tx)
 		try self.clientPub_createdOn.setEntry(key: publicKey, value: bedrock.Date.Seconds(), flags: [.noOverwrite], tx: tx)
 		try self.clientPub_domainHash.setEntry(key: publicKey, value: domainHash, flags: [.noOverwrite], tx: tx)
@@ -695,13 +699,14 @@ public struct WireguardDatabase: Sendable {
 		}
 		
 		try clientPub_ipv6.cursor(tx:tx) { cursor in
-			for (_, ipv6Addr) in cursor.makeDupIterator(key: myPubKey) {
+			for (_, ipv6Addr) in cursor.makeDupIterator(key: publicKey) {
 				try self.ipv6_clientPub.deleteEntry(key: ipv6Addr, tx: tx)
 			}
 		}
 		try self.clientPub_ipv6.deleteEntry(key: publicKey, tx: tx)
 		try self.clientPub_clientName.deleteEntry(key: publicKey, tx: tx)
 		try self.clientPub_domainHash.deleteEntry(key: publicKey, tx: tx)
+		try self.clientPub_createdOn.deleteEntry(key: publicKey, tx: tx)
 		
 		let didHandshake:Bool
 		do {
@@ -726,7 +731,7 @@ public struct WireguardDatabase: Sendable {
 		
 		// webserve code here if needed
 		
-		log.debug("successfully removed client from database", metadata:["public_key": "\(publicKey)", "client_name": "\(clientName)", "client_domain": "\(clientDomain)", "had_ipv4": "\(hadIPv4)", "did_handshake": "\(didHandshake)", "did_have_endpoint": "\(didCaptureEndpoint)" /*"had_webserve_config": "\(hadWebserveConfig)"*/])
+		log.debug("successfully removed client from database", metadata:["public_key": "\(publicKey.string)", "client_name": "\(String(clientName))", "client_domain": "\(clientDomain.string)", "had_ipv4": "\(hadIPv4)", "did_handshake": "\(didHandshake)", "did_have_endpoint": "\(didCaptureEndpoint)" /*"had_webserve_config": "\(hadWebserveConfig)"*/])
 		return publicKey
 	}
 	

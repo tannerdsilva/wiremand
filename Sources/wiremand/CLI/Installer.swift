@@ -62,7 +62,7 @@ extension CLI {
 			} while (endpoint == nil || endpoint!.count == 0)
 
 			// let (resExtV4, resExtV6) = try await DigExecutor.resolveAddresses(for:endpoint!, logLevel: logLevel)
-			let (resExtV4, resExtV6) = (AddressV4("192.168.100.1"), AddressV6("fd00::1"))
+			let (resExtV4, resExtV6) = (AddressV4("10.16.200.198"), AddressV6("fd00::1"))
 			
 			guard resExtV4 != nil else {
 				appLogger.error("there is no A record", metadata:["dns_name":"\(endpoint!)"])
@@ -350,16 +350,6 @@ extension CLI {
 				appLogger.critical("unable to reload the systemctl daemon")
 				throw Error.daemonReloadError
 			}
-			
-			appLogger.info("creating firewall rules")
-			let nftableExecutor = try NFTables()
-			appLogger.trace("aquiring domains")
-			let domains = try wgdb.allDomains()
-			let commands = Firewall.createDomainFirewall(domains: domains, interfaceName: interfaceName, wgListenPort: try wgdb.getPublicListenPort().RAW_native())
-			for command in commands {
-				print(command)
-			}
-			try nftableExecutor.run(commands: commands)
 			
 			appLogger.info("Installation complete. Please restart this machine.")
 		}

@@ -362,7 +362,7 @@ extension CLI.Client {
 				}
 			}
 			guard try wgdb.validateDomain(name:domain!) == true else {
-				print(Colors.Red("The domain name '\(domain!)' does not exist"))
+				print(Colors.Red("The domain name '\(String(domain!))' does not exist"))
 				throw CLI.Client.Error.notFound
 			}
 			

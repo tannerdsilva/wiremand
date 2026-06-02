@@ -8,7 +8,7 @@ struct Firewall {
 		
 		// Table and IPv6 Domain Sets
 		commands.append("add table inet domain_firewall")
-		commands.append("flush table inet domain_firewall")
+		commands.append("delete table inet domain_firewall")
 		commands.append("add table inet domain_firewall")
 		
 		for domain in domains {
@@ -18,6 +18,10 @@ struct Firewall {
 			commands.append("add set inet domain_firewall \(safeName)_subnets { type ipv6_addr; flags interval; }")
 			commands.append("add element inet domain_firewall \(safeName)_subnets { \(setElements) }")
 		}
+
+		commands.append("add set inet domain_firewall wg_internal_subnets { type ipv6_addr; flags interval; }")
+		let setElements = domains.map{"@\($0.name)_subnets"}.joined(separator: ", ")
+		commands.append("add element inet domain_firewall wg_internal_subnets { \(setElements) }")
 		
 		// Input Chain
 		commands.append("add chain inet domain_firewall input { type filter hook input priority 0; policy drop; }")
@@ -30,7 +34,8 @@ struct Firewall {
 		// Forward Chain
 		commands.append("add chain inet domain_firewall forward { type filter hook forward priority 0; policy drop; }")
 		commands.append("add rule inet domain_firewall forward ct state established,related accept;")
-		
+		commands.append("add rule inet domain_firewall forward iifname \"\(interfaceName)\" ip daddr != @wg_internal_subnets ct state new accept")
+		commands.append("add rule inet domain_firewall forward iifname \"\(interfaceName)\" ip6 daddr != @wg_internal_subnets ct state new accept")
 		for domain in domains {
 			let safeName = String(domain.name).replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "_", options: .regularExpression)
 			commands.append("add rule inet domain_firewall forward iifname \"\(interfaceName)\" ip6 saddr @\(safeName)_subnets ip6 daddr @\(safeName)_subnets accept;")
@@ -38,6 +43,35 @@ struct Firewall {
 		
 		commands.append("add rule inet domain_firewall forward log prefix \"DOMAIN_ISOLATION: \" level warn;")
 		commands.append("add rule inet domain_firewall forward drop;")
+		
+		//commands.append("add chain inet domain_firewall prerouting { type nat hook prerouting priority dstnat; policy accept; }")
+		//commands.append("add rule inet domain_firewall prerouting iifname \"wl*\" tcp dport 443 dnat to 127.0.0.1:8080;")
+
+		// commands.append("add chain inet domain_firewall postrouting { type nat hook postrouting priority srcnat; policy accept; }")
+		// commands.append("add rule inet domain_firewall postrouting oifname != \"\(interfaceName)\" ip saddr @wg_internal_subnets masquerade; ")
+		
+		return commands
+	}
+
+	static func createIPv6RedirectCommands(targetDomains: [String], localIPv6Address: String) -> [String] {
+		var commands: [String] = []
+		
+		let table = "ip6_redirect"
+		let set   = "domains"
+		
+		// Table & Set creation
+		commands.append("add table ip6 \(table)")
+		commands.append("flush table ip6 \(table)")
+		commands.append("add table ip6 \(table)")
+		
+		commands.append("add set ip6 \(table) \(set) { type ipv6_addr; flags interval; }")
+		if !targetDomains.isEmpty {
+			commands.append("add element ip6 \(table) \(set) { \(targetDomains.joined(separator: ", ")) }")
+		}
+		
+		// Prerouting chain (required for destination modifications)
+		commands.append("add chain ip6 \(table) prerouting { type nat hook prerouting priority dstnat; policy accept; }")
+		commands.append("add rule ip6 \(table) prerouting meta l4proto { tcp, udp } ip6 daddr @\(set) counter dnat to [\(localIPv6Address)]:8080;")
 		
 		return commands
 	}

@@ -72,7 +72,7 @@ final class HandshakeChecker: Service {
 						if asTimeInterval == 0 {
 							zeros.update(with:publicKey)
 						} else {
-							handshakes[publicKey] = bedrock.Date.Seconds().addingTimeInterval(UInt64(asTimeInterval))
+							handshakes[publicKey] = bedrock.Date.Seconds(seconds: UInt64(asTimeInterval))
 						}
 					}
 					
@@ -137,8 +137,7 @@ final class HandshakeChecker: Service {
 							} else {
 								throw Error.endpointCheckError
 							}
-						} catch Error.noEndpointProvided {
-						}
+						} catch Error.noEndpointProvided { }
 					}
 					
 					// save the handshake data to the database

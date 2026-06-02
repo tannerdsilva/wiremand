@@ -45,7 +45,10 @@ extension bedrock.Date.Seconds {
 }
 
 extension bedrock.Date.Seconds {
-	public func timeIntervalSince(other:bedrock.Date.Seconds) -> Int64{
+    public init(seconds:UInt64) {
+        self.init(RAW_native:seconds)
+    }
+	public func timeIntervalSince(other:bedrock.Date.Seconds) -> Int64 {
 		return Int64(self.RAW_native()) - Int64(other.RAW_native())
 	}
 	public var timeIntervalSinceNow:Int64 {
