@@ -21,3 +21,17 @@ extension wiremand_databases.PublicKey: ExpressibleByArgument {
 		self = wiremand_databases.PublicKey(RAW_staticbuff:bytes)
 	}
 }
+
+extension AddressV4: ExpressibleByArgument {
+	public init?(argument: String) {
+		guard let address = AddressV4(argument) else { return nil }
+		self = address
+	}
+}
+
+extension AddressV6: ExpressibleByArgument {
+	public init?(argument: String) {
+		guard let address = AddressV6(argument) else { return nil }
+		self = address
+	}
+}

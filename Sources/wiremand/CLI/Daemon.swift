@@ -38,22 +38,28 @@ extension CLI {
 
 			let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 			let ipdb = try IPDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+			let firewallDB = try FirewallDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 			
-			let (_, _, ipv6Addresses, ipv4Address, _, interfaceName, _) = try wgdb.getWireguardConfigMetas()
+			let (_, _, ipv6Addresses, ipv4Address, _, interfaceName, publicIPv4Interface) = try wgdb.getWireguardConfigMetas()
 			let v6Addresses = ipv6Addresses.map({ $0.addressString })
 
 			let domains = try wgdb.allDomains()
 			let domainIPStrings = domains.map { $0.networks.map { $0.addressString } }.flatMap { $0 }
 			let nftableExecutor = try NFTables()
 			// let commands = Firewall.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
-			let commands = Firewall.createIPv6RedirectCommands(targetDomains: domainIPStrings, localIPv6Address: ipv6Addresses[0].addressString)
-			try nftableExecutor.run(commands: commands)
+			let ipv4Dict = try firewallDB.getAllWhitelistedIPv4()
+			let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Dict.map { ($0.key.string, $0.value.map { $0.string }) })
+			let ipv6Dict = try firewallDB.getAllWhitelistedIPv6()
+			let ipv6Whitelist = Dictionary(uniqueKeysWithValues: ipv6Dict.map { ($0.key.string, $0.value.map { $0.string }) })
+			let whitelistCommands = FirewallExecutor.createWhitelist(ipv4Dictionary: ipv4Whitelist, ipv6Dictionary: ipv6Whitelist)
+			let redirectCommands = FirewallExecutor.createIPRedirectCommands(targetIPAddress:publicIPv4Interface!.string, localIPv4Address: ipv4Address.string, targetDomains: domainIPStrings, localIPv6Address: ipv6Addresses[0].addressString)
+			try nftableExecutor.run(commands: whitelistCommands + redirectCommands)
 
 			let handshakeChecker = try HandshakeChecker(wgdb: wgdb, ipdb: ipdb, interfaceName: interfaceName, logLevel: globals.logLevel)
 			let ipStacker = try IPStacker(ipdb: ipdb, logLevel: globals.logLevel)
 			let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-
-			let webserver = try PublicHTTPWebServer(eventLoop: .shared(eventLoopGroup), wgdb: wgdb, hostIPv6: v6Addresses, hostIPv4: ipv4Address.string, port: 8080)//UInt16(publicHTTPPort))
+			
+			let webserver = try PublicHTTPWebServer(eventLoop: .shared(eventLoopGroup), wgdb: wgdb, hostIPv6: v6Addresses, hostIPv4: ipv4Address.string, port: UInt16(publicHTTPPort))
 			try await ServiceGroup(services:[webserver, handshakeChecker, ipStacker], gracefulShutdownSignals:[.sigterm, .sigint], logger:Logger(label:"wiremand")).run()
 		}
 	}

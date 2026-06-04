@@ -62,7 +62,7 @@ extension CLI {
 			} while (endpoint == nil || endpoint!.count == 0)
 
 			// let (resExtV4, resExtV6) = try await DigExecutor.resolveAddresses(for:endpoint!, logLevel: logLevel)
-			let (resExtV4, resExtV6) = (AddressV4("10.16.200.198"), AddressV6("fd00::1"))
+			let (resExtV4, resExtV6) = (AddressV4("10.16.200.198"), AddressV6("fe80::5607:7dff:fe12:76cd"))
 			
 			guard resExtV4 != nil else {
 				appLogger.error("there is no A record", metadata:["dns_name":"\(endpoint!)"])
@@ -317,10 +317,12 @@ extension CLI {
 			}
 			
 			appLogger.info("installing databases...")
- 
+
 			let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
 			let _ = try Scheduler(base: homeDir, log: appLogger)
 			appLogger.trace("scheduler created...")
+
+			FirewallDatabase.deleteDB(base: Path(homeDir.path))
 			
 			WireguardDatabase.deleteDB(base: Path(homeDir.path))
 			let wgdb = try WireguardDatabase(base: Path(homeDir.path), logLevel: logLevel)

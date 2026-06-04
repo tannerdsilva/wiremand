@@ -655,7 +655,7 @@ public struct WireguardDatabase: Sendable {
 			log.info("new client invalidation date defined as a default value", metadata:["time_interval":"\(defaultInvalidation.timeInterval.description)", "target_date":"\(targetDate.iso8601String())"])
 		}
 		
-		try self.domainHash_clientPub.setEntry(key: domainHash, value: publicKey, flags: [.noDupData], tx: tx)
+		try self.domainHash_clientPub.setEntry(key: domainHash, value: publicKey, flags: [], tx: tx)
 		try self.domainHash_clientNameHash.setEntry(key: domainHash, value: ClientNameHash(clientName: name), flags: [.noDupData], tx: tx)
 		
 		return (v6Addresses, v4Addr)

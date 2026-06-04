@@ -2,14 +2,14 @@ import Foundation
 import wiremand_databases
 import Logging
 
-struct Firewall {
+struct FirewallExecutor {
 	static func createDomainFirewall(domains: [WireguardDatabase.DomainInfo], interfaceName: String, wgListenPort: UInt16) -> [String] {
 		var commands: [String] = []
 		
 		// Table and IPv6 Domain Sets
-		commands.append("add table inet domain_firewall")
-		commands.append("delete table inet domain_firewall")
-		commands.append("add table inet domain_firewall")
+		commands.append("add table6 inet domain_firewall")
+		commands.append("delete table6 inet domain_firewall")
+		commands.append("add table6 inet domain_firewall")
 		
 		for domain in domains {
 			let safeName = String(domain.name).replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "_", options: .regularExpression)
@@ -53,26 +53,70 @@ struct Firewall {
 		return commands
 	}
 
-	static func createIPv6RedirectCommands(targetDomains: [String], localIPv6Address: String) -> [String] {
+	static func createIPRedirectCommands(targetIPAddress:String, localIPv4Address: String, targetDomains: [String], localIPv6Address: String) -> [String] {
 		var commands: [String] = []
+
+		let table = "ip_redirect"
+
+		commands.append("add table ip \(table)")
+		commands.append("flush table ip \(table)")
+		//commands.append("add table ip \(table)")
 		
-		let table = "ip6_redirect"
+		// Prerouting chain (required for destination modifications)
+		commands.append("add chain ip \(table) prerouting { type nat hook prerouting priority dstnat; policy accept; }")
+		commands.append("add rule ip \(table) prerouting meta l4proto { tcp, udp } ip daddr \(targetIPAddress) th dport != 29300 counter log prefix \"IP_REDIRECT: \" dnat to \(localIPv4Address):8080;")
+		
+		let table6 = "ip6_redirect"
 		let set   = "domains"
 		
 		// Table & Set creation
-		commands.append("add table ip6 \(table)")
-		commands.append("flush table ip6 \(table)")
-		commands.append("add table ip6 \(table)")
+		commands.append("add table ip6 \(table6)")
+		commands.append("flush table ip6 \(table6)")
+		//commands.append("add table ip6 \(table6)")
 		
-		commands.append("add set ip6 \(table) \(set) { type ipv6_addr; flags interval; }")
+		commands.append("add set ip6 \(table6) \(set) { type ipv6_addr; flags interval; }")
 		if !targetDomains.isEmpty {
-			commands.append("add element ip6 \(table) \(set) { \(targetDomains.joined(separator: ", ")) }")
+			commands.append("add element ip6 \(table6) \(set) { \(targetDomains.joined(separator: ", ")) }")
 		}
 		
 		// Prerouting chain (required for destination modifications)
-		commands.append("add chain ip6 \(table) prerouting { type nat hook prerouting priority dstnat; policy accept; }")
-		commands.append("add rule ip6 \(table) prerouting meta l4proto { tcp, udp } ip6 daddr @\(set) counter dnat to [\(localIPv6Address)]:8080;")
+		commands.append("add chain ip6 \(table6) prerouting { type nat hook prerouting priority dstnat; policy accept; }")
+		commands.append("add rule ip6 \(table6) prerouting meta l4proto { tcp, udp } ip6 daddr @\(set) counter log prefix \"IP6_REDIRECT: \" dnat to [\(localIPv6Address)]:8080;")
 		
+		return commands
+	}
+
+	static func createWhitelist(ipv4Dictionary:[String:[String]], ipv6Dictionary:[String:[String]]) -> [String] {
+		var commands: [String] = []
+
+		let table = "ip_whitelist"
+
+		commands.append("add table ip \(table)")
+		commands.append("flush table ip \(table)")
+
+		commands.append("add chain ip \(table) forward { type filter hook forward priority filter; policy drop; }")
+		commands.append("add rule ip \(table) forward iif \"lo\" counter accept")
+		commands.append("add rule ip \(table) forward ct state established,related counter accept")
+
+		for (clientIP, whitelist) in ipv4Dictionary {
+			let whitelistIPs = whitelist.joined(separator:", ")
+			commands.append("add rule ip \(table) forward ct state new ip saddr \(clientIP) ip daddr { \(whitelistIPs) } counter log prefix \"WHITELIST_ACCEPT: \" accept")
+		}
+
+		let table6 = "ip6_whitelist"
+
+		commands.append("add table ip6 \(table6)")
+		commands.append("flush table ip6 \(table6)")
+
+		commands.append("add chain ip6 \(table6) forward { type filter hook forward priority filter; policy drop; }")
+		commands.append("add rule ip6 \(table6) forward iif \"lo\" counter accept")
+		commands.append("add rule ip6 \(table6) forward ct state established,related counter accept")
+
+		for (clientIP, whitelist) in ipv6Dictionary {
+			let whitelistIPs = whitelist.joined(separator:", ")
+			commands.append("add rule ip6 \(table6) forward ct state new ip6 saddr \(clientIP) ip6 daddr { \(whitelistIPs) } counter log prefix \"WHITELIST_ACCEPT: \" accept")
+		}
+
 		return commands
 	}
 }
