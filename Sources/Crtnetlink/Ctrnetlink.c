@@ -378,3 +378,21 @@ int get_attribute_uint32_rt(struct rtattr* attrs[RTA_MAX+1], enum rtattr_type_t 
 		return -1;
 	}
 }
+
+int get_attribute_uint32_ifa(struct rtattr *attrs[IFA_MAX+1], int attrKey, uint32_t *num) {
+    if (attrs[attrKey]) {
+        *num = *(uint32_t*)RTA_DATA(attrs[attrKey]);
+        return 0;
+    }
+    *num = 0;
+    return -1;
+}
+
+// int get_attribute_uint32_ifa(struct rtattr *attrs[IFA_MAX+1], int attrKey, uint32_t *num) {
+//     if (attrs[attrKey]) {
+//         *num = *(uint32_t*)IFA_RTA(attrs[attrKey]);
+//         return 0;
+//     }
+//     *num = 0;
+//     return -1;
+// }

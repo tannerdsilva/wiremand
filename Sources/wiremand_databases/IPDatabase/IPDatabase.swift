@@ -125,8 +125,6 @@ public final class IPDatabase: Sendable {
 		makeLogger[metadataKey:"env_path"] = "\(base.path())"
 		log = makeLogger
 		let envPath = base.appendingPathComponent("ipdb_clientinfo")
-		log.critical("the existing database will be deleted and reinitialized without any data.")
-		// try? FileManager.default.removeItem(at:envPath.path())
 		let fileSize = envPath.getFileSize() + (16 * 1024 * 1024 * 1024) // current + 16GB
 		env = try Environment(path:envPath.path(), flags:[.noSubDir], mapSize:Int(fileSize), maxReaders:32, maxDBs:32, mode:[.ownerReadWriteExecute, .groupReadExecute, .otherReadExecute])
 		log.debug("successfully created environment", metadata:["mmap_size":"\(fileSize)b"])
@@ -148,6 +146,11 @@ public final class IPDatabase: Sendable {
 		log.trace("successfully created databases")
 		try someTrans.commit()
 		log.info("successfully initialized IPDatabase")
+	}
+
+	static public func deleteDB(base: Path) {
+		let envPath = base.appendingPathComponent("ipdb_clientinfo")
+		try? FileManager.default.removeItem(at:URL(filePath: envPath.path()))
 	}
 	
 	// installs a pending address. does not mark the current pid as a resolver of this address
@@ -199,7 +202,13 @@ public final class IPDatabase: Sendable {
 			try cursor.deleteCurrentEntry(flags: [])
 			return date
 		}
-		log.debug("pending IP uninstalled", metadata:["db_address": "\(addressString)", "db_date": "\(date.iso8601String())"])
+		log.debug("pending IP uninstalled", metadata:["db_address": "\(String(addressString))", "db_date": "\(date.iso8601String())"])
+	}
+
+	public func uninstallPending(addressString:EncodedString) throws {
+		let newTrans = try Transaction(env: env, readOnly: false)
+		try uninstallPending(addressString: addressString, tx:newTrans)
+		try newTrans.commit()
 	}
 	
 	// returns the next pending address from the database
@@ -208,6 +217,32 @@ public final class IPDatabase: Sendable {
 			return try String(dateCursor.opFirst().value)
 		}
 	}
+
+	// installs a failed resolution into the database with the corresponding error that caused the info to fail
+	public func installFailedResolve(address:String, error:Swift.Error) throws {
+		let newTrans = try Transaction(env: env, readOnly: false)
+		let failDate = bedrock.Date.Seconds()
+		let errorString = String(describing:error)
+		let ipHash = try IPHash(ipString: EncodedString(address))
+		
+		try self.resolveFailDate_ipHash.setEntry(key: failDate, value: ipHash, flags: [], tx: newTrans)
+		try self.ipHash_resolveFailDate.setEntry(key: ipHash, value: failDate, flags: [], tx: newTrans)
+		try self.ipHash_resolveFailMessage.setEntry(key: ipHash, value: EncodedString(errorString), flags: [], tx: newTrans)
+		try self.ipHash_ipString.setEntry(key: ipHash, value: EncodedString(address), flags: [], tx: newTrans)
+		log.debug("installed resolution failure info", metadata:["address": "\(address)", "failMessage": "\(errorString)"])
+		try newTrans.commit()
+	}
+	
+	// removes a failed resolution from the database
+	fileprivate func uninstallFailedResolve(address:EncodedString, tx:borrowing Transaction) throws {
+		let ipHash = try IPHash(ipString: address)
+
+		let resolveFailDate = try self.ipHash_resolveFailDate.loadEntry(key:ipHash, tx: tx)
+		try self.resolveFailDate_ipHash.deleteEntry(key:resolveFailDate, tx:tx)
+		try self.ipHash_resolveFailDate.deleteEntry(key:ipHash, tx:tx)
+		try self.ipHash_resolveFailMessage.deleteEntry(key:ipHash, tx:tx)
+		try self.ipHash_ipString.deleteEntry(key:ipHash, tx:tx)
+	}
 	
 	fileprivate func rotateStaleRecords(tx:borrowing Transaction) throws {
 		// failed records that are a month old will rotate back into the pending section of the databse (they will be removed as failed records before this happens)
@@ -215,9 +250,10 @@ public final class IPDatabase: Sendable {
 			try self.ipHash_ipString.cursor(tx:tx) { hashStringCursor in
 				let targetThreshold = bedrock.Date.Seconds().subtractingTimeInterval(2629800)
 				for (dateVal, hashVal) in failedIPDateCursor {
+					print("\(dateVal.iso8601String())   \(hashVal)")
 					if dateVal < targetThreshold {
 						let addressString = try hashStringCursor.opSet(key: hashVal)
-						try self.uninstallPending(addressString: addressString, tx: tx)
+						try self.uninstallFailedResolve(address: addressString, tx: tx)
 						try self.installPending(address: addressString, tx: tx)
 					} else {
 						return
@@ -321,7 +357,7 @@ public final class IPDatabase: Sendable {
 	}
 	
 	public func setupMainLoop() throws -> String? {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction(env: env, readOnly: false)
 		try self.rotateStaleRecords(tx:newTrans)
 		var accessKey:String
 		do {
@@ -330,6 +366,7 @@ public final class IPDatabase: Sendable {
 			log.debug("resolver Task exiting. no access key configured.")
 			return nil
 		}
+		try newTrans.commit()
 		return accessKey
 	}
 	
@@ -346,5 +383,16 @@ public final class IPDatabase: Sendable {
 		}
 		try newTrans.commit()
 		return accessKey
+	}
+
+	public func getIPStackKey() throws -> EncodedString {
+		let newTrans = try Transaction(env: env, readOnly: true)
+		return try self.metadata.loadEntry(key: EncodedString(Metadatas.ipstackAccessKey.rawValue), as: EncodedString.self, tx: newTrans)!
+	}
+		
+	public func setIPStackKey(_ apiKey:String) throws { 
+		let newTrans = try Transaction(env: env, readOnly: false)
+		try self.metadata.setEntry(key: EncodedString(Metadatas.ipstackAccessKey.rawValue), value: EncodedString(apiKey), flags: [], tx: newTrans)
+		try newTrans.commit()
 	}
 }

@@ -53,39 +53,6 @@ struct FirewallExecutor {
 		return commands
 	}
 
-	static func createIPRedirectCommands(targetIPAddress:String, localIPv4Address: String, targetDomains: [String], localIPv6Address: String) -> [String] {
-		var commands: [String] = []
-
-		let table = "ip_redirect"
-
-		commands.append("add table ip \(table)")
-		commands.append("flush table ip \(table)")
-		//commands.append("add table ip \(table)")
-		
-		// Prerouting chain (required for destination modifications)
-		commands.append("add chain ip \(table) prerouting { type nat hook prerouting priority dstnat; policy accept; }")
-		commands.append("add rule ip \(table) prerouting meta l4proto { tcp, udp } ip daddr \(targetIPAddress) th dport != 29300 counter log prefix \"IP_REDIRECT: \" dnat to \(localIPv4Address):8080;")
-		
-		let table6 = "ip6_redirect"
-		let set   = "domains"
-		
-		// Table & Set creation
-		commands.append("add table ip6 \(table6)")
-		commands.append("flush table ip6 \(table6)")
-		//commands.append("add table ip6 \(table6)")
-		
-		commands.append("add set ip6 \(table6) \(set) { type ipv6_addr; flags interval; }")
-		if !targetDomains.isEmpty {
-			commands.append("add element ip6 \(table6) \(set) { \(targetDomains.joined(separator: ", ")) }")
-		}
-		
-		// Prerouting chain (required for destination modifications)
-		commands.append("add chain ip6 \(table6) prerouting { type nat hook prerouting priority dstnat; policy accept; }")
-		commands.append("add rule ip6 \(table6) prerouting meta l4proto { tcp, udp } ip6 daddr @\(set) counter log prefix \"IP6_REDIRECT: \" dnat to [\(localIPv6Address)]:8080;")
-		
-		return commands
-	}
-
 	static func createWhitelist(ipv4Dictionary:[String:[String]], ipv6Dictionary:[String:[String]]) -> [String] {
 		var commands: [String] = []
 

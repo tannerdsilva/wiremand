@@ -79,6 +79,80 @@ extension RTNetlink {
 
 extension RTNetlink {
 	public struct AddressRecord:Hashable, Codable {
+		public struct AddressFlags: OptionSet, Hashable, Sendable, Codable {
+			public init(rawValue:UInt32) { self.rawValue = rawValue }
+			public let rawValue: UInt32
+
+			public static let secondary         = AddressFlags(rawValue: 1 << 0)  // 0x1    (1)
+			public static let nodad             = AddressFlags(rawValue: 1 << 1)  // 0x2    (2)
+			public static let temporary         = AddressFlags(rawValue: 1 << 3)  // 0x8    (8)    [Legacy RFC4862]
+			public static let addrconfTemporary = AddressFlags(rawValue: 1 << 9)  // 0x200  (512)  [Modern RFC8981]
+			public static let stablePrivacy     = AddressFlags(rawValue: 1 << 8)  // 0x100  (256)
+			public static let noprefixroute     = AddressFlags(rawValue: 1 << 16) // 0x10000 (65536)
+			public static let duplicate         = AddressFlags(rawValue: 1 << 10) // 0x400  (1024)
+			public static let tentative         = AddressFlags(rawValue: 1 << 11) // 0x800  (2048)
+			public static let deprecated        = AddressFlags(rawValue: 1 << 12) // 0x1000 (4096)
+
+
+			// #define	IFA_F_NODAD		0x02
+			// #define IFA_F_OPTIMISTIC	0x04
+			// #define IFA_F_DADFAILED		0x08
+			// #define	IFA_F_HOMEADDRESS	0x10
+			// #define IFA_F_DEPRECATED	0x20
+			// #define IFA_F_TENTATIVE		0x40
+			// #define IFA_F_PERMANENT		0x80
+			// #define IFA_F_MANAGETEMPADDR	0x100
+			// #define IFA_F_NOPREFIXROUTE	0x200
+			// #define IFA_F_MCAUTOJOIN	0x400
+			// #define IFA_F_STABLE_PRIVACY	0x800
+
+			// 🧠 Convenience properties (matches `ip addr` output)
+			public var isEphemeral: Bool { contains(.temporary) || contains(.addrconfTemporary) }
+			public var isManagementTemporary: Bool { isEphemeral } // `mngtmpaddr` in iproute2
+			public var isStablePrivacy: Bool { contains(.stablePrivacy) }
+			public var isSecondary: Bool { contains(.secondary) }
+			public var isNoprefixroute: Bool { contains(.noprefixroute) }
+			public var isTentative: Bool { contains(.tentative) }
+			public var isDeprecated: Bool { contains(.deprecated) }
+
+			private static let flagMap: [UInt32: String] = [
+				1 << 0: "secondary",
+				1 << 1: "nodad",
+				1 << 3: "temporary",
+				1 << 9: "addrconfTemporary",
+				1 << 8: "stablePrivacy",
+				1 << 16: "noprefixroute",
+				1 << 10: "duplicate",
+				1 << 11: "tentative",
+				1 << 12: "deprecated",
+			]
+
+			public func encode(to encoder: Encoder) throws {
+				var container = encoder.singleValueContainer()
+				var flagNames: [String] = []
+
+				for (bit, name) in AddressFlags.flagMap {
+					if self.rawValue & bit != 0 {
+						flagNames.append(name)
+					}
+				}
+				try container.encode(flagNames)
+			}
+
+			public init(from decoder: Decoder) throws {
+				let container = try decoder.singleValueContainer()
+				let flagNames = try container.decode([String].self)
+
+				var rawVal = UInt32()
+				for name in flagNames {
+					if let bit = AddressFlags.flagMap.first(where: { $0.value == name })?.key {
+						rawVal |= bit
+					}
+				}
+				self = Self(rawValue: rawVal)
+			}
+		}
+
 		public let family:AddressFamily
 		public let interfaceIndex:Int32
 		public let interfaceName:String
@@ -88,6 +162,7 @@ extension RTNetlink {
 		public let local:String?
 		public let broadcast:String?
 		public let anycast:String?
+		public let flags: AddressFlags
 		
 		init(_ r:UnsafeMutablePointer<ifaddrmsg>, _ tb:UnsafeMutablePointer<UnsafeMutablePointer<rtattr>?>?) {
 			switch r.pointee.ifa_family {
@@ -147,6 +222,14 @@ extension RTNetlink {
 			} else {
 				self.anycast = nil
 			}
+
+			var flags: UInt32 = 0
+			let flagsResult = get_attribute_uint32_ifa(tb, Int32(IFA_FLAGS), &flags)
+			if flagsResult == 0 {
+				self.flags = AddressFlags(rawValue: flags)
+			} else {
+				self.flags = AddressFlags(rawValue: 0)
+			}
 			
 			RTNetlink.logger.trace("AddressRecord instance created.", metadata:["family":"\(self.family)", "interface_name":"\(self.interfaceName)", "prefix":"\(self.prefix_length)", "scope":"\(self.scope)", "address":"\(self.address)", "local":"\(self.local)", "broadcast":"\(self.broadcast)", "anycast":"\(self.anycast)"])
 		}
@@ -190,9 +273,9 @@ extension RTNetlink {
 			
 			// source address
 			var src:UnsafeMutablePointer<CChar>? = nil
-			get_attribute_data_rt(r.pointee.rtm_family, tb, RTA_DST, &src)
+			get_attribute_data_rt(r.pointee.rtm_family, tb, RTA_PREFSRC, &src)
 			if (src != nil) {
-				self.source = String(cString:dst!)
+				self.source = String(cString:src!)
 				free(src)
 			} else {
 				self.source = nil

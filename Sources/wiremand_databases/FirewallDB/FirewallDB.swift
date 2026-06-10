@@ -111,7 +111,7 @@ public struct FirewallDatabase: Sendable {
         let newTrans = try Transaction(env: env, readOnly: true)
         var result: [AddressV4: [AddressV4]] = [:]
 
-        try clientIPv4_whitelistIPv4.cursor(tx: newTrans) { cursor in
+        clientIPv4_whitelistIPv4.cursor(tx: newTrans) { cursor in
             for (clientIP, whitelistIP) in cursor.makeIterator() {
                 result[clientIP, default: []].append(whitelistIP)
             }
@@ -124,7 +124,7 @@ public struct FirewallDatabase: Sendable {
         let newTrans = try Transaction(env: env, readOnly: true)
         var result: [AddressV6: [AddressV6]] = [:]
 
-        try clientIPv6_whitelistIPv6.cursor(tx: newTrans) { cursor in
+        clientIPv6_whitelistIPv6.cursor(tx: newTrans) { cursor in
             for (clientIP, whitelistIP) in cursor.makeIterator() {
                 result[clientIP, default: []].append(whitelistIP)
             }

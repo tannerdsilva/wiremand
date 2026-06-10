@@ -50,4 +50,4 @@ int read_route(struct nlmsghdr *, void(^hndlr)(struct rtmsg *r, struct rtattr *t
 // - attributes
 void get_attribute_data_rt(unsigned char family, struct rtattr *attrs[RTA_MAX+1], enum rtattr_type_t attrKey, char **buf);
 int get_attribute_uint32_rt(struct rtattr *attrs[RTA_MAX+1], enum rtattr_type_t attrKey, uint32_t *num);
-
+int get_attribute_uint32_ifa(struct rtattr *attrs[IFA_MAX+1], int attrKey, uint32_t *num);

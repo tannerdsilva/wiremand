@@ -30,6 +30,7 @@ struct CLI:AsyncParsableCommand {
 			Run.self,
 			Netlink.self,
 			Firewall.self,
+			IPStack.self,
 		]
 	)
 

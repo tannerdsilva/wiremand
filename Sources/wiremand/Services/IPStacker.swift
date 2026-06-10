@@ -35,11 +35,17 @@ final class IPStacker: Service {
 		do {
 			try await scheduler.runSchedule(name: taskName, interval: .seconds(600)) {
 				var accessKeyOptional = try self.ipdb.setupMainLoop()
-				
+
 				while let currentAddress = try self.ipdb.getNextPendingAddress(), let accessKey = accessKeyOptional {
-					let resolvedIPInfo = try await IPDatabase.ResolvedIPInfo.from(addressString:currentAddress, accessKey:accessKey)
-					self.logger.debug("successfully resolved IP address", metadata:["ip": "\(currentAddress)"])
-					accessKeyOptional = try self.ipdb.installResolved(currentAddress: EncodedString(currentAddress), resolvedIPInfo: resolvedIPInfo)
+					do {
+						let resolvedIPInfo = try await IPDatabase.ResolvedIPInfo.from(addressString:currentAddress, accessKey:accessKey)
+						self.logger.debug("successfully resolved IP address", metadata:["ip": "\(currentAddress)"])
+						accessKeyOptional = try self.ipdb.installResolved(currentAddress: EncodedString(currentAddress), resolvedIPInfo: resolvedIPInfo)
+					} catch let error as IPDatabase.ResolvedIPInfo.Error {
+						self.logger.debug("failed to resolve IP address", metadata:["ip": "\(currentAddress)"])
+						try self.ipdb.uninstallPending(addressString: EncodedString(currentAddress))
+						try self.ipdb.installFailedResolve(address: currentAddress, error: error)
+					}
 				}
 			}
 		} catch {

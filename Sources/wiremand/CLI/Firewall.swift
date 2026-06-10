@@ -29,10 +29,10 @@ extension CLI {
 				)
 
 				@Option
-				var name:EncodedString
+				var name:EncodedString?
 
 				@Option 
-				var publicKey:PublicKey
+				var publicKey:PublicKey?
 
 				@OptionGroup
 				var globals:GlobalCLIOptions
@@ -101,10 +101,10 @@ extension CLI {
 				)
 
 				@Option
-				var name:EncodedString
+				var name:EncodedString?
 
 				@Option 
-				var publicKey:PublicKey
+				var publicKey:PublicKey?
 
 				@OptionGroup
 				var globals:GlobalCLIOptions
@@ -113,6 +113,9 @@ extension CLI {
 				var blacklistV4s:[AddressV4]
 
 				mutating func run() async throws {
+					var appLogger = Logger(label:"firewall")
+					appLogger.logLevel = globals.logLevel
+
 					guard name != nil || publicKey != nil else {
 						throw Firewall.Error.missingClientIdentifier
 					}
@@ -133,7 +136,10 @@ extension CLI {
 						throw Firewall.Error.noClientIPv4Installed
 					}
 
-					try firewallDB.removeWhitelistIPv4(clientIP: clientAddress, whitelist: blacklistV4s)
+					let successfullyRemoved = try firewallDB.removeWhitelistIPv4(clientIP: clientAddress, whitelist: blacklistV4s)
+					for ipv4 in successfullyRemoved {
+						appLogger.info("successfully removed ip from whitelist", metadata: ["IPv4Address":"\(ipv4.string)"])
+					}
 				}
 			}
 
@@ -153,9 +159,15 @@ extension CLI {
 				var whitelistV6s:[AddressV6]
 
 				mutating func run() async throws {
+					var appLogger = Logger(label:"firewall")
+					appLogger.logLevel = globals.logLevel
+					
 					let firewallDB = try FirewallDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 
-					try firewallDB.removeWhitelistIPv6(clientIP: clientV6, whitelist: whitelistV6s)
+					let successfullyRemoved = try firewallDB.removeWhitelistIPv6(clientIP: clientV6, whitelist: whitelistV6s)
+					for ipv6 in successfullyRemoved {
+						appLogger.info("successfully removed ip from whitelist", metadata: ["IPv6Address":"\(ipv6.string)"])
+					}
 				}
 			}
 		}

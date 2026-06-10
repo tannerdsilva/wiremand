@@ -1,4 +1,5 @@
 import Foundation
+import FoundationNetworking
 import AsyncHTTPClient
 import Logging
 import NIO
@@ -35,7 +36,7 @@ extension EncodedString: Codable {
 extension IPDatabase {
 	
 	public struct ResolvedIPInfo:Codable {
-		enum Error:Swift.Error {
+		public enum Error:Swift.Error {
 			case unrecognizedHTTPResponse
 			case unrecognizedHTTPBody
 			case missingContinentInfo
@@ -102,65 +103,47 @@ extension IPDatabase {
 			self.isp = EncodedString(hasISP)
 		}
 
-		public static func from(addressString:String, accessKey:String) async throws -> ResolvedIPInfo {
-			return try await withUnsafeThrowingContinuation({  (myCont:UnsafeContinuation<ResolvedIPInfo, Swift.Error>) in
-				let logger = Logger(label:"resolved-ip-info")
-				let client = HTTPClient()
-				defer {
-					do {
-						try client.syncShutdown()
-						logger.trace("successfully shut down HTTP client")
-					} catch let error {
-						logger.error("failed to shut down HTTP client", metadata:["error":"\(error)"])
-					}
-				}
-				// build the URL
-				var buildURL = URLComponents()
-				buildURL.scheme = "https"
-				buildURL.host = "api.ipstack.com"
-				buildURL.path = "/\(addressString)"
-				buildURL.queryItems = [URLQueryItem(name:"access_key", value:accessKey)]
-				let clientRequest:HTTPClient.Request
-				do {
-					clientRequest = try HTTPClient.Request(url:buildURL.url!)
-				} catch let error {
-					logger.error("unable to resolve IPv4 metadata. unable to build HTTP request")
-					myCont.resume(throwing:error)
-					return
-				}
-				let launchtime = Date()
-				let clientJob = client.execute(request:clientRequest, deadline: NIODeadline.now() + .seconds(5))
-				clientJob.whenSuccess({ apiResponse in
-					guard apiResponse.status == .ok, let responseBody = apiResponse.body, responseBody.readableBytes > 0 else {
-						logger.error("unable to resolve IPv4 metadata. unrecognized response found", metadata:["address": "\(addressString)"])
-						myCont.resume(throwing:Error.unrecognizedHTTPResponse)
-						return
-					}
-					let responseBodyData = responseBody.withUnsafeReadableBytes { ptr in
-						return Data(bytes: ptr.baseAddress!, count: ptr.count)
-					}
-					guard let jsonSerialization:[String:Any] = try? JSONSerialization.jsonObject(with:responseBodyData) as? [String:Any] else {
-						logger.error("unable to resolve IPv4 metadata. unrecognized JSON data found", metadata:["address": "\(addressString)"])
-						myCont.resume(throwing:Error.unrecognizedHTTPBody)
-						return
-					}
-					do {
-						let resolvedIPInfo = try ResolvedIPInfo(apiResponse:jsonSerialization)
-						logger.info("successfully resolved IPv4 metadata", metadata:["address": "\(addressString)", "duration":"\(launchtime.timeIntervalSinceNow)"])
-						myCont.resume(returning:resolvedIPInfo)
-					} catch let error {
-						logger.error("unable to resolve IPv4 metadata. incomplete API response.", metadata:["error": "\(error)"])
-						myCont.resume(throwing:error)
-					}
-				})
-				clientJob.whenFailure({ apiError in
-					logger.error("unable to resolve IPv4 metadata. swift nio error thrown", metadata:["address": "\(addressString)", "error": "\(apiError)"])
-					myCont.resume(throwing:apiError)
-					return
-				})
-			})
+		public static func from(addressString: String, accessKey: String) async throws -> ResolvedIPInfo {
+			let logger = Logger(label:"resolved-ip-info")
+
+			var buildURL = URLComponents()
+			buildURL.scheme = "https"
+			buildURL.host = "api.ipstack.com"
+			buildURL.path = "/\(addressString)"
+			buildURL.queryItems = [URLQueryItem(name:"access_key", value:accessKey)]
+
+			guard let url = buildURL.url else {
+				throw URLError(.badURL)
+			}
+
+			var request = URLRequest(url: url)
+			request.httpMethod = "GET"
+			request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+			let (data, response) = try await URLSession.shared.data(for: request)
+
+			guard let httpResponse = response as? HTTPURLResponse else {
+				throw Error.unrecognizedHTTPResponse
+			}
+
+			guard (200...299).contains(httpResponse.statusCode) else {
+				logger.error("unable to resolve IPv4 metadata. swift nio error thrown", metadata:["address": "\(addressString)", "error": "\(httpResponse.statusCode)"])
+				throw Error.unrecognizedHTTPResponse
+			}
+
+			guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+				throw Error.unrecognizedHTTPBody
+			}
+
+			do {
+				let resolvedIPInfo = try ResolvedIPInfo(apiResponse:json)
+				logger.info("successfully resolved IPv4 metadata", metadata:["address": "\(addressString)"])
+				return resolvedIPInfo
+			} catch let error {
+				logger.error("unable to resolve IPv4 metadata. incomplete API response.", metadata:["error": "\(error)"])
+				throw error
+			}
 		}
-		
 		
 		public init(continent: ContinentInfo?, country: CountryInfo?, region: RegionInfo?, city: EncodedString?, zip: EncodedString?, isp: EncodedString) {
 			self.continent = continent

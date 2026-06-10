@@ -98,5 +98,53 @@ extension WiremandTests {
         print("  \(dst) via \(gw) dev \(oif) (iif: \(iif)) table: \(route.table)")
       }
     }
+
+    @Test func testGetDefaultRoutes() throws {
+      let routesV4 = try RTNetlink.getRoutesV4()
+      let defaultV4 = routesV4.filter { $0.destination_length == 0 }
+      for route in defaultV4 {
+        let dst = route.destination ?? "*"
+        let gw = route.gateway ?? "*"
+        let iif = route.inputInterfaceName ?? "-"
+        let oif = route.outputInterfaceName ?? "-"
+        let src = route.source ?? "-"
+        print("  \(dst) via \(gw) dev \(oif) (iif: \(iif)) table: \(route.table) src: \(src)")
+      }
+
+      let routesV6 = try RTNetlink.getRoutesV6()
+      let defaultV6 = routesV6.filter { $0.destination_length == 0 }
+      for route in defaultV6 {
+        let dst = route.destination ?? "*"
+        let gw = route.gateway ?? "*"
+        let iif = route.inputInterfaceName ?? "-"
+        let oif = route.outputInterfaceName ?? "-"
+        let src = route.source ?? "-"
+        print("  \(dst) via \(gw) dev \(oif) (iif: \(iif)) table: \(route.table) src: \(src)")
+      }
+    }
+
+    @Test func getDefaultRoutes() throws {
+      let routesV4 = try RTNetlink.getRoutesV4()
+      let defaultV4 = routesV4.filter { $0.destination_length == 0 }.first!
+      print(defaultV4.source!)
+
+      let addressV6 = try RTNetlink.getAddressesV6()
+      let addressV6Sorted = addressV6.sorted { $0.address! < $1.address! }
+      for address in addressV6Sorted {
+        print("-----------------------")
+        print(address.address!)
+        if (address.flags.isDeprecated) { print("Depreciated") }
+        if (address.flags.isEphemeral) { print("Ephemeral") }
+        if (address.flags.isManagementTemporary) { print("Mngtmpaddr") }
+        if (address.flags.isNoprefixroute) { print("noprefixroute") }
+        if (address.flags.isSecondary) { print("Secondary") }
+        if (address.flags.isStablePrivacy) { print("stable privacy") }
+        if (address.flags.isTentative) { print("Tentative") }
+        if (address.flags.isEmpty) { print("Empty") }
+      }
+      let filteredV6 = addressV6.filter { $0.interfaceName == defaultV4.outputInterfaceName && $0.scope == 0 && !($0.flags.contains(.temporary))}
+      // let defaultV6 = filteredV6.first!
+      // print(defaultV6.address!)
+    }
   }
 }

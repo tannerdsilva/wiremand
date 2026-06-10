@@ -26,6 +26,7 @@ extension CLI {
 			case chmodError
 			case daemonReloadError
 			case unableToGenerateBashCompletions
+			case ipv4DefaultRouteUnknown
 		}
 		public static let configuration = CommandConfiguration(
 			commandName:"install",
@@ -61,8 +62,15 @@ extension CLI {
 				endpoint = readLine()
 			} while (endpoint == nil || endpoint!.count == 0)
 
+			let routesV4 = try RTNetlink.getRoutesV4()
+    		let defaultV4 = routesV4.filter { $0.destination_length == 0 }
+			guard !defaultV4.isEmpty else {
+				appLogger.error("there is no default IPv4 route")
+				throw Error.ipv4DefaultRouteUnknown
+			}
+
 			// let (resExtV4, resExtV6) = try await DigExecutor.resolveAddresses(for:endpoint!, logLevel: logLevel)
-			let (resExtV4, resExtV6) = (AddressV4("10.16.200.198"), AddressV6("fe80::5607:7dff:fe12:76cd"))
+			let (resExtV4, resExtV6) = (AddressV4(defaultV4.first!.source!), AddressV6("fe80::5607:7dff:fe12:76cd"))
 			
 			guard resExtV4 != nil else {
 				appLogger.error("there is no A record", metadata:["dns_name":"\(endpoint!)"])
@@ -329,6 +337,7 @@ extension CLI {
 			try wgdb.install(wg_primaryInterfaceName: EncodedString(interfaceName), wg_serverPublicDomainName: EncodedString(endpoint!), wg_resolvedServerPublicIPv4: resExtV4!, wg_resolvedServerPublicIPv6: resExtV6!, wg_serverPublicListenPort: EncodedUInt16(RAW_native: wireguardPort), serverIPv6Block: ipv6Scope!, serverIPv6BlockName: ipv6ScopeString!, serverIPv4Block: ipv4Scope!, publicKey: newKeys.publicKey, defaultDomainMask: RAW_byte(RAW_native: 112))
 			appLogger.trace("wireguard database created...")
 			
+			IPDatabase.deleteDB(base: Path(homeDir.path))
 			let _ = try IPDatabase(base: Path(homeDir.path), logLevel: logLevel, apiKey: ipStackKey)
 			appLogger.trace("ip database created...")
 			
