@@ -63,23 +63,29 @@ extension CLI {
 			} while (endpoint == nil || endpoint!.count == 0)
 
 			let routesV4 = try RTNetlink.getRoutesV4()
-    		let defaultV4 = routesV4.filter { $0.destination_length == 0 }
-			guard !defaultV4.isEmpty else {
+    		let filteredV4 = routesV4.filter { $0.destination_length == 0 }
+			guard !filteredV4.isEmpty else {
 				appLogger.error("there is no default IPv4 route")
 				throw Error.ipv4DefaultRouteUnknown
 			}
 
-			// let (resExtV4, resExtV6) = try await DigExecutor.resolveAddresses(for:endpoint!, logLevel: logLevel)
-			let (resExtV4, resExtV6) = (AddressV4(defaultV4.first!.source!), AddressV6("fe80::5607:7dff:fe12:76cd"))
-			
-			guard resExtV4 != nil else {
-				appLogger.error("there is no A record", metadata:["dns_name":"\(endpoint!)"])
-				throw Error.ipv4HostnameUnresolved
+			guard let defaultV4Address = filteredV4.first!.source else {
+				appLogger.error("no defaultV4 source address")
+				throw Error.ipv4DefaultRouteUnknown
 			}
-			
-			guard resExtV6 != nil else {
-				appLogger.error("there is no AAAA record", metadata:["dns_name":"\(endpoint!)"])
-				throw Error.ipv6HostnameUnresolved
+
+			let resExtV4 = AddressV4(defaultV4Address)
+
+			let addressV6 = try RTNetlink.getAddressesV6()
+      		let filteredV6 = addressV6.filter { $0.interfaceName == filteredV4.first!.outputInterfaceName && $0.scope == 0 && !$0.flags.isTemporary }
+
+			let resExtV6:AddressV6?
+
+			if filteredV6.isEmpty {
+				appLogger.warning("there is no valid default IPv6 route, will bind to [::] instead")
+				resExtV6 = AddressV6("::")
+			} else {
+				resExtV6 = AddressV6(filteredV6.first!.address!)
 			}
 			
 			// ask for the client ipv6 scope

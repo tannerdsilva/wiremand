@@ -407,7 +407,7 @@ public struct WireguardDatabase: Sendable {
 		return try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicListenPort.rawValue), as: EncodedUInt16.self, tx: newTrans)!
 	}
 	
-	public func getWireguardConfigMetas() throws -> (EncodedString, EncodedUInt16, [NetworkV6], AddressV4, PublicKey, EncodedString, AddressV4?) {
+	public func getWireguardConfigMetas() throws -> (EncodedString, EncodedUInt16, [NetworkV6], AddressV4, PublicKey, EncodedString, AddressV4, AddressV6) {
 		let newTrans = try Transaction(env: env, readOnly: true)
 		let getDNSName = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicDomainName.rawValue), as: EncodedString.self, tx: newTrans)!
 		let getPort = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicListenPort.rawValue), as: EncodedUInt16.self, tx: newTrans)!
@@ -421,13 +421,11 @@ public struct WireguardDatabase: Sendable {
 		let ipv4Address = AddressV4(try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverIPv4Block.rawValue), as: NetworkV4.self, tx: newTrans)!.net.address)
 		let serverPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: newTrans)!
 		let publicInterfaceName = try metadata.loadEntry(key: EncodedString(Metadatas.wg_primaryInterfaceName.rawValue), as: EncodedString.self, tx: newTrans)!
-		let publicIPv4Interface:AddressV4?
-		do {
-			publicIPv4Interface = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicIPv4Address.rawValue), as: AddressV4.self, tx: newTrans)
-		} catch LMDBError.notFound {
-			publicIPv4Interface = nil
-		}
-		return (getDNSName, getPort, ipv6Subnets, ipv4Address, serverPubKey, publicInterfaceName, publicIPv4Interface)
+
+		let publicIPv4Interface = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicIPv4Address.rawValue), as: AddressV4.self, tx: newTrans)!
+		let publicIPv6Interface = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicIPv6Address.rawValue), as: AddressV6.self, tx: newTrans)!
+
+		return (getDNSName, getPort, ipv6Subnets, ipv4Address, serverPubKey, publicInterfaceName, publicIPv4Interface, publicIPv6Interface)
 	}
 	
 	/// Adds a new IPv6 network for the host to the database.

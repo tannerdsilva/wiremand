@@ -25,9 +25,9 @@ extension PublicHTTPWebServer {
 
 public final actor PublicHTTPWebServer: Service {
 	let appv4: Application<RouterResponder<Context>>
-	let appv6: [Application<RouterResponder<Context>>]
+	let appv6: Application<RouterResponder<Context>>
 	
-	init(eventLoop: EventLoopGroupProvider, wgdb: WireguardDatabase, hostIPv6: [String], hostIPv4: String, port: UInt16) throws {
+	init(eventLoop: EventLoopGroupProvider, wgdb: WireguardDatabase, hostIPv6: String, hostIPv4: String, port: UInt16) throws {
 		let logLevel: Logger.Level
 		#if DEBUG
 		logLevel = .trace
@@ -36,8 +36,6 @@ public final actor PublicHTTPWebServer: Service {
 		#endif
 		
 		let ipV4String = hostIPv4
-		let ipV6Strings = hostIPv6.compactMap { $0 }
-		
 		let bindAddressV4 = BindAddress.hostname(ipV4String, port: Int(port))
 		let appConfigurationV4 = Hummingbird.ApplicationConfiguration(address: bindAddressV4, reuseAddress: true)
 		
@@ -50,14 +48,9 @@ public final actor PublicHTTPWebServer: Service {
 		
 		self.appv4 = Application(router: makeRouter, configuration: appConfigurationV4, eventLoopGroupProvider: eventLoop)
 		
-		var ipv6Apps: [Application<RouterResponder<Context>>] = []
-		for ipV6String in ipV6Strings {
-			let bindAddressV6 = BindAddress.hostname(ipV6String, port: Int(port))
-			let appConfigurationV6 = Hummingbird.ApplicationConfiguration(address: bindAddressV6, reuseAddress: true)
-			let app = Application(router: makeRouter, configuration: appConfigurationV6, eventLoopGroupProvider: eventLoop)
-			ipv6Apps.append(app)
-		}
-		self.appv6 = ipv6Apps
+		let bindAddressV6 = BindAddress.hostname(hostIPv6, port: Int(port))
+		let appConfigurationV6 = Hummingbird.ApplicationConfiguration(address: bindAddressV6, reuseAddress: true)
+		self.appv6 = Application(router: makeRouter, configuration: appConfigurationV6, eventLoopGroupProvider: eventLoop)
 	}
 	
 	public func run() async throws {
@@ -65,10 +58,8 @@ public final actor PublicHTTPWebServer: Service {
 			tg.addTask { [app = appv4] in
 				try await app.run()
 			}
-			for app in appv6 {
-				tg.addTask { [app] in
-					try await app.run()
-				}
+			tg.addTask { [app = appv6] in
+				try await app.run()
 			}
 			_ = try await tg.next()
 		}
@@ -215,7 +206,7 @@ extension PublicHTTPWebServer {
 			
 			let newKeys = try await WireguardExecutor.generateClient()
 			
-			let (wgDNSName, wgPort, wgInternalNetwork, serverV4, pubKey, interfaceName, publicV4) = try wgdb.getWireguardConfigMetas()
+			let (wgDNSName, wgPort, wgInternalNetwork, serverV4, pubKey, interfaceName, publicV4, _) = try wgdb.getWireguardConfigMetas()
 			
 			var client: (addressV6:[AddressV6], addressV4:AddressV4?, publicKey:PublicKey?) = ([], nil, nil)
 			do {
@@ -247,11 +238,7 @@ extension PublicHTTPWebServer {
 			} else {
 				buildKey += "\n"
 			}
-			if let publicV4 = publicV4 {
-				buildKey += "Endpoint = \(publicV4.string):\(wgPort.RAW_native())\n"
-			} else {
-				buildKey += "Endpoint = \(String(wgDNSName)):\(wgPort.RAW_native())\n"
-			}
+			buildKey += "Endpoint = \(publicV4.string):\(wgPort.RAW_native())\n"
 			buildKey += "PersistentKeepalive = 25" + "\n"
 			
 			var responseBytes = ByteBuffer()

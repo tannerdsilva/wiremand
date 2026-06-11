@@ -123,28 +123,18 @@ extension WiremandTests {
       }
     }
 
-    @Test func getDefaultRoutes() throws {
+    @Test func testGetPermanentDefaultRoutes() throws {
       let routesV4 = try RTNetlink.getRoutesV4()
       let defaultV4 = routesV4.filter { $0.destination_length == 0 }.first!
-      print(defaultV4.source!)
+      print("Default V4 Address: \(defaultV4.source!)")
 
       let addressV6 = try RTNetlink.getAddressesV6()
-      let addressV6Sorted = addressV6.sorted { $0.address! < $1.address! }
-      for address in addressV6Sorted {
-        print("-----------------------")
-        print(address.address!)
-        if (address.flags.isDeprecated) { print("Depreciated") }
-        if (address.flags.isEphemeral) { print("Ephemeral") }
-        if (address.flags.isManagementTemporary) { print("Mngtmpaddr") }
-        if (address.flags.isNoprefixroute) { print("noprefixroute") }
-        if (address.flags.isSecondary) { print("Secondary") }
-        if (address.flags.isStablePrivacy) { print("stable privacy") }
-        if (address.flags.isTentative) { print("Tentative") }
-        if (address.flags.isEmpty) { print("Empty") }
+      let filteredV6 = addressV6.filter { $0.interfaceName == defaultV4.outputInterfaceName && $0.scope == 0 && !$0.flags.isTemporary }
+      if filteredV6.isEmpty {
+        print("No viable default V6 address")
+      } else {
+        print("Default V6 Address(es): \(filteredV6.map { $0.address! }.joined(separator: ","))")
       }
-      let filteredV6 = addressV6.filter { $0.interfaceName == defaultV4.outputInterfaceName && $0.scope == 0 && !($0.flags.contains(.temporary))}
-      // let defaultV6 = filteredV6.first!
-      // print(defaultV6.address!)
     }
   }
 }

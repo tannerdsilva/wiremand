@@ -52,7 +52,7 @@ extension CLI {
 				
 				try domainName.promptInteractivelyIfNecessary(db:wgdb)
 
-				let (_, _, _, _, _, interfaceName, _) = try wgdb.getWireguardConfigMetas()
+				let (_, _, _, _, _, interfaceName, _, _) = try wgdb.getWireguardConfigMetas()
 				let (newV4, curV6, publicKey) = try wgdb.clientAssignIPv4(domain:domainName.domain!, name:domainName.name!)
 				try await WireguardExecutor.updateExistingClient(publicKey:publicKey, with:curV6, and:newV4, interfaceName:interfaceName)
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
@@ -140,7 +140,7 @@ extension CLI {
 				
 				let (newClientAddresses, optionalV4) = try wgdb.clientMake(name:domainName.name!, publicKey:usePublicKey, domain:domainName.domain!, ipv4:ipv4)
 				
-				let (wg_dns_name, wg_port, wgInternalNetwork, serverV4, serverPub, interfaceName, ipv4Public) = try wgdb.getWireguardConfigMetas()
+				let (wg_dns_name, wg_port, wgInternalNetwork, serverV4, serverPub, interfaceName, ipv4Public, _) = try wgdb.getWireguardConfigMetas()
 
 				var buildKey = "[Interface]\n"
 				if publicKey == nil {
@@ -165,11 +165,7 @@ extension CLI {
 				} else {
 					buildKey += "\n"
 				}
-				if let hasPublicIPv4 = ipv4Public {
-					buildKey += "Endpoint = " + hasPublicIPv4.string + ":\(wg_port)" + "\n"
-				} else {
-					buildKey += "Endpoint = " + wg_dns_name + ":\(wg_port)" + "\n"
-				}
+				buildKey += "Endpoint = " + ipv4Public.string + ":\(wg_port)" + "\n"
 				buildKey += "PersistentKeepalive = 25" + "\n"
 				
 				try await WireguardExecutor.install(publicKey:usePublicKey, presharedKey:newKeys.presharedKey, addresses:newClientAddresses, addressv4:optionalV4, interfaceName:interfaceName)

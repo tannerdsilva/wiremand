@@ -250,7 +250,6 @@ public final class IPDatabase: Sendable {
 			try self.ipHash_ipString.cursor(tx:tx) { hashStringCursor in
 				let targetThreshold = bedrock.Date.Seconds().subtractingTimeInterval(2629800)
 				for (dateVal, hashVal) in failedIPDateCursor {
-					print("\(dateVal.iso8601String())   \(hashVal)")
 					if dateVal < targetThreshold {
 						let addressString = try hashStringCursor.opSet(key: hashVal)
 						try self.uninstallFailedResolve(address: addressString, tx: tx)
