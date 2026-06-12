@@ -1,7 +1,8 @@
 import Foundation
 import Hummingbird
-//import NIOFoundationCompat
+import HummingbirdTLS
 import NIO
+import NIOSSL
 import Logging
 import QuickLMDB
 import ServiceLifecycle
@@ -34,23 +35,29 @@ public final actor PublicHTTPWebServer: Service {
 		#else
 		logLevel = .error
 		#endif
-		
-		let ipV4String = hostIPv4
-		let bindAddressV4 = BindAddress.hostname(ipV4String, port: Int(port))
+
+		let certPath = "/etc/wiremand/ssl/fullchain.pem"
+		let keyPath  = "/etc/wiremand/ssl/privkey.pem"
+
+        let certificateChain = try NIOSSLCertificate.fromPEMFile(certPath)
+        let privateKey = try NIOSSLPrivateKey(file: keyPath, format: .pem)
+        let tlsConfig =  TLSConfiguration.makeServerConfiguration(certificateChain: certificateChain.map { .certificate($0) }, privateKey: .privateKey(privateKey))
+
+		let bindAddressV4 = BindAddress.hostname(hostIPv4, port: Int(port))
 		let appConfigurationV4 = Hummingbird.ApplicationConfiguration(address: bindAddressV4, reuseAddress: true)
-		
+
 		let makeRouter = Router(context: Context.self)
 		let wgapi = try Wireguard_MakeKeyResponder(db: wgdb)
 		let wgget = Wireguard_GetKeyResponder(db: wgdb)
-		
+
 		makeRouter.on("wg_makekey", method: .get, responder: wgapi)
 		makeRouter.on("wg_getkey", method: .post, responder: wgget)
-		
-		self.appv4 = Application(router: makeRouter, configuration: appConfigurationV4, eventLoopGroupProvider: eventLoop)
-		
+
+		self.appv4 = Application(router: makeRouter, server: try .tls(.http1(), tlsConfiguration: tlsConfig), configuration: appConfigurationV4, eventLoopGroupProvider: eventLoop)
+
 		let bindAddressV6 = BindAddress.hostname(hostIPv6, port: Int(port))
 		let appConfigurationV6 = Hummingbird.ApplicationConfiguration(address: bindAddressV6, reuseAddress: true)
-		self.appv6 = Application(router: makeRouter, configuration: appConfigurationV6, eventLoopGroupProvider: eventLoop)
+		self.appv6 = Application(router: makeRouter, server: try .tls(.http1(), tlsConfiguration: tlsConfig), configuration: appConfigurationV6, eventLoopGroupProvider: eventLoop)
 	}
 	
 	public func run() async throws {
@@ -206,7 +213,7 @@ extension PublicHTTPWebServer {
 			
 			let newKeys = try await WireguardExecutor.generateClient()
 			
-			let (wgDNSName, wgPort, wgInternalNetwork, serverV4, pubKey, interfaceName, publicV4, _) = try wgdb.getWireguardConfigMetas()
+			let (_, wgPort, wgInternalNetwork, serverV4, pubKey, interfaceName, publicV4, _) = try wgdb.getWireguardConfigMetas()
 			
 			var client: (addressV6:[AddressV6], addressV4:AddressV4?, publicKey:PublicKey?) = ([], nil, nil)
 			do {

@@ -12,25 +12,19 @@ struct SelfSignedCertExecutor {
 	
 	static let certBaseDir = "/etc/wiremand/ssl"
 	
-	static func generateCert(domain: String, logLevel: Logger.Level) async throws {
+	static func generateCert(interfaceName: String, logLevel: Logger.Level) async throws {
 		var log = Logger(label: "self-signed-cert-executor")
 		log.logLevel = logLevel
 		
-		let domainDir = "\(certBaseDir)/\(domain)"
-		let fullchainPath = "\(domainDir)/fullchain.pem"
-		let privkeyPath = "\(domainDir)/privkey.pem"
-		
-		let mkdirCmd = try await Command(sh: "sudo mkdir -p '\(domainDir)'", environment: CurrentEnvironment.environmentVariables()).runSync()
-		guard mkdirCmd.succeeded else {
-			throw Error.unableToCreateDir
-		}
+		let fullchainPath = "/fullchain.pem"
+		let privkeyPath = "/privkey.pem"
 		
 		// Generate a self-signed certificate valid for 10 years
 		// -x509: self-signed, -nodes: no passphrase, -days 3650: 10 years
 		let certCmd = try await Command(sh:
 			"sudo openssl req -x509 -nodes -days 3650 -newkey rsa:2048 " +
 			"-keyout '\(privkeyPath)' -out '\(fullchainPath)' " +
-			"-subj \"/CN=\(domain)\" -addext \"subjectAltName=DNS:\(domain)\"",
+			"-subj \"/CN=\(interfaceName)\" -addext \"subjectAltName=DNS:\(interfaceName)\"",
 			environment: CurrentEnvironment.environmentVariables()
 		).runSync()
 		
@@ -42,14 +36,6 @@ struct SelfSignedCertExecutor {
 		
 		let _ = try await Command(sh: "sudo chmod 644 '\(fullchainPath)' '\(privkeyPath)'", environment: CurrentEnvironment.environmentVariables()).runSync()
 		
-		log.info("self-signed certificate generated", metadata: ["domain": "\(domain)"])
-	}
-
-	static func removeCert(domain: String) async throws {
-		let domainDir = "\(certBaseDir)/\(domain)"
-		let rmCmd = try await Command(sh: "sudo rm -rf '\(domainDir)'", environment: CurrentEnvironment.environmentVariables()).runSync()
-		guard rmCmd.succeeded else {
-			throw Error.unableToCreateDir
-		}
+		log.info("self-signed certificate generated")
 	}
 }

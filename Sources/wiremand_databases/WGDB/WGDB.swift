@@ -914,7 +914,7 @@ public struct WireguardDatabase: Sendable {
 		}
 		
 		// assign the new invalidation date to the client
-		try self.clientPub_invalidDate.setEntry(key: publicKey, value: targetDate, flags: .noOverwrite, tx: tx)
+		try self.clientPub_invalidDate.setEntry(key: publicKey, value: targetDate, flags: [], tx: tx)
 		
 		return targetDate
 	}

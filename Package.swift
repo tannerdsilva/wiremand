@@ -57,6 +57,7 @@ let package = Package(
 				.product(name:"ArgumentParser", package:"swift-argument-parser"),
 				.product(name:"Logging", package:"swift-log"),
 				.product(name:"Hummingbird", package:"hummingbird"),
+				.product(name:"HummingbirdTLS", package:"hummingbird"),
 				"wiremand_databases",
 				"Crtnetlink"
 			],

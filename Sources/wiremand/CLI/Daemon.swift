@@ -48,8 +48,8 @@ extension CLI {
 			// Setting up the firewall 
 			let fileContent = try String(contentsOfFile: firewallPath, encoding: .utf8)
 			let bootFirewallCommands = fileContent.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-			let domains = try wgdb.allDomains()
-			let domainIPStrings = domains.map { $0.networks.map { $0.addressString } }.flatMap { $0 }
+			//let domains = try wgdb.allDomains()
+			//let domainIPStrings = domains.map { $0.networks.map { $0.addressString } }.flatMap { $0 }
 			// let commands = Firewall.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
 			let ipv4Dict = try firewallDB.getAllWhitelistedIPv4()
 			let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Dict.map { ($0.key.string, $0.value.map { $0.string }) })

@@ -58,7 +58,7 @@ extension CLI {
 			// ask for the public endpoint
 			var endpoint:String? = nil
 			repeat {
-				print(" -> [PROMPT](required) external endpoint dns name: ", terminator:"")
+				print(" -> [PROMPT](required) server public domain name: ", terminator:"")
 				endpoint = readLine()
 			} while (endpoint == nil || endpoint!.count == 0)
 
@@ -359,9 +359,7 @@ extension CLI {
 			}
 			appLogger.info("acquiring self-signed SSL certificates", metadata:["endpoint":"\(endpoint!)"])
 			
-			try await SelfSignedCertExecutor.generateCert(domain: endpoint!.lowercased(), logLevel: logLevel)
-			try NginxExecutor.install(domain:endpoint!.lowercased())
-			try await NginxExecutor.reload(logLevel: logLevel)
+			try await SelfSignedCertExecutor.generateCert(interfaceName: interfaceName, logLevel: logLevel)
 			
 			guard try await Command(sh: "systemctl daemon-reload", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
 				appLogger.critical("unable to reload the systemctl daemon")
