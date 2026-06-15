@@ -62,6 +62,9 @@ extension CLI {
 					}
 
 					try firewallDB.addWhitelistIPv4(clientIP: clientAddress, whitelist: whitelistV4s)
+
+					let _ = try firewallDB.getAllWhitelistedIPv4()
+					try FirewallExecutor.reloadWhitelist(firewallDB: firewallDB)
 				}
 			}
 
@@ -84,6 +87,7 @@ extension CLI {
 					let firewallDB = try FirewallDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 
 					try firewallDB.addWhitelistIPv6(clientIP: clientV6, whitelist: whitelistV6s)
+					try FirewallExecutor.reloadWhitelist(firewallDB: firewallDB)
 				}
 			}
 		}
@@ -140,6 +144,7 @@ extension CLI {
 					for ipv4 in successfullyRemoved {
 						appLogger.info("successfully removed ip from whitelist", metadata: ["IPv4Address":"\(ipv4.string)"])
 					}
+					if !successfullyRemoved.isEmpty { try FirewallExecutor.reloadWhitelist(firewallDB: firewallDB) }
 				}
 			}
 
@@ -168,6 +173,7 @@ extension CLI {
 					for ipv6 in successfullyRemoved {
 						appLogger.info("successfully removed ip from whitelist", metadata: ["IPv6Address":"\(ipv6.string)"])
 					}
+					if !successfullyRemoved.isEmpty { try FirewallExecutor.reloadWhitelist(firewallDB: firewallDB) }
 				}
 			}
 		}

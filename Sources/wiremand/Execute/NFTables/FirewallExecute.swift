@@ -86,4 +86,14 @@ struct FirewallExecutor {
 
 		return commands
 	}
+
+	static func reloadWhitelist(firewallDB: FirewallDatabase) throws {
+		let ipv4Dict = try firewallDB.getAllWhitelistedIPv4()
+			let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Dict.map { ($0.key.string, $0.value.map { $0.string }) })
+			let ipv6Dict = try firewallDB.getAllWhitelistedIPv6()
+			let ipv6Whitelist = Dictionary(uniqueKeysWithValues: ipv6Dict.map { ($0.key.string, $0.value.map { $0.string }) })
+			let whitelistCommands = FirewallExecutor.createWhitelist(ipv4Dictionary: ipv4Whitelist, ipv6Dictionary: ipv6Whitelist)
+			let nftableExecutor = try NFTables()
+			try nftableExecutor.run(commands: whitelistCommands)
+	}
 }

@@ -75,10 +75,15 @@ extension CLI {
 			
 			mutating func run() async throws {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				let firewallDB = try FirewallDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				
 				try domainName.promptInteractivelyIfNecessary(db:wgdb)
 
-				try wgdb.clientRemove(domain:domainName.domain!, name:domainName.name!)
+				let clients = try wgdb.allClients()
+				let removedClientPub = try wgdb.clientRemove(domain:domainName.domain!, name:domainName.name!)
+				try firewallDB.removeClient(client: clients.first(where: { $0.publicKey == removedClientPub })!)
+				try FirewallExecutor.reloadWhitelist(firewallDB: firewallDB)
+
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
 			}

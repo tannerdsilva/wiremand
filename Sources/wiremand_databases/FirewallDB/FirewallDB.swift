@@ -132,4 +132,22 @@ public struct FirewallDatabase: Sendable {
 
         return result
     }
+
+    /// Removes any trace of the client on the NFTable Firewall.
+	/// - Parameters
+	/// 	- client: The wireguard client.
+    public func removeClient(client: WireguardDatabase.ClientInfo) throws {
+        let newTrans = try Transaction(env: env, readOnly: false)
+        do {
+            if let ipv4 = client.addressV4 {
+                try clientIPv4_whitelistIPv4.deleteEntry(key: ipv4, tx: newTrans)
+            }
+        } catch LMDBError.notFound {}
+        for ipv6 in client.address {
+            do {
+                try clientIPv6_whitelistIPv6.deleteEntry(key: ipv6, tx: newTrans)
+            } catch LMDBError.notFound {}
+        }
+        try newTrans.commit()
+    }
 }
