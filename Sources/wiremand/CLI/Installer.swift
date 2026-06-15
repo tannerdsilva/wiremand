@@ -63,13 +63,16 @@ extension CLI {
 			} while (endpoint == nil || endpoint!.count == 0)
 
 			let routesV4 = try RTNetlink.getRoutesV4()
-    		let filteredV4 = routesV4.filter { $0.destination_length == 0 }
-			guard !filteredV4.isEmpty else {
+    		let filteredRoutesV4 = routesV4.filter { $0.destination_length == 0 }
+			guard !filteredRoutesV4.isEmpty else {
 				appLogger.error("there is no default IPv4 route")
 				throw Error.ipv4DefaultRouteUnknown
 			}
 
-			guard let defaultV4Address = filteredV4.first!.source else {
+			let addressV4 = try RTNetlink.getAddressesV4()
+      		let filteredV4 = addressV4.filter { $0.interfaceName == filteredRoutesV4.first!.outputInterfaceName && $0.scope == 0 } 
+
+			guard let defaultV4Address = filteredV4.first!.address else {
 				appLogger.error("no defaultV4 source address")
 				throw Error.ipv4DefaultRouteUnknown
 			}
@@ -77,7 +80,7 @@ extension CLI {
 			let resExtV4 = AddressV4(defaultV4Address)
 
 			let addressV6 = try RTNetlink.getAddressesV6()
-      		let filteredV6 = addressV6.filter { $0.interfaceName == filteredV4.first!.outputInterfaceName && $0.scope == 0 && !$0.flags.isTemporary }
+      		let filteredV6 = addressV6.filter { $0.interfaceName == filteredRoutesV4.first!.outputInterfaceName && $0.scope == 0 && !$0.flags.isTemporary }
 
 			let resExtV6:AddressV6?
 
