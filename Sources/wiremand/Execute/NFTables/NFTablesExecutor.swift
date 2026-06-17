@@ -4,6 +4,11 @@ import Clibnftables
 import SystemPackage
 import Logging
 
+/// A class for executing NFTable commands.
+/// Create an instance of the class and call the run function.
+///
+/// Commands passed into the class DO NOT need the starting "nft" before the command. For example,
+/// "nft add table newTable" should be passed into run as "add table newTable."
 internal final class NFTables {
 	// typical logging bullshit
 	fileprivate static func makeLogger() -> Logger {

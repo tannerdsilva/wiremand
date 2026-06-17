@@ -182,6 +182,10 @@ enum WGDBError:Swift.Error {
 	case domainNotFound
 }
 
+/// Core persistence layer for WireGuard client, domain, and handshake management.
+/// - Domain Model: Domains partition the IPv6 address space. Clients inherit their domain from their assigned subnet.
+/// - Invalidation: Clients are auto-removed if `invalidationDate < now`. Handshakes reset this date.
+/// - Handshake Processing: Stores up to date handshake information
 public struct WireguardDatabase: Sendable {
 	private enum Metadatas:String {
 		/// The primary interface name for the wireguard interface.

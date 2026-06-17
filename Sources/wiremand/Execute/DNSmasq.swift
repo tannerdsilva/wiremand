@@ -25,6 +25,8 @@ struct DNSmasqExecutor {
 	public enum Error:Swift.Error {
 		case reloadError
 	}
+	/// Exports the DNS entries for each client in the database.
+	/// Creates the DNS mapping of `clientName.domainName.wg` to the client address.
 	public static func exportAutomaticDNSEntries(db:WireguardDatabase) throws {
 		let clients = try db.allClients().compactMap { $0.dynamicDNSLine() }.joined(separator: "\n")
 		// install the systemd service for the daemon

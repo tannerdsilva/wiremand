@@ -101,7 +101,7 @@ extension CLI {
 			struct IPv4: AsyncParsableCommand {
 				static let configuration = CommandConfiguration (
 					commandName: "ipv4",
-					abstract:"blacklist ipv4 addresses for a client."
+					abstract:"removes ipv4 addresses from a client's whitelist."
 				)
 
 				@Option
@@ -151,7 +151,7 @@ extension CLI {
 			struct IPv6: AsyncParsableCommand {
 				static let configuration = CommandConfiguration (
 					commandName: "ipv6",
-					abstract:"blacklist ipv6 addresses for a client."
+					abstract:"removes ipv6 addresses from a client's whitelist."
 				)
 
 				@OptionGroup

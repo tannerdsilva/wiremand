@@ -6,6 +6,10 @@ import SwiftSlash
 import bedrock
 import bedrock_ip
 
+/// A service for keeping handshake information for the servers clients up to date.
+/// The service runs code every ten seconds to use wireguards information on the latest-handshakes
+/// to update the wireguard database on handshake information.
+/// The service adds new addresses to the IP Database to be processed.
 final class HandshakeChecker: Service {
 	enum Error:Swift.Error {
 		case invalidUserPublicKey

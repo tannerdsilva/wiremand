@@ -14,8 +14,6 @@ extension CLI {
 			static let configuration = CommandConfiguration(
 				abstract:"install a domain on this wiremand system."
 			)
-			@Option
-			var email:String? = nil
 	
 			@Argument
 			var domainName:String

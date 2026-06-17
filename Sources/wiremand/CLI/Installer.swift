@@ -8,6 +8,13 @@ import bedrock
 import wiremand_databases
 
 extension CLI {
+	/// Performs one-time system provisioning for a new WireGuard server.
+	/// - Gets the default routes IPv4 and IPv6 address to use as a `public`, permanent endpoint.
+	/// - Requests user input for the wiregaurd servers IPv6 and IPv4 network `internal` endpoint.
+	/// - Requires: Root privileges, internet access, and a clean Linux environment.
+	/// - Steps: Installs dependencies, configures WireGuard/dnsmasq/resolved, creates `wiremand` user,
+	///   initializes LMDB databases, generates self-signed SSL certs, and installs systemd service.
+	/// - Side Effects: Modifies `/etc/systemd/`, `/etc/wireguard/`, `/etc/dnsmasq.conf`, and `/etc/sudoers.d/`.
 	struct Installer:AsyncParsableCommand {
 		enum Error:Swift.Error {
 			case mustBeRoot
@@ -129,7 +136,7 @@ extension CLI {
 			appLogger.info("installing software...")
 			
 			// install software
-			let installCommand = try await Command(sh: "apt-get update && apt-get install wireguard resolvconf dnsmasq stubby nginx certbot -y", environment: CurrentEnvironment.environmentVariables()).runSync()
+			let installCommand = try await Command(sh: "apt-get update && apt-get install wireguard resolvconf dnsmasq stubby certbot -y", environment: CurrentEnvironment.environmentVariables()).runSync()
 			guard installCommand.succeeded == true else {
 				appLogger.critical("unable to install dnsmasq and wireguard")
 				throw Error.unableToInstallDependencies
@@ -302,27 +309,6 @@ extension CLI {
 				appLogger.critical("unable to enable wiremand.service")
 				throw Error.unableToEnableService
 			}
-			
-			appLogger.info("configuring nginx...")
-
-			// begin configuring nginx
-			var nginxOwn = try await Command(sh: "chown root:\(installUserName) /etc/nginx && chown root:\(installUserName) /etc/nginx/conf.d && chown root:\(installUserName) /etc/nginx/sites-enabled", environment: CurrentEnvironment.environmentVariables()).runSync()
-			guard nginxOwn.succeeded == true else {
-				appLogger.critical("unable to change ownership of nginx directories to include wiremand in group")
-				throw Error.unableToConfigureNginx
-			}
-			nginxOwn = try await Command(sh: "chmod 775 /etc/nginx && chmod 775 /etc/nginx/conf.d && chmod 775 /etc/nginx/sites-enabled", environment: CurrentEnvironment.environmentVariables()).runSync()
-			guard nginxOwn.succeeded == true else {
-				appLogger.critical("unable to change mode of nginx directories to include wiremand in group")
-				throw Error.unableToConfigureNginx
-			}
-			
-			// write the upstream config
-			let nginxUpstreams = try FileDescriptor.open("/etc/nginx/conf.d/upstreams.conf", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWrite, .groupRead, .otherRead])
-			try nginxUpstreams.closeAfter({
-				let buildUpstream = "upstream wiremandv4 {\n\tserver 127.0.0.1:8080;\n}\nupstream wiremandv6 {\n\tserver [::1]:8080;\n}\n"
-				_ = try nginxUpstreams.writeAll(buildUpstream.utf8)
-			})
 			
 			appLogger.info("updating /etc/skel/.bashrc with wiremand conveniences")
 			

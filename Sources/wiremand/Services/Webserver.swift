@@ -23,7 +23,12 @@ extension PublicHTTPWebServer {
 	}
 }
 
-
+/// Hosts the secure web server for external inbound network traffic.
+/// Security comes from the self-signed SSL certificate.
+/// The server is hosted on a IPv4 address and IPv6 address.
+/// Routes:
+/// - wg_makekey: A POST method for creating a new client.
+/// - wg_getkey: A GET method for getting a clients public key.
 public final actor PublicHTTPWebServer: Service {
 	let appv4: Application<RouterResponder<Context>>
 	let appv6: Application<RouterResponder<Context>>
@@ -50,8 +55,8 @@ public final actor PublicHTTPWebServer: Service {
 		let wgapi = try Wireguard_MakeKeyResponder(db: wgdb)
 		let wgget = Wireguard_GetKeyResponder(db: wgdb)
 
-		makeRouter.on("wg_makekey", method: .get, responder: wgapi)
-		makeRouter.on("wg_getkey", method: .post, responder: wgget)
+		makeRouter.on("wg_makekey", method: .post, responder: wgapi)
+		makeRouter.on("wg_getkey", method: .get, responder: wgget)
 
 		self.appv4 = Application(router: makeRouter, server: try .tls(.http1(), tlsConfiguration: tlsConfig), configuration: appConfigurationV4, eventLoopGroupProvider: eventLoop)
 
@@ -84,7 +89,6 @@ extension PublicHTTPWebServer {
 		}
 		
 		public func respond(to request:borrowing Request, context: Context) async throws -> Response {
-			
 			guard let hostString = request.uri.host?.lowercased() else {
 				logger.error("no host was found in the uri")
 				return Response(status: .badRequest)
@@ -135,6 +139,10 @@ extension PublicHTTPWebServer {
 }
 
 extension PublicHTTPWebServer {
+	/// Handles POST requests to provision new WireGuard clients via the web API.
+	/// - Query Params: `domain`, `sk` (security key), `dk` (domain hash), `key_name`, `client_public_key`
+	/// - Behavior: If `key_name` already exists, removes the old client and creates a new one with the provided public key.
+	/// - Response: A string containing the completed client wireguard key.
 	fileprivate struct Wireguard_MakeKeyResponder:HTTPResponder {
 		let logger = Logger(label: "Wireguard.MakeKeyResponder")
 		let wgdb:WireguardDatabase
@@ -146,12 +154,6 @@ extension PublicHTTPWebServer {
 		}
 		
 		public func respond(to request: Request,context: Context) async throws -> Response {
-			// guard let hostString = request.uri.host?.lowercased() else {
-			// 	logger.error("no host was found in the uri")
-			// 	return Response(status: .badRequest)
-			// }
-			// let host = EncodedString(hostString)
-
 			guard let inputDomain = request.uri.queryParameters["domain"] else {
 				logger.error("no domain")
 				return Response(status: .badRequest)
@@ -226,8 +228,6 @@ extension PublicHTTPWebServer {
 				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(keyName), publicKey: clientPublicKey, domain: host, ipv4: false)
 			}
 			
-			// var buildKey = "[Interface]\n"
-			//mbuildKey += "PrivateKey = " + newKeys.privateKey + "\n"
 			let ipv6Addresses = client.addressV6.map({ $0.string + "/128" }).joined(separator: ", ")
 			var buildKey = "Address = " + ipv6Addresses + "\n"
 			if client.addressV4 != nil {

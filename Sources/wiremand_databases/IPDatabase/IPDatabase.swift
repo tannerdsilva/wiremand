@@ -53,7 +53,12 @@ public struct IPHash:Sendable, Comparable {
 	}
 }
 
-
+/// Manages geolocation and ISP metadata resolution for client endpoint IPs using ipstack.com.
+/// Architecture:
+/// 1. Pending Queue: IPs awaiting resolution, indexed by insertion date.
+/// 2. Resolved Cache: Successful lookups with reverse date indexing for stale record rotation.
+/// 3. Failed Queue: Exponential backoff via monthly requeue of failed resolutions.
+/// - Rotation: Resolved records >60 days old have a 20% chance of re-resolution. Failed records >30 days are retried.
 public final class IPDatabase: Sendable {
 	public enum ResolveStatus {
 		case resolving

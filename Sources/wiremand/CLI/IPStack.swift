@@ -4,6 +4,7 @@ import wiremand_databases
 import bedrock
 
 extension CLI {
+	/// Get/Set for the IPStack API key.
 	struct IPStack:ParsableCommand {
 		static let configuration = CommandConfiguration(
 			commandName:"ipstack",

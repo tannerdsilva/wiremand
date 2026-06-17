@@ -53,6 +53,10 @@ struct FirewallExecutor {
 		return commands
 	}
 
+	/// Creates the NFTable commands for creating the client whitelist.
+	/// - Parameters
+	/// 	- ipv4Dictionary: The dictionary client IPv4 addresses to the array of IPv4 addresses to whitelist.
+	/// 	- ipv6Dictionary: The dictionary client IPv6 addresses to the array of IPv6 addresses to whitelist.
 	static func createWhitelist(ipv4Dictionary:[String:[String]], ipv6Dictionary:[String:[String]]) -> [String] {
 		var commands: [String] = []
 
@@ -87,13 +91,15 @@ struct FirewallExecutor {
 		return commands
 	}
 
+	/// A function to reload the firewall (specifically for the whitelist section).
+	/// The function should be called whenever a new whitelist change is added to the firewall database.
 	static func reloadWhitelist(firewallDB: FirewallDatabase) throws {
 		let ipv4Dict = try firewallDB.getAllWhitelistedIPv4()
-			let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Dict.map { ($0.key.string, $0.value.map { $0.string }) })
-			let ipv6Dict = try firewallDB.getAllWhitelistedIPv6()
-			let ipv6Whitelist = Dictionary(uniqueKeysWithValues: ipv6Dict.map { ($0.key.string, $0.value.map { $0.string }) })
-			let whitelistCommands = FirewallExecutor.createWhitelist(ipv4Dictionary: ipv4Whitelist, ipv6Dictionary: ipv6Whitelist)
-			let nftableExecutor = try NFTables()
-			try nftableExecutor.run(commands: whitelistCommands)
+		let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Dict.map { ($0.key.string, $0.value.map { $0.string }) })
+		let ipv6Dict = try firewallDB.getAllWhitelistedIPv6()
+		let ipv6Whitelist = Dictionary(uniqueKeysWithValues: ipv6Dict.map { ($0.key.string, $0.value.map { $0.string }) })
+		let whitelistCommands = FirewallExecutor.createWhitelist(ipv4Dictionary: ipv4Whitelist, ipv6Dictionary: ipv6Whitelist)
+		let nftableExecutor = try NFTables()
+		try nftableExecutor.run(commands: whitelistCommands)
 	}
 }

@@ -18,7 +18,7 @@ extension CLI {
 		
 		struct AddNetwork:AsyncParsableCommand {
 			static let configuration = CommandConfiguration(
-				abstract:"adds a new network to the servers [Interface] Address."
+				abstract:"adds a new network to the wireguard servers [Interface] Address."
 			)
 			
 			var globals:GlobalCLIOptions = GlobalCLIOptions()

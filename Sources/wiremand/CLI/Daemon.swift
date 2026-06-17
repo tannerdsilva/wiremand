@@ -10,6 +10,16 @@ import NIO
 //import SignalStack
 
 extension CLI {
+	/// Builds the firewall for any network traffic using NFTables on Linux.
+	/// Firewall contains the following features:
+	/// - Custom User Commands: The custom NFTable commands added via the text file found at firewallPath.
+	/// - Client Whitelist: A whitelist that blocks all incoming traffic per client except for the addresses specified through the Firewall CLI.
+	///
+	/// Runs the services necessary for wiremand to function.
+	/// Services:
+	/// - HandshakeChecker: Checks the servers peers for any changes in handshakes. See HandshakeChecker for more details.
+	/// - IPStacker: Keeps ip information up to date. See IPStacker for more details..
+	/// - WebServer: The hosted server for catching incoming HTTP requests. See PublicHTTPWebServer for more details.
 	struct Run:AsyncParsableCommand {
 		enum Error:Swift.Error {
 			case invalidUser
