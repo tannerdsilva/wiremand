@@ -1,5 +1,5 @@
 {
-  "originHash" : "d26eb78e16088718d49f781127712bddcd334e385ec6f5e42483672e202c67d8",
+  "originHash" : "d8cfbfd82cbe951b7f55de8bc750fdde405d036cb812061183027065e294318c",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -260,15 +260,6 @@
       "state" : {
         "revision" : "7c6ad0fc39d0763e0b699210e4124afd5041c5df",
         "version" : "1.6.4"
-      }
-    },
-    {
-      "identity" : "swiftslash",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tannerdsilva/SwiftSlash.git",
-      "state" : {
-        "revision" : "c1aa0847d8c8c23f278bb732d9d19c72db51b7d0",
-        "version" : "4.0.3"
       }
     }
   ],

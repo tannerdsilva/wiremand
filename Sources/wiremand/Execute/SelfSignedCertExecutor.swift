@@ -16,8 +16,8 @@ struct SelfSignedCertExecutor {
 		var log = Logger(label: "self-signed-cert-executor")
 		log.logLevel = logLevel
 		
-		let fullchainPath = "/fullchain.pem"
-		let privkeyPath = "/privkey.pem"
+		let fullchainPath = "\(certBaseDir)/fullchain.pem"
+		let privkeyPath = "\(certBaseDir)/privkey.pem"
 		
 		// Generate a self-signed certificate valid for 10 years
 		// -x509: self-signed, -nodes: no passphrase, -days 3650: 10 years
