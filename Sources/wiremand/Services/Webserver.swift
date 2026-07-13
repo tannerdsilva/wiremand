@@ -89,11 +89,11 @@ extension PublicHTTPWebServer {
 		}
 		
 		public func respond(to request:borrowing Request, context: Context) async throws -> Response {
-			guard let hostString = request.uri.host?.lowercased() else {
-				logger.error("no host was found in the uri")
+			guard let inputDomain = request.uri.queryParameters["domain"] else {
+				logger.error("no domain")
 				return Response(status: .badRequest)
 			}
-			let host = EncodedString(hostString)
+			let host = EncodedString(String(inputDomain))
 			
 			let httpDomainHash: DomainHash
 			do {

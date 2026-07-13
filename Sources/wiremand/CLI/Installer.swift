@@ -34,6 +34,7 @@ extension CLI {
 			case daemonReloadError
 			case unableToGenerateBashCompletions
 			case ipv4DefaultRouteUnknown
+			case unableToGenerateDirectory
 		}
 		public static let configuration = CommandConfiguration(
 			commandName:"install",
@@ -321,6 +322,11 @@ extension CLI {
 			
 			appLogger.info("installing databases...")
 
+			let makeDirectory = try await Command(sh: "mkdir -p /var/lib/\(installUserName)", environment: CurrentEnvironment.environmentVariables()).runSync()
+			guard makeDirectory.succeeded == true else {
+				appLogger.critical("unable to create the /var/lib/\(installUserName)/ directory")
+				throw Error.unableToGenerateDirectory
+			}
 			let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
 			let _ = try Scheduler(base: homeDir, log: appLogger)
 			appLogger.trace("scheduler created...")
@@ -346,7 +352,14 @@ extension CLI {
 				appLogger.critical("unable to modify access bits (chmod) /var/lib/wiremand/ directory")
 				throw Error.chmodError
 			}
+
 			appLogger.info("acquiring self-signed SSL certificates", metadata:["endpoint":"\(endpoint!)"])
+
+			let makeSSLDirectory = try await Command(sh: "mkdir -p /etc/wiremand/ssl", environment: CurrentEnvironment.environmentVariables()).runSync()
+			guard makeDirectory.succeeded == true else {
+				appLogger.critical("unable to create the /etc/wiremand/ssl directory")
+				throw Error.unableToGenerateDirectory
+			}
 			
 			try await SelfSignedCertExecutor.generateCert(interfaceName: interfaceName, logLevel: logLevel)
 			

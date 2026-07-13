@@ -23,6 +23,7 @@ extension CLI {
 	struct Run:AsyncParsableCommand {
 		enum Error:Swift.Error {
 			case invalidUser
+			case missingFirewallFile
 		}
 
 		static let configuration = CommandConfiguration(
@@ -55,8 +56,15 @@ extension CLI {
 			
 			let (_, _, _, _, _, interfaceName, publicIPv4Interface, publicIPv6Interface) = try wgdb.getWireguardConfigMetas()
 
-			// Setting up the firewall 
-			let fileContent = try String(contentsOfFile: firewallPath, encoding: .utf8)
+			// Setting up the firewall
+			let fileContent:String!
+			do {
+				fileContent = try String(contentsOfFile: firewallPath, encoding: .utf8)
+				appLogger.warning("Reading \(firewallPath) for the custom firewall rules.")
+			} catch {
+				appLogger.warning("Missing firewall file. Add the \(firewallPath) file and run again.")
+				throw Self.Error.missingFirewallFile
+			}
 			let bootFirewallCommands = fileContent.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
 			//let domains = try wgdb.allDomains()
 			//let domainIPStrings = domains.map { $0.networks.map { $0.addressString } }.flatMap { $0 }

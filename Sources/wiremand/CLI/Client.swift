@@ -8,6 +8,7 @@ extension CLI {
 	struct Client:AsyncParsableCommand {
 		enum Error:Swift.Error {
 			case notFound
+			case clientAlreadyExists
 		}
 		static let configuration = CommandConfiguration(
 			abstract:"manage wireguard clients.",
@@ -128,6 +129,7 @@ extension CLI {
 			
 			mutating func run() async throws {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				let (_, _, _, _, _, _, publicIPv4Interface, publicIPv6Interface) = try wgdb.getWireguardConfigMetas()
 				
 				try domainName.promptInteractivelyIfNecessary(db:wgdb)
 				guard try wgdb.validateNewClientName(domain:domainName.domain!, clientName:domainName.name!) == true else {
@@ -166,19 +168,21 @@ extension CLI {
 				let allowedIPs = wgInternalNetwork.map { $0.cidrstring }.joined(separator: ", ")
 				buildKey += "AllowedIPs = \(allowedIPs)"
 				if (optionalV4 != nil) {
-					buildKey += ", \(serverV4)/32\n"
+					buildKey += ", \(serverV4.string)/32\n"
 				} else {
 					buildKey += "\n"
 				}
-				buildKey += "Endpoint = " + ipv4Public.string + ":\(wg_port)" + "\n"
+				buildKey += "Endpoint = \(serverV4.string):\(wg_port.RAW_native())\n"
 				buildKey += "PersistentKeepalive = 25" + "\n"
 				
 				try await WireguardExecutor.install(publicKey:usePublicKey, presharedKey:newKeys.presharedKey, addresses:newClientAddresses, addressv4:optionalV4, interfaceName:interfaceName)
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
 				try wgdb.serveConfiguration(EncodedString(buildKey), forPublicKey:usePublicKey)
 				let domainHash = try DomainHash(domainName: domainName.domain!)
-				let buildURL = "\nhttps://\(String(domainName.domain!))/wg_getkey?dk=\(domainHash.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)&pk=\(usePublicKey.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
-				print("\(buildURL)")
+				let buildURLV4 = "\nhttps://\(publicIPv4Interface.string):8080/wg_getkey?domain=\(String(domainName.domain!).addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)&dk=\(domainHash.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)&pk=\(usePublicKey.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
+				print("\(buildURLV4)")
+				let buildURLV6 = "\nhttps://[\(publicIPv6Interface.string)]:8080/wg_getkey?domain=\(String(domainName.domain!).addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)&dk=\(domainHash.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)&pk=\(usePublicKey.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
+				print("\(buildURLV6)")
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
 			}
@@ -236,9 +240,9 @@ extension CLI {
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try ipdb.getResolveStatus(address:hasEndpoint.description) {
 										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
-											print(Colors.dim("\n\t  - Connected from \(hasCity), \(hasState) at \(hasEndpoint)"), terminator:"")
+											print(Colors.dim("\n\t  - Connected from \(String(hasCity)), \(String(hasState)) at \(hasEndpoint)"), terminator:"")
 										} else if let hasState = resInfo.region?.name {
-											print(Colors.dim("\n\t  - Connected from \(hasState) at \(hasEndpoint)"), terminator:"")
+											print(Colors.dim("\n\t  - Connected from \(String(hasState)) at \(hasEndpoint)"), terminator:"")
 										}
 									} else {
 										print(Colors.dim("\n\t  - Connected at \(hasEndpoint)"), terminator:"")
@@ -258,9 +262,9 @@ extension CLI {
 								if let hasEndpoint = curClient.endpoint {
 									if case let IPDatabase.ResolveStatus.resolved(resInfo) = try ipdb.getResolveStatus(address:hasEndpoint.description) {
 										if let hasCity = resInfo.city, let hasState = resInfo.region?.code {
-											print(Colors.dim("from \(hasCity), \(hasState) at \(hasEndpoint)"), terminator:"")
+											print(Colors.dim("from \(String(hasCity)), \(String(hasState)) at \(hasEndpoint)"), terminator:"")
 										} else if let hasState = resInfo.region?.name {
-											print(Colors.dim("from \(hasState) at \(hasEndpoint)"), terminator:"")
+											print(Colors.dim("from \(String(hasState)) at \(hasEndpoint)"), terminator:"")
 										}
 									} else {
 										print(Colors.dim("at \(hasEndpoint)"), terminator:"")
