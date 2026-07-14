@@ -59,7 +59,10 @@ extension CLI {
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
 				print(Colors.Green("Client IPv4 address successfully applied!"))
 				print("Please update the client's WireGuard configuration file!\nIn the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" with the following line:\n")
-				print("AllowedIPs=\(curV6.string)/128,\(newV4.string)/32")
+				print("AllowedIPs=\(curV6.string)/64,\(newV4.string)/24")
+				
+				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
+				try await DNSmasqExecutor.reload()
 			}
 		}
 		
@@ -129,7 +132,6 @@ extension CLI {
 			
 			mutating func run() async throws {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
-				let (_, _, _, _, _, _, publicIPv4Interface, publicIPv6Interface) = try wgdb.getWireguardConfigMetas()
 				
 				try domainName.promptInteractivelyIfNecessary(db:wgdb)
 				guard try wgdb.validateNewClientName(domain:domainName.domain!, clientName:domainName.name!) == true else {
@@ -147,7 +149,7 @@ extension CLI {
 				
 				let (newClientAddresses, optionalV4) = try wgdb.clientMake(name:domainName.name!, publicKey:usePublicKey, domain:domainName.domain!, ipv4:ipv4)
 				
-				let (wg_dns_name, wg_port, wgInternalNetwork, serverV4, serverPub, interfaceName, ipv4Public, _) = try wgdb.getWireguardConfigMetas()
+				let (wg_dns_name, wg_port, wgInternalNetwork, serverV4, serverPub, interfaceName, ipv4Public, ipv6Public) = try wgdb.getWireguardConfigMetas()
 
 				var buildKey = "[Interface]\n"
 				if publicKey == nil {
@@ -172,16 +174,16 @@ extension CLI {
 				} else {
 					buildKey += "\n"
 				}
-				buildKey += "Endpoint = \(serverV4.string):\(wg_port.RAW_native())\n"
+				buildKey += "Endpoint = \(ipv4Public.string):\(wg_port.RAW_native())\n"
 				buildKey += "PersistentKeepalive = 25" + "\n"
 				
 				try await WireguardExecutor.install(publicKey:usePublicKey, presharedKey:newKeys.presharedKey, addresses:newClientAddresses, addressv4:optionalV4, interfaceName:interfaceName)
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
 				try wgdb.serveConfiguration(EncodedString(buildKey), forPublicKey:usePublicKey)
 				let domainHash = try DomainHash(domainName: domainName.domain!)
-				let buildURLV4 = "\nhttps://\(publicIPv4Interface.string):8080/wg_getkey?domain=\(String(domainName.domain!).addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)&dk=\(domainHash.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)&pk=\(usePublicKey.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
+				let buildURLV4 = "\nhttps://\(ipv4Public.string):8080/wg_getkey?domain=\(String(domainName.domain!).addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)&dk=\(domainHash.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)&pk=\(usePublicKey.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
 				print("\(buildURLV4)")
-				let buildURLV6 = "\nhttps://[\(publicIPv6Interface.string)]:8080/wg_getkey?domain=\(String(domainName.domain!).addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)&dk=\(domainHash.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)&pk=\(usePublicKey.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
+				let buildURLV6 = "\nhttps://[\(ipv6Public.string)]:8080/wg_getkey?domain=\(String(domainName.domain!).addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)&dk=\(domainHash.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)&pk=\(usePublicKey.string.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!)\n"
 				print("\(buildURLV6)")
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()

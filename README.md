@@ -22,6 +22,24 @@ Wiremand is a Swift-based command-line tool and systemd daemon designed to autom
 
 🔁 Automatic DNS Updates - Seamless dnsmasq integration with auto-generated host entries on clients
 
+## Install/Setup
+
+Install nftables `apt-get install libnftables-dev`. Swift build wiremand. Reboot the machine.
+
+Edit the stubby file. `nano /etc/stubby/stubby.yml` (or your text editor of choosing) and change the Listen Address to
+
+    listen_addresses:
+    - 127.0.0.1@5353
+    - 0::1@5353
+
+Save the changes. Then run `systemctl restart stubby`
+
+## Public API
+
+Creating a new key via the public webserver: `curl -k -X POST "https://serverPublicIP:8080/wg_makekey?sk=...&domain=...&dk=...&key_name=...&client_public_key=...`
+
+Getting a key that has been created on the server: `curl -k "https://serverPublicIP:8080/wg_getkey?domain=...&dk=...&pk=...`
+
 ## CLI Reference
 
 ### Client Management
@@ -44,16 +62,17 @@ Wiremand is a Swift-based command-line tool and systemd daemon designed to autom
 ### Firewall Configuration
 | Command | Description |
 |---------|-------------|
-| `wiremand firewall whitelist ipv4 --name <name> <IP1> <IP2>` | Add IPv4 allowlist entries for a client |
-| `wiremand firewall whitelist ipv6 --client-v6 <CLIENT_V6> <IP1> <IP2>` | Add IPv6 allowlist entries for a client |
-| `wiremand firewall blacklist ipv4 --name <name> <IP1> <IP2>` | Remove specific IPv4 entries from the whitelist |
-| `wiremand firewall blacklist ipv6 --client-v6 <CLIENT_V6> <IP1> <IP2>` | Remove specific IPv6 entries from the whitelist |
+| `wiremand firewall whitelist ipv4 --name <name> <IP1> <IP2>...` | Add IPv4 allowlist entries for a client |
+| `wiremand firewall whitelist ipv6 <CLIENT_V6> <IP1> <IP2>...` | Add IPv6 allowlist entries for a client |
+| `wiremand firewall blacklist ipv4 --name <name> <IP1> <IP2>...` | Remove specific IPv4 entries from the whitelist |
+| `wiremand firewall blacklist ipv6 <CLIENT_V6> <IP1> <IP2>...` | Remove specific IPv6 entries from the whitelist |
 
 ### Daemon & Utilities
 | Command | Description |
 |---------|-------------|
 | `wiremand run` | Launch daemon in foreground (debug/test) |
-| `wiremand ipstack set <API_KEY>` | Configure ipstack geolocation key |
+| `wiremand ipstack set-api-key <API_KEY>` | Configure ipstack api key |
+| `wiremand ipstack get-api-key` | Get ipstack api key |
 | `wiremand server add-network` | Interactively add a new IPv6 subnet to the WireGuard interface |
 
 ## Daemon Architecture
@@ -63,4 +82,4 @@ The daemon orchestrates three background services via Apple's Swift ServiceLifec
 |---------|----------|
 | **HandshakeChecker** | Polls `wg show latest-handshakes` & `endpoints` every 10s. Updates DB, triggers IP resolution, revokes expired clients. |
 | **IPStacker** | Resolves pending endpoint IPs via ipstack.com every 10m. Handles retries & stale record rotation. |
-| **PublicHTTPWebServer** | Serves HTTPS provisioning API (`/wg_makekey`, `/wg_getkey`) on IPv4 & IPv6. |
+| **PublicHTTPWebServer** | Serves HTTPS provisioning API (`/wg_makekey`, `/wg_getkey`) on public IPv4 & IPv6 addresses. |
