@@ -728,8 +728,8 @@ public struct WireguardDatabase: Sendable {
 		}
 		
 		try self.clientPub_invalidDate.deleteEntry(key:publicKey, tx:tx)
-		try self.domainHash_clientPub.deleteEntry(key: clientDomain, value:publicKey tx: tx)
-		try self.domainHash_clientNameHash.deleteEntry(key: clientDomain, value:ClientNameHash(clientName: clientName) tx: tx)
+		try self.domainHash_clientPub.deleteEntry(key: clientDomain, value:publicKey, tx: tx)
+		try self.domainHash_clientNameHash.deleteEntry(key: clientDomain, value:ClientNameHash(clientName: clientName), tx: tx)
 		
 		// webserve code here if needed
 		

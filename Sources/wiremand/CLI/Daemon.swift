@@ -66,16 +66,17 @@ extension CLI {
 				throw Self.Error.missingFirewallFile
 			}
 			let bootFirewallCommands = fileContent.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-			//let domains = try wgdb.allDomains()
-			//let domainIPStrings = domains.map { $0.networks.map { $0.addressString } }.flatMap { $0 }
-			// let commands = Firewall.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
+			let domains = try wgdb.allDomains()
+			let domainIPStrings = domains.map { $0.networks.map { $0.addressString } }.flatMap { $0 }
+			let domainIsolationCommands = FirewallExecutor.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
 			let ipv4Dict = try firewallDB.getAllWhitelistedIPv4()
 			let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Dict.map { ($0.key.string, $0.value.map { $0.string }) })
 			let ipv6Dict = try firewallDB.getAllWhitelistedIPv6()
 			let ipv6Whitelist = Dictionary(uniqueKeysWithValues: ipv6Dict.map { ($0.key.string, $0.value.map { $0.string }) })
 			let whitelistCommands = FirewallExecutor.createWhitelist(ipv4Dictionary: ipv4Whitelist, ipv6Dictionary: ipv6Whitelist)
+			let ipFilters = FirewallExecutor.createIPFilters()
 			let nftableExecutor = try NFTables()
-			try nftableExecutor.run(commands: bootFirewallCommands + whitelistCommands)
+			try nftableExecutor.run(commands: bootFirewallCommands + ipFilters + whitelistCommands + domainIsolationCommands)
 
 			// Creating services - Handshake Checker, IPStack Resolver, and the Web Server
 			let handshakeChecker = try HandshakeChecker(wgdb: wgdb, ipdb: ipdb, interfaceName: interfaceName, logLevel: globals.logLevel)

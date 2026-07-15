@@ -29,6 +29,8 @@ extension CLI {
 				let (newDomain, newSK) = try wgdb.domainMake(name:EncodedString(domainName.lowercased()))
 				let domainHash = try DomainHash(domainName: EncodedString(domainName))
 				appLogger.info("domain created successfully.", metadata:["_sk":"\(newSK.string)", "_dk":"\(domainHash.string)", "domain":"\(newDomain.cidrstring)"])
+
+				try FirewallExecutor.reloadDomainIsolation(wgdb: wgdb)
 			}
 		}
 		
@@ -53,6 +55,8 @@ extension CLI {
 					try firewallDB.removeClient(client: client)
 				}
 				try FirewallExecutor.reloadWhitelist(firewallDB: firewallDB)
+				try FirewallExecutor.reloadDomainIsolation(wgdb: wgdb)
+				try FirewallExecutor.removeDomainSet(domain: domainName.lowercased())
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
 			}

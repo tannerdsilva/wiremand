@@ -97,6 +97,7 @@ extension CLI {
 						NSLocalizedDescriptionKey: "Failed to add address to interface \(interfaceName)"
 					])
 				}
+				try FirewallExecutor.reloadDomainIsolation(wgdb: wgdb)
 			}
 		}
 	}
