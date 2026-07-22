@@ -24,7 +24,6 @@ struct CLI:AsyncParsableCommand {
 		subcommands: [
 			Installer.self,
 			TestMigration.self,
-			Server.self,
 			Domain.self,
 			Client.self,
 			Run.self,
@@ -34,24 +33,24 @@ struct CLI:AsyncParsableCommand {
 	)
 
 	public struct TestMigration:ParsableCommand {
-		public static let configuration = CommandConfiguration(
-			commandName: "test-migration",
-			abstract: "Test the migration of legacy databases to the new format."
-		)
+		// public static let configuration = CommandConfiguration(
+		// 	commandName: "test-migration",
+		// 	abstract: "Test the migration of legacy databases to the new format."
+		// )
 
-		@Argument(help:"the directory path to the legacy database")
-		var legacyDBPath:Path = Path("/var/lib/wiremand")
+		// @Argument(help:"the directory path to the legacy database")
+		// var legacyDBPath:Path = Path("/var/lib/wiremand")
 
-		@Argument(help:"the directory path to the new database")
-		var newDBPath:Path = Path("/tmp")
+		// @Argument(help:"the directory path to the new database")
+		// var newDBPath:Path = Path("/tmp")
 
-		public mutating func run() throws {
-			var logger = Logger(label:"TestMigration")
-			logger.logLevel = .info
-			let newDB = try WireguardDatabase(base:newDBPath, logLevel:.info)
-			try newDB.migrate(oldWireguardBase:legacyDBPath, logger:logger)
-			print("Migration test completed successfully.")
-		}
+		// public mutating func run() throws {
+		// 	var logger = Logger(label:"TestMigration")
+		// 	logger.logLevel = .info
+		// 	let newDB = try WireguardDatabase(base:newDBPath, logLevel:.info)
+		// 	try newDB.migrate(oldWireguardBase:legacyDBPath, logger:logger)
+		// 	print("Migration test completed successfully.")
+		// }
 	}
 }
 

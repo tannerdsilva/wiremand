@@ -5,15 +5,18 @@ import SystemPackage
 import bedrock
 import bedrock_ip
 
+// The storage for user added NFTable firewall rules.
+// The base policy for the firewall is a policy drop, so
+// any rules added should include an accept as the result of the rule.
 public struct FirewallDatabase: Sendable {
     enum Databases: String {
-        case clientIPv4_whitelistIPv4 = "clientIPv4_whitelistIPv4"
-        case clientIPv6_whitelistIPv6 = "clientIPv6_whitelistIPv6"
+        case networkV4_firewallRule = "networkV4_firewallRule"
+        case networkV6_firewallRule = "networkV6_firewallRule"
     }
 
     let env: Environment
-    let clientIPv4_whitelistIPv4: Database.DupSort<AddressV4, AddressV4>
-    let clientIPv6_whitelistIPv6: Database.DupSort<AddressV6, AddressV6>
+    let networkV4_firewallRule: Database.DupSort<NetworkV4, EncodedString>
+    let networkV6_firewallRule: Database.DupSort<NetworkV6, EncodedString>
     let log: Logger
 
     public init(base: Path, logLevel: Logger.Level) throws {
@@ -28,8 +31,8 @@ public struct FirewallDatabase: Sendable {
 
         let someTrans = try Transaction(env: env, readOnly: false)
 
-        clientIPv4_whitelistIPv4 = try Database.DupSort<AddressV4, AddressV4>(env: env, name: Databases.clientIPv4_whitelistIPv4.rawValue, flags: [.create], tx: someTrans)
-        clientIPv6_whitelistIPv6 = try Database.DupSort<AddressV6, AddressV6>(env: env, name: Databases.clientIPv6_whitelistIPv6.rawValue, flags: [.create], tx: someTrans)
+        networkV4_firewallRule = try Database.DupSort<NetworkV4, EncodedString>(env: env, name: Databases.networkV4_firewallRule.rawValue, flags: [.create], tx: someTrans)
+        networkV6_firewallRule = try Database.DupSort<NetworkV6, EncodedString>(env: env, name: Databases.networkV6_firewallRule.rawValue, flags: [.create], tx: someTrans)
 
         log.trace("successfully created databases")
         try someTrans.commit()
@@ -41,113 +44,65 @@ public struct FirewallDatabase: Sendable {
 		try? FileManager.default.removeItem(at:URL(filePath: envPath.path()))
 	}
 
-	/// Whitelists an IPv4 address for a client on the NFTable Firewall.
+	/// Adds a domain rule for IPv4 on the NFTable Firewall.
 	/// - Parameters
-	/// 	- clientIP: The wireguard IPv4 address of the client.
-	/// 	- whitelist: The list of IPv4 addresses to add to the clients whitelist.
-    public func addWhitelistIPv4(clientIP: AddressV4, whitelist: [AddressV4]) throws {
+	/// 	- domain: The IPv4 domain.
+	/// 	- rule: The nft syntax compliant rule.
+    public func addDomainV4Rule(domain: NetworkV4, rule: EncodedString) throws {
         let newTrans = try Transaction(env: env, readOnly: false)
-        for ip in whitelist {
-            try clientIPv4_whitelistIPv4.setEntry(key: clientIP, value: ip, flags: [], tx: newTrans)
+        try networkV4_firewallRule.setEntry(key:domain, value: rule, flags: [], tx: newTrans)
+        try newTrans.commit()
+    }
+
+    /// Adds a domain rule for IPv6 on the NFTable Firewall.
+	/// - Parameters
+	/// 	- domain: The IPv6 domain.
+	/// 	- rule: The nft syntax compliant rule.
+    public func addDomainV6Rule(domain: NetworkV6, rule: EncodedString) throws {
+        let newTrans = try Transaction(env: env, readOnly: false)
+        try networkV6_firewallRule.setEntry(key:domain, value: rule, flags: [], tx: newTrans)
+        try newTrans.commit()
+    }
+
+    // Delete all rules for a domain.
+    // - Parameters
+    //      - domain: The IPv4/IPv6 domain.
+    public func deleteDomainRules(domain:bedrock_ip.Network) throws {
+        let newTrans = try Transaction(env: env, readOnly: false)
+        switch domain {
+            case .v4(let v4):
+                try networkV4_firewallRule.deleteEntry(key:wiremand_databases.NetworkV4(v4), tx:newTrans)
+            case .v6(let v6):
+                try networkV6_firewallRule.deleteEntry(key:wiremand_databases.NetworkV6(v6), tx:newTrans)
         }
         try newTrans.commit()
     }
 
-	/// Removes any of the provided IPv4 addresses from the whitelist for a client.
-	/// - Parameters
-	/// 	- clientIP: The wireguard IPv4 address of the client.
-	/// 	- whitelist: The list of IPv4 addresses to remove from the clients whitelist.
+    /// Gets all of the IPv4 domain rules for the NFTable Firewall.
 	/// - Returns
-	/// 	- [AddressV4] : An array of the successfully removed IPv4 addresses.
-    public func removeWhitelistIPv4(clientIP: AddressV4, whitelist: [AddressV4]) throws -> [AddressV4] {
-        let newTrans = try Transaction(env: env, readOnly: false)
-		var successfullyRemoved = [AddressV4]()
-        for ip in whitelist {
-            do {
-                try clientIPv4_whitelistIPv4.deleteEntry(key: clientIP, value: ip, tx: newTrans)
-				successfullyRemoved.append(ip)
-            } catch LMDBError.notFound {
-                continue
-            }
-        }
-        try newTrans.commit()
-		return successfullyRemoved
-    }
-
-	/// Whitelists an IPv6 address for a client on the NFTable Firewall.
-	/// - Parameters
-	/// 	- clientIP: The wireguard IPv6 address of the client.
-	/// 	- whitelist: The list of IPv6 addresses to add to the clients whitelist.
-    public func addWhitelistIPv6(clientIP: AddressV6, whitelist: [AddressV6]) throws {
-        let newTrans = try Transaction(env: env, readOnly: false)
-        for ip in whitelist {
-            try clientIPv6_whitelistIPv6.setEntry(key: clientIP, value: ip, flags: [], tx: newTrans)
-        }
-        try newTrans.commit()
-    }
-
-	/// Removes any of the provided IPv6 addresses from the whitelist for a client.
-	/// - Parameters
-	/// 	- clientIP: The wireguard IPv6 address of the client.
-	/// 	- whitelist: The list of IPv6 addresses to remove from the clients whitelist.
-	/// - Returns
-	/// 	- [AddressV6] : An array of the successfully removed IPv6 addresses.
-    public func removeWhitelistIPv6(clientIP: AddressV6, whitelist: [AddressV6]) throws -> [AddressV6] {
-        let newTrans = try Transaction(env: env, readOnly: false)
-		var successfullyRemoved = [AddressV6]()
-        for ip in whitelist {
-            do {
-                try clientIPv6_whitelistIPv6.deleteEntry(key: clientIP, value: ip, tx: newTrans)
-				successfullyRemoved.append(ip)
-            } catch LMDBError.notFound {
-                continue
-            }
-        }
-        try newTrans.commit()
-		return successfullyRemoved
-    }
-
-	public func getAllWhitelistedIPv4() throws -> [AddressV4: [AddressV4]] {
+	/// 	- [NetworkV4:[EncodedString]] : A dictionary of each domain and its corresponding rules.
+    public func getIPv4Rules() throws -> [NetworkV4:[EncodedString]] {
         let newTrans = try Transaction(env: env, readOnly: true)
-        var result: [AddressV4: [AddressV4]] = [:]
-
-        clientIPv4_whitelistIPv4.cursor(tx: newTrans) { cursor in
-            for (clientIP, whitelistIP) in cursor.makeIterator() {
-                result[clientIP, default: []].append(whitelistIP)
+        var result = [NetworkV4:[EncodedString]]()
+        networkV4_firewallRule.cursor (tx: newTrans) { cursor in
+            for (networkV4, rule) in cursor.makeIterator() {
+                result[networkV4, default: []].append(rule)
             }
         }
-
         return result
     }
 
-    public func getAllWhitelistedIPv6() throws -> [AddressV6: [AddressV6]] {
+    /// Gets all of the IPv6 domain rules for the NFTable Firewall.
+	/// - Returns
+	/// 	- [NetworkV6:[EncodedString]] : A dictionary of each domain and its corresponding rules.
+    public func getIPv6Rules() throws -> [NetworkV6:[EncodedString]] {
         let newTrans = try Transaction(env: env, readOnly: true)
-        var result: [AddressV6: [AddressV6]] = [:]
-
-        clientIPv6_whitelistIPv6.cursor(tx: newTrans) { cursor in
-            for (clientIP, whitelistIP) in cursor.makeIterator() {
-                result[clientIP, default: []].append(whitelistIP)
+        var result = [NetworkV6:[EncodedString]]()
+        networkV6_firewallRule.cursor (tx: newTrans) { cursor in
+            for (networkV6, rule) in cursor.makeIterator() {
+                result[networkV6, default: []].append(rule)
             }
         }
-
         return result
-    }
-
-    /// Removes any trace of the client on the NFTable Firewall.
-	/// - Parameters
-	/// 	- client: The wireguard client.
-    public func removeClient(client: WireguardDatabase.ClientInfo) throws {
-        let newTrans = try Transaction(env: env, readOnly: false)
-        do {
-            if let ipv4 = client.addressV4 {
-                try clientIPv4_whitelistIPv4.deleteEntry(key: ipv4, tx: newTrans)
-            }
-        } catch LMDBError.notFound {}
-        for ipv6 in client.address {
-            do {
-                try clientIPv6_whitelistIPv6.deleteEntry(key: ipv6, tx: newTrans)
-            } catch LMDBError.notFound {}
-        }
-        try newTrans.commit()
     }
 }

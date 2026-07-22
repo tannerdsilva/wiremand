@@ -38,7 +38,7 @@ struct WireguardExecutor {
 		return VPNKey(privateKey:privateKey, publicKey:publicKey, presharedKey:psk)
 	}
     
-	static func install(publicKey:PublicKey, presharedKey:String, addresses:[AddressV6], addressv4:AddressV4?, interfaceName:EncodedString) async throws {
+	static func install(publicKey:PublicKey, presharedKey:String, addresses:[Address], interfaceName:EncodedString) async throws {
         let tempPath = malloc(64);
         defer {
             free(tempPath)
@@ -54,11 +54,8 @@ struct WireguardExecutor {
         _ = try newFD.closeAfter {
             try newFD.writeAll(presharedKey.utf8)
         }
-		let v6Entries = addresses.map { "\($0.string)/128" }
-		var allowedIPs = "allowed-ips \(v6Entries.joined(separator: ","))"
-		if addressv4 != nil {
-			allowedIPs += ",\(addressv4!.string)/32"
-		}
+		let ipEntries = addresses.map { "\($0.isV4 ? "\($0.string)/32" : "\($0.string)/128")" }
+		let allowedIPs = "allowed-ips \(ipEntries.joined(separator: ","))"
 		
 		let installKey = try await Command(sh: "sudo wg set \(String(interfaceName)) peer \(publicKey.string) \(allowedIPs) preshared-key \(pathAsString)", environment: CurrentEnvironment.environmentVariables()).runSync()
         guard installKey.succeeded == true else {
@@ -66,11 +63,9 @@ struct WireguardExecutor {
         }
     }
     
-	static func updateExistingClient(publicKey:PublicKey, with newIPv6Address:AddressV6, and newIPv4Address:AddressV4? = nil, interfaceName:EncodedString) async throws {
-		var allowedIPs = "allowed-ips \(newIPv6Address.string)/128"
-		if (newIPv4Address != nil) {
-			allowedIPs += ",\(newIPv4Address!.string)/32"
-		}
+	static func updateExistingClient(publicKey:PublicKey, with addresses:[Address], interfaceName:EncodedString) async throws {
+		let ipEntries = addresses.map { "\($0.isV4 ? "\($0.string)/32" : "\($0.string)/128")" }
+		let allowedIPs = "allowed-ips \(ipEntries.joined(separator: ","))"
 		
 		let installNewAddress = try await Command(sh: "sudo wg set \(String(interfaceName)) peer \(publicKey.string) \(allowedIPs)", environment: CurrentEnvironment.environmentVariables()).runSync()
     	guard installNewAddress.succeeded == true else {
@@ -93,5 +88,19 @@ struct WireguardExecutor {
 			throw Error.wireguardQuickCmdError
 		}
 		log.trace("successfully saved wireguard configuration with `wg-quick`")
+	}
+
+	static func installDomain(subnet:wiremand_databases.Network, interfaceName:EncodedString) async throws {
+		let installNewAddress = try await Command(sh: "sudo ip addr add \(subnet.cidrstring) dev \(String(interfaceName))", environment: CurrentEnvironment.environmentVariables()).runSync()
+    	guard installNewAddress.succeeded == true else {
+    		throw Error.wireguardCmdError
+    	}
+	}
+
+	static func uninstallDomain(subnet:wiremand_databases.Network, interfaceName:EncodedString) async throws {
+		let installNewAddress = try await Command(sh: "sudo ip addr del \(subnet.cidrstring) dev \(String(interfaceName))", environment: CurrentEnvironment.environmentVariables()).runSync()
+    	guard installNewAddress.succeeded == true else {
+    		throw Error.wireguardCmdError
+    	}
 	}
 }

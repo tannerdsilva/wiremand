@@ -215,36 +215,29 @@ extension PublicHTTPWebServer {
 			
 			let newKeys = try await WireguardExecutor.generateClient()
 			
-			let (_, wgPort, wgInternalNetwork, serverV4, pubKey, interfaceName, publicV4, _) = try wgdb.getWireguardConfigMetas()
+			let (wgPort, wgPrimarySubnet, pubKey, interfaceName, publicV4, _) = try wgdb.getWireguardConfigMetas()
 			
-			var client: (addressV6:[AddressV6], addressV4:AddressV4?, publicKey:PublicKey?) = ([], nil, nil)
+			var client: (address:Address?, publicKey:PublicKey?) = (nil, nil)
 			do {
-				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(keyName), publicKey: clientPublicKey, domain: host, ipv4: false)
+				client.address = try wgdb.clientMake(name: EncodedString(keyName), publicKey: clientPublicKey, domain: host)
 				client.publicKey = nil
 			} catch LMDBError.keyExists {
 				logger.info("client name already exists on this subnet", metadata: ["client": "\(keyName)", "subnet": "\(String(host))"])
 				let removed = try wgdb.clientRemove(domain: host, name: EncodedString(keyName))
 				client.publicKey = removed
-				(client.addressV6, client.addressV4) = try wgdb.clientMake(name: EncodedString(keyName), publicKey: clientPublicKey, domain: host, ipv4: false)
+				client.address = try wgdb.clientMake(name: EncodedString(keyName), publicKey: clientPublicKey, domain: host)
 			}
 			
-			let ipv6Addresses = client.addressV6.map({ $0.string + "/128" }).joined(separator: ", ")
-			var buildKey = "Address = " + ipv6Addresses + "\n"
-			if client.addressV4 != nil {
-				buildKey += "Address = " + client.addressV4!.string + "/32\n"
-			}
-			let dnsAddresses = wgInternalNetwork.map { $0.addressString }.joined(separator: ", ")
-			buildKey += "DNS = \(dnsAddresses)\n"
+			let ipAddress = client.address!.string + "\(client.address!.isV4 ? "/32" : "/128")"
+			var buildKey = "Address = " + ipAddress + "\n"
+			buildKey += "DNS = \(wgPrimarySubnet.addressString)\n"
 			buildKey += "[Peer]\n"
 			buildKey += "PublicKey = \(pubKey.string)\n"
 			buildKey += "PresharedKey = \(newKeys.presharedKey)\n"
-			let allowedIPs = wgInternalNetwork.map { $0.cidrstring }.joined(separator: ", ")
-			buildKey += "AllowedIPs = \(allowedIPs)"
-			if (client.addressV4 != nil) {
-				buildKey += ", \(serverV4.string)/32\n"
-			} else {
-				buildKey += "\n"
-			}
+			let ipAddressSubnet = client.address!.string + "\(client.address!.isV4 ? "/24" : "/64")"
+			buildKey += "AllowedIPs = \(ipAddressSubnet)\n"
+			let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
+			buildKey += "AllowedIPs = \(dnsAllowedIPString)"
 			buildKey += "Endpoint = \(publicV4.string):\(wgPort.RAW_native())\n"
 			buildKey += "PersistentKeepalive = 25" + "\n"
 			
@@ -254,7 +247,7 @@ extension PublicHTTPWebServer {
 			if let oldKey = client.publicKey {
 				try await WireguardExecutor.uninstall(publicKey:oldKey, interfaceName:interfaceName)
 			}
-			try await WireguardExecutor.install(publicKey:clientPublicKey, presharedKey:newKeys.presharedKey, addresses:client.addressV6, addressv4:client.addressV4, interfaceName:interfaceName)
+			try await WireguardExecutor.install(publicKey:clientPublicKey, presharedKey:newKeys.presharedKey, addresses:[client.address!], interfaceName:interfaceName)
 			try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 			try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: logger.logLevel)
 			try await DNSmasqExecutor.reload()

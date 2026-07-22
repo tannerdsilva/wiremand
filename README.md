@@ -48,7 +48,7 @@ Getting a key that has been created on the server: `curl -k "https://serverPubli
 | `wiremand client make --domain <domain> --name <name> [--ipv4] [--public-key <BASE64>]` | Create a new client |
 | `wiremand client list [--domain <domain>] [--windows-legacy]` | List active clients with handshake/endpoint status |
 | `wiremand client rename <BASE64_KEY> <newname>` | Change a client's display name |
-| `wiremand client provision-ipv4 --domain <domain> --name <name>` | Assign a random IPv4 to an existing client |
+| `wiremand client provision-ip <BASE64_KEY> <domain>` | Assign an ip address to a client in a domain |
 | `wiremand client punt --domain <domain> --name <name>` | Extend client's auto-revoke deadline |
 | `wiremand client revoke --domain <domain> --name <name>` | Remove client from WG, firewall, and DNS |
 
@@ -62,10 +62,9 @@ Getting a key that has been created on the server: `curl -k "https://serverPubli
 ### Firewall Configuration
 | Command | Description |
 |---------|-------------|
-| `wiremand firewall whitelist ipv4 --name <name> <IP1> <IP2>...` | Add IPv4 allowlist entries for a client |
-| `wiremand firewall whitelist ipv6 <CLIENT_V6> <IP1> <IP2>...` | Add IPv6 allowlist entries for a client |
-| `wiremand firewall blacklist ipv4 --name <name> <IP1> <IP2>...` | Remove specific IPv4 entries from the whitelist |
-| `wiremand firewall blacklist ipv6 <CLIENT_V6> <IP1> <IP2>...` | Remove specific IPv6 entries from the whitelist |
+| `wiremand firewall add-rule [--network <network>] [--name <name>]` | Add firewall rule to the specified network |
+| `wiremand firewall delete-rules [--network <network>] [--name <name>]` | Deletes all firewall rules for a domain |
+| `wiremand firewall list [--name <name>]` | Lists all firewall rules |
 
 ### Daemon & Utilities
 | Command | Description |
@@ -73,7 +72,6 @@ Getting a key that has been created on the server: `curl -k "https://serverPubli
 | `wiremand run` | Launch daemon in foreground (debug/test) |
 | `wiremand ipstack set-api-key <API_KEY>` | Configure ipstack api key |
 | `wiremand ipstack get-api-key` | Get ipstack api key |
-| `wiremand server add-network` | Interactively add a new IPv6 subnet to the WireGuard interface |
 
 ## Daemon Architecture
 The daemon orchestrates three background services via Apple's Swift ServiceLifecycle:

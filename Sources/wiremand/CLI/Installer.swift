@@ -62,13 +62,6 @@ extension CLI {
 				appLogger.critical("You need to be root to install wiremand.")
 				throw Error.mustBeRoot
 			}
-			
-			// ask for the public endpoint
-			var endpoint:String? = nil
-			repeat {
-				print(" -> [PROMPT](required) server public domain name: ", terminator:"")
-				endpoint = readLine()
-			} while (endpoint == nil || endpoint!.count == 0)
 
 			let routesV4 = try RTNetlink.getRoutesV4()
     		let filteredRoutesV4 = routesV4.filter { $0.destination_length == 0 }
@@ -99,31 +92,22 @@ extension CLI {
 				resExtV6 = AddressV6(filteredV6.first!.address!)
 			}
 			
-			// ask for the client ipv6 scope
-			var ipv6Scope:NetworkV6? = nil
+			// ask for the client ip scope
+			var ipScope:wiremand_databases.Network? = nil
 			repeat {
-				print(" -> [PROMPT](required) vpn internal ipv6 block (cidr where address is servers primary internal address): ", terminator:"")
-				if let asString = readLine(), let asNetwork = NetworkV6(asString) {
-					ipv6Scope = asNetwork
+				print(" -> [PROMPT](required) vpn internal ip block (cidr where address is servers primary internal address): ", terminator:"")
+				if let asString = readLine(), let asNetwork = wiremand_databases.Network(asString) {
+					ipScope = asNetwork
 				}
-			} while ipv6Scope == nil
+			} while ipScope == nil
 			
-			var ipv6ScopeString:EncodedString? = nil
+			var ipScopeString:EncodedString? = nil
 			repeat {
-				print(" -> [PROMPT](required) vpn internal ipv6 block name: ", terminator:"")
+				print(" -> [PROMPT](required) vpn internal ip block name: ", terminator:"")
 				if let asString = readLine() {
-					ipv6ScopeString = EncodedString(asString)
+					ipScopeString = EncodedString(asString)
 				}
-			} while ipv6ScopeString == nil
-			
-			// ask for the client ipv4 scope
-			var ipv4Scope:NetworkV4? = nil
-			repeat {
-				print(" -> [PROMPT](required) vpn internal ipv4 block (cidr where address is servers primary internal address): ", terminator:"")
-				if let asString = readLine(), let asNetwork = NetworkV4(asString) {
-					ipv4Scope = asNetwork
-				}
-			} while ipv4Scope == nil
+			} while ipScopeString == nil
 			
 			var ipStackKey:String? = nil
 			print(" -> [PROMPT](optional) ipstack api key (press RETURN if you do not wish to use ipstack): ", terminator:"")
@@ -162,8 +146,7 @@ extension CLI {
 			try wgConfigFile.closeAfter({
 				var buildConfig = "[Interface]\n"
 				buildConfig += "ListenPort = \(wireguardPort)\n"
-				buildConfig += "Address = \(ipv6Scope!.cidrstring)\n"
-				buildConfig += "Address = \(ipv4Scope!.cidrstring)\n"
+				buildConfig += "Address = \(ipScope!.cidrstring)\n"
 				buildConfig += "PrivateKey = \(newKeys.privateKey)\n"
 				try wgConfigFile.writeAll(buildConfig.utf8)
 			})
@@ -173,7 +156,7 @@ extension CLI {
 			// set up the dnsmasq daemon
 			let dnsMasqConfFile = try FileDescriptor.open("/etc/dnsmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
 			try dnsMasqConfFile.closeAfter({
-				var buildConfig = "listen-address=\(ipv6Scope!.addressString)\n"
+				var buildConfig = "listen-address=\(ipScope!.addressString)\n"
 				buildConfig += "listen-address=::1\nlisten-address=127.0.0.1\n"
 				buildConfig += "server=::1#5353\n"
 				buildConfig += "server=127.0.0.1#5353\n"
@@ -335,7 +318,7 @@ extension CLI {
 			
 			WireguardDatabase.deleteDB(base: Path(homeDir.path))
 			let wgdb = try WireguardDatabase(base: Path(homeDir.path), logLevel: logLevel)
-			try wgdb.install(wg_primaryInterfaceName: EncodedString(interfaceName), wg_serverPublicDomainName: EncodedString(endpoint!), wg_resolvedServerPublicIPv4: resExtV4!, wg_resolvedServerPublicIPv6: resExtV6!, wg_serverPublicListenPort: EncodedUInt16(RAW_native: wireguardPort), serverIPv6Block: ipv6Scope!, serverIPv6BlockName: ipv6ScopeString!, serverIPv4Block: ipv4Scope!, publicKey: newKeys.publicKey, defaultDomainMask: RAW_byte(RAW_native: 112))
+			try wgdb.install(wg_primaryInterfaceName: EncodedString(interfaceName), wg_resolvedServerPublicIPv4: resExtV4!, wg_resolvedServerPublicIPv6: resExtV6!, wg_serverPublicListenPort: EncodedUInt16(RAW_native: wireguardPort), serverIPBlock: ipScope!, serverBlockName: ipScopeString!, publicKey: newKeys.publicKey, defaultDomainMask: RAW_byte(RAW_native: 112))
 			appLogger.trace("wireguard database created...")
 			
 			IPDatabase.deleteDB(base: Path(homeDir.path))
@@ -353,10 +336,10 @@ extension CLI {
 				throw Error.chmodError
 			}
 
-			appLogger.info("acquiring self-signed SSL certificates", metadata:["endpoint":"\(endpoint!)"])
+			appLogger.info("acquiring self-signed SSL certificates", metadata:["endpoint":"\(String(ipScopeString!))"])
 
 			let makeSSLDirectory = try await Command(sh: "mkdir -p /etc/wiremand/ssl", environment: CurrentEnvironment.environmentVariables()).runSync()
-			guard makeDirectory.succeeded == true else {
+			guard makeSSLDirectory.succeeded == true else {
 				appLogger.critical("unable to create the /etc/wiremand/ssl directory")
 				throw Error.unableToGenerateDirectory
 			}

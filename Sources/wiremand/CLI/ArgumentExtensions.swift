@@ -35,3 +35,24 @@ extension AddressV6: ExpressibleByArgument {
 		self = address
 	}
 }
+
+// extension NetworkV4: ExpressibleByArgument {
+// 	public init?(argument: String) {
+// 		guard let network = NetworkV4(argument) else { return nil }
+// 		self = network
+// 	}
+// }
+
+// extension NetworkV6: ExpressibleByArgument {
+// 	public init?(argument: String) {
+// 		guard let network = NetworkV6(argument) else { return nil }
+// 		self = network
+// 	}
+// }
+
+extension Network: ExpressibleByArgument {
+	public init?(argument: String) {
+		guard let network = Network(argument) else { return nil }
+		self = network
+	}
+}

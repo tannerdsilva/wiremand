@@ -1,6 +1,7 @@
 import ArgumentParser
 import wiremand_databases
 import bedrock
+import bedrock_ip
 import Logging
 
 extension CLI {
@@ -25,10 +26,22 @@ extension CLI {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				var appLogger = Logger(label:"wiremand")
 				appLogger.logLevel = globals.logLevel
+
+				let interfaceName = try wgdb.primaryInterfaceName()
+
+				var ipScope:wiremand_databases.Network? = nil
+				repeat {
+					print(" -> [PROMPT](required) subnet block (v4 or v6): ", terminator:"")
+					if let asString = readLine(), let asNetwork = wiremand_databases.Network(asString) {
+						ipScope = asNetwork
+					}
+				} while ipScope == nil
 				
-				let (newDomain, newSK) = try wgdb.domainMake(name:EncodedString(domainName.lowercased()))
+				let newSK = try wgdb.domainMake(name:EncodedString(domainName.lowercased()), subnet: ipScope!)
+				try await WireguardExecutor.installDomain(subnet: ipScope!, interfaceName: interfaceName)
+				try await WireguardExecutor.saveConfiguration(interfaceName: interfaceName, logLevel: globals.logLevel)
 				let domainHash = try DomainHash(domainName: EncodedString(domainName))
-				appLogger.info("domain created successfully.", metadata:["_sk":"\(newSK.string)", "_dk":"\(domainHash.string)", "domain":"\(newDomain.cidrstring)"])
+				appLogger.info("domain created successfully.", metadata:["_sk":"\(newSK.string)", "_dk":"\(domainHash.string)", "domain":"\(ipScope!.cidrstring)"])
 
 				try FirewallExecutor.reloadDomainIsolation(wgdb: wgdb)
 			}
@@ -49,14 +62,16 @@ extension CLI {
 			mutating func run() async throws {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				let firewallDB = try FirewallDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				let interfaceName = try wgdb.primaryInterfaceName()
 				let removedClients = try wgdb.allClients(domain: EncodedString(domainName.lowercased()))
-				try wgdb.domainRemove(name:EncodedString(domainName.lowercased()))
+				let subnet = try wgdb.domainRemove(name:EncodedString(domainName.lowercased()))
+				try await WireguardExecutor.uninstallDomain(subnet: subnet, interfaceName: interfaceName)
 				for client in removedClients {
-					try firewallDB.removeClient(client: client)
+					try await WireguardExecutor.uninstall(publicKey: client.publicKey, interfaceName: interfaceName)
 				}
+				try await WireguardExecutor.saveConfiguration(interfaceName: interfaceName, logLevel: globals.logLevel)
 				try FirewallExecutor.reloadWhitelist(firewallDB: firewallDB)
 				try FirewallExecutor.reloadDomainIsolation(wgdb: wgdb)
-				try FirewallExecutor.removeDomainSet(domain: domainName.lowercased())
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
 			}
@@ -82,7 +97,7 @@ extension CLI {
 						print(Colors.Yellow("\t- sk: \(curDomain.securityKey.string)"))
 						print(Colors.Cyan("\t- dk: \(try DomainHash(domainName: curDomain.name).string)"))
 					}
-					print(Colors.dim("\t- subnets: \(curDomain.networks.map(\.cidrstring).joined(separator: ", "))"))
+					print(Colors.dim("\t- subnets: \(curDomain.network.cidrstring)"))
 				}
 			}
 		}

@@ -100,9 +100,109 @@ public struct NetworkV6:Sendable, Hashable, Comparable {
 	}
 }
 
+@MDB_comparable
+public struct Address:Sendable, Hashable, Comparable {
+	fileprivate let addr:bedrock_ip.Address
+	public var string:String {
+		String(self.addr)
+	}
+	public var isV4:Bool {
+		switch self.addr {
+			case .v4(_):
+				return true
+			case .v6(_):
+				return false
+		}
+	}
+	public init(_ addrIn:bedrock_ip.Address) {
+		addr = addrIn
+	}
+	public init?(_ string:String) {
+		let addrIn = bedrock_ip.Address(string)
+		guard addrIn != nil else {
+			return nil
+		}
+		addr = addrIn!
+	}
+}
+
+extension Address:RAW_accessible {
+	public borrowing func RAW_access<R, E>(_ body:(UnsafeBufferPointer<UInt8>) throws(E) -> R) throws(E) -> R where E:Swift.Error {
+		return try addr.RAW_access(body)
+	}
+	public mutating func RAW_access_mutating<R, E>(_ body:(UnsafeMutableBufferPointer<UInt8>) throws(E) -> R) throws(E) -> R where E:Swift.Error {
+		var addr = addr.self
+		return try addr.RAW_access_mutating(body)
+	}
+}
+
+extension Address:RAW_decodable {
+	public init?(RAW_decode:UnsafeRawPointer, count:size_t) {
+		guard let addr = bedrock_ip.Address(RAW_decode:RAW_decode, count:count) else {
+			return nil
+		}
+		self.addr = addr
+	}
+}
+
+
+
+@MDB_comparable
+public struct Network:Sendable, Hashable, Comparable {
+	fileprivate let net:bedrock_ip.Network
+	public var cidrstring:String {
+		self.net.description
+	}
+	public var isV4:Bool {
+		switch self.net {
+			case .v4(_):
+				return true
+			case .v6(_):
+				return false
+		}
+	}
+	public var addressString:String {
+		switch self.net {
+			case .v4(let v4):
+				return String(v4.address)
+			case .v6(let v6):
+				return String(v6.address)
+		}
+	}
+	public init(_ netIn:bedrock_ip.Network) {
+		net = netIn
+	}
+	public init?(_ string:String) {
+		let netIn = bedrock_ip.Network(string)
+		guard netIn != nil else {
+			return nil
+		}
+		net = netIn!
+	}
+}
+
+extension Network:RAW_accessible {
+	public borrowing func RAW_access<R, E>(_ body:(UnsafeBufferPointer<UInt8>) throws(E) -> R) throws(E) -> R where E:Swift.Error {
+		return try net.RAW_access(body)
+	}
+	public mutating func RAW_access_mutating<R, E>(_ body:(UnsafeMutableBufferPointer<UInt8>) throws(E) -> R) throws(E) -> R where E:Swift.Error {
+		var net = self.net
+		return try net.RAW_access_mutating(body)
+	}
+}
+
+extension Network:RAW_decodable {
+	public init?(RAW_decode:UnsafeRawPointer, count:size_t) {
+		guard let net = bedrock_ip.Network(RAW_decode:RAW_decode, count:count) else {
+			return nil
+		}
+		self.net = net
+	}
+}
+
 @RAW_convertible_string_type<UTF8>(backing:RAW_byte.self)
 @MDB_comparable
-public struct EncodedString:Sendable, Hashable {}
+public struct EncodedString:Sendable, Hashable, ExpressibleByStringLiteral, Comparable {}
 
 @RAW_staticbuff(bytes:2)
 @RAW_staticbuff_fixedwidthinteger_type<UInt16>(bigEndian:true)
@@ -180,6 +280,7 @@ extension bedrock.Date.Seconds: @retroactive Hashable, @retroactive Comparable {
 enum WGDBError:Swift.Error {
 	case immutableClient
 	case domainNotFound
+	case clientExistsInDomain
 }
 
 /// Core persistence layer for WireGuard client, domain, and handshake management.
@@ -190,16 +291,12 @@ public struct WireguardDatabase: Sendable {
 	private enum Metadatas:String {
 		/// The primary interface name for the wireguard interface.
 		case wg_primaryInterfaceName = "wg_primaryWGInterfaceName"			// String
-		/// The public DNS name for the server.
-		case wg_serverPublicDomainName = "wg_serverPublicDomainName"		// String
 		/// The public IPv4 address for the server.
 		case wg_serverPublicIPv4Address = "wg_serverPublicIPv4Address"		// AddressV4?
 		/// The public IPv6 address for the server.
 		case wg_serverPublicIPv6Address = "wg_serverPublicIPv6Address"		// AddressV6?
 		/// The public port that the wireguard process is listening on.
 		case wg_serverPublicListenPort = "wg_serverPublicListenPort"		// UInt16
-		/// The complete internal scope of the server's IPv4 address space. This is the complete address space that the server can assign to clients.
-		case wg_serverIPv4Block = "wg_serverIPv4Subnet" //NetworkV4 where address == servers own internal IP
 		/// The public key for the server.
 		case wg_serverPublicKey = "serverPublicKey" //String
 		/// The default domain subnet mask for the server.
@@ -209,46 +306,49 @@ public struct WireguardDatabase: Sendable {
 		case wg_noHandshakeInvalidationInterval = "noHandshakeInvalidationInterval" //TimeInterval
 		case wg_handshakeInvalidationInterval = "handshakeInvalidationInterval" //TimeInterval
 		case wg_database_version = "wg_database_version" //UInt64
+		case wg_serverPrimarySubnet = "wg_serverPrimarySubnet"
+		case wg_serverPrimarySubnetName = "wg_serverPrimarySubnetName"
 	}
 	public enum Databases:String {
 		case metadata = "wgdb_metadata_db"
 
 		case addressName_hostSubnet = "addrName_hostSubnet"
 		// client pub and address mappings
-		case clientPub_ipv4 = "pub_4"
-		case ipv4_clientPub = "4_pub"
-		case clientPub_ipv6 = "pub_6"
-		case ipv6_clientPub = "6_pub"
+		case clientPub_ip = "pub_ip"
+		case ip_clientPub = "ip_pub"
 		
 		case clientPub_clientName = "pub_name"
 		case clientPub_createdOn = "pub_createDate"
 		case domainHash_domainName = "domainHash_domainName"
 		case clientPub_domainHash = "pub_domainNameHash"
 		// Maps a client public key to their respective handshake date
-		case clientPub_handshakeDate = "wgdb_clientPub_handshakeDate" //String:Date? (optional value)
+		case clientPub_handshakeDate = "wgdb_clientPub_handshakeDate"
 		/// Maps a client public key to their respective endpoint address
-		case clientPub_endpointAddress = "wgdb_clientPub_endpointAddr" //String:String? (optional value)
+		case clientPub_endpointAddress = "wgdb_clientPub_endpointAddr" 
 		/// Maps a client public key to their respective invalidation date
-		case clientPub_invalidDate = "wgdb_clientPub_invalidDate" //String:Date (non-optional but not specified for the servers own public key since the server cannot invalidate itself)
+		case clientPub_invalidDate = "wgdb_clientPub_invalidDate" 
 		
 		/// Maps a given domain name to its respective IPv6 network
-		case domainHash_networkV6 = "wgdb_domainHash_networkV6" //String:NetworkV6
+		case domainHash_network = "wgdb_domainHash_network" 
 		
 		/// Maps a given domain CIDR to its respective domain name
-		case networkV6_domainName = "wgdb_networkV6_domainName" //NetworkV6:String
+		case networkV6_domainName = "wgdb_networkV6_domainName" 
 		
 		/// Maps a given domain name hash to its respective security key
 		/// - not specified on domains that do not have the public api activated
-		case domainHash_securityKey = "wgdb_domainHash_securityKey" //String:String
+		case domainHash_securityKey = "wgdb_domainHash_securityKey" 
 		
 		/// Maps a given domain name to the various public keys that it encompasses
-		case domainHash_clientPub = "wgdb_domainHash_clientPub" //String:String
+		case domainHash_clientPub = "wgdb_domainHash_clientPub"
 		
 		/// Maps a given domain name to the various client name that reside within it. This prevents name conflicts
-		case domainHash_clientNameHash = "wgdb_domainHash_clientNameHash" //String:Data
+		case domainHash_clientNameHash = "wgdb_domainHash_clientNameHash" 
+
+		/// Maps a ip address to a domain hash. Used to keep track of which client ip belongs to which domain.
+		case ip_domainHash = "wgdb_ip_domainHash" 
 		
 		/// Maps a given client public key to the config data that may be served
-		case webServe__clientPub_configData = "wgdb___webserve_clientPub_configData" //String:String
+		case webServe__clientPub_configData = "wgdb___webserve_clientPub_configData"
 	}
 	
 	let log:Logger
@@ -256,17 +356,10 @@ public struct WireguardDatabase: Sendable {
 	// basics
 	let env:Environment
 	let metadata:Database
-	
-	let addressName_hostSubnet:Database.Strict<EncodedString, NetworkV6>
-	
-	// client info ---------------------------
-	// - optional ipv4 related databases
-	let clientPub_ipv4:Database.Strict<PublicKey, AddressV4>
-	let ipv4_clientPub:Database.Strict<AddressV4, PublicKey>
-	
-	// - required ipv6 related databases
-	let clientPub_ipv6:Database.DupSort<PublicKey, AddressV6>
-	let ipv6_clientPub:Database.Strict<AddressV6, PublicKey>
+			
+	// - required ip related databases
+	let clientPub_ip:Database.DupSort<PublicKey, Address>
+	let ip_clientPub:Database.Strict<Address, PublicKey>
 	
 	// - required client info
 	let clientPub_clientName:Database.Strict<PublicKey, EncodedString>
@@ -277,21 +370,22 @@ public struct WireguardDatabase: Sendable {
 	
 	// - optional metadata about the client that is captured when the client connects to the network. this is not required for the client to be considered "valid" and "functional" in the system
 	let clientPub_handshakeDate:Database.Strict<PublicKey, bedrock.Date.Seconds>
-	let clientPub_endpointAddress:Database.Strict<PublicKey, Address>
+	let clientPub_endpointAddress:Database.Strict<PublicKey, bedrock_ip.Address>
 	
 	// - if the client is configured to be auto revoked, this is the date that it will be revoked.
 	// 	- note: this database is only valid for clients that have connected to the network at least once. if a client has never connected to the network, it will not have a valid entry in this database, and any auto 
 	let clientPub_invalidDate:Database.Strict<PublicKey, bedrock.Date.Seconds>
 	
 	// domain info
-	let domainHash_networkV6:Database.Strict<DomainHash, NetworkV6>
-	let networkV6_domainHash:Database.Strict<NetworkV6, DomainHash>
+	let domainHash_network:Database.Strict<DomainHash, Network>
+	let network_domainHash:Database.Strict<Network, DomainHash>
 	let domainHash_securityKey:Database.Strict<DomainHash, SecurityKey>
 	
 	// domain + client info
 	let domainHash_clientPub:Database.DupSort<DomainHash, PublicKey>
-	let clientPub_domainHash:Database.Strict<PublicKey, DomainHash>
+	let clientPub_domainHash:Database.DupSort<PublicKey, DomainHash>
 	let domainHash_clientNameHash:Database.DupSort<DomainHash, ClientNameHash>
+	let ip_domainHash:Database.Strict<Address, DomainHash>
 	
 	let webserve__clientPub_configData:Database.Strict<PublicKey, EncodedString>
 	
@@ -325,23 +419,21 @@ public struct WireguardDatabase: Sendable {
 		let someTrans = try Transaction(env:env, readOnly:false)
 		log.trace("successfully created transaction")
 		metadata = try Database(env:env, name:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
-		addressName_hostSubnet = try Database.Strict<EncodedString, NetworkV6>(env:env, name:Databases.addressName_hostSubnet.rawValue, flags:[.create], tx:someTrans)
-		clientPub_ipv4 = try Database.Strict<PublicKey, AddressV4>(env:env, name:Databases.clientPub_ipv4.rawValue, flags:[.create], tx:someTrans)
-		ipv4_clientPub = try Database.Strict<AddressV4, PublicKey>(env:env, name:Databases.ipv4_clientPub.rawValue, flags:[.create], tx:someTrans)
-		clientPub_ipv6 = try Database.DupSort<PublicKey, AddressV6>(env:env, name:Databases.clientPub_ipv6.rawValue, flags:[.create], tx:someTrans)
-		ipv6_clientPub = try Database.Strict<AddressV6, PublicKey>(env:env, name:Databases.ipv6_clientPub.rawValue, flags:[.create], tx:someTrans)
+		clientPub_ip = try Database.DupSort<PublicKey, Address>(env:env, name:Databases.clientPub_ip.rawValue, flags:[.create], tx:someTrans)
+		ip_clientPub = try Database.Strict<Address, PublicKey>(env:env, name:Databases.ip_clientPub.rawValue, flags:[.create], tx:someTrans)
 		clientPub_clientName = try Database.Strict<PublicKey, EncodedString>(env:env, name:Databases.clientPub_clientName.rawValue, flags:[.create], tx:someTrans)
 		clientPub_createdOn = try Database.Strict<PublicKey, bedrock.Date.Seconds>(env:env, name:Databases.clientPub_createdOn.rawValue, flags:[.create], tx:someTrans)
 		domainHash_domainName = try Database.Strict<DomainHash, EncodedString>(env:env, name:Databases.domainHash_domainName.rawValue, flags:[.create], tx:someTrans)
-		clientPub_domainHash = try Database.Strict<PublicKey, DomainHash>(env:env, name:Databases.clientPub_domainHash.rawValue, flags:[.create], tx:someTrans)
+		clientPub_domainHash = try Database.DupSort<PublicKey, DomainHash>(env:env, name:Databases.clientPub_domainHash.rawValue, flags:[.create], tx:someTrans)
 		clientPub_handshakeDate = try Database.Strict<PublicKey, bedrock.Date.Seconds>(env:env, name:Databases.clientPub_handshakeDate.rawValue, flags:[.create], tx:someTrans)
-		clientPub_endpointAddress = try Database.Strict<PublicKey, Address>(env:env, name:Databases.clientPub_endpointAddress.rawValue, flags:[.create], tx:someTrans)
+		clientPub_endpointAddress = try Database.Strict<PublicKey, bedrock_ip.Address>(env:env, name:Databases.clientPub_endpointAddress.rawValue, flags:[.create], tx:someTrans)
 		clientPub_invalidDate = try Database.Strict<PublicKey, bedrock.Date.Seconds>(env:env, name:Databases.clientPub_invalidDate.rawValue, flags:[.create], tx:someTrans)
-		domainHash_networkV6 = try Database.Strict<DomainHash, NetworkV6>(env:env, name:Databases.domainHash_networkV6.rawValue, flags:[.create], tx:someTrans)
-		networkV6_domainHash = try Database.Strict<NetworkV6, DomainHash>(env:env, name:Databases.networkV6_domainName.rawValue, flags:[.create], tx:someTrans)
+		domainHash_network = try Database.Strict<DomainHash, Network>(env:env, name:Databases.domainHash_network.rawValue, flags:[.create], tx:someTrans)
+		network_domainHash = try Database.Strict<Network, DomainHash>(env:env, name:Databases.networkV6_domainName.rawValue, flags:[.create], tx:someTrans)
 		domainHash_securityKey = try Database.Strict<DomainHash, SecurityKey>(env:env, name:Databases.domainHash_securityKey.rawValue, flags:[.create], tx:someTrans)
 		domainHash_clientPub = try Database.DupSort<DomainHash, PublicKey>(env:env, name:Databases.domainHash_clientPub.rawValue, flags:[.create], tx:someTrans)
-		domainHash_clientNameHash = try Database.DupSort<DomainHash, ClientNameHash>(env:env, name:Databases.domainHash_clientNameHash.rawValue,	 flags:[.create], tx:someTrans)
+		domainHash_clientNameHash = try Database.DupSort<DomainHash, ClientNameHash>(env:env, name:Databases.domainHash_clientNameHash.rawValue, flags:[.create], tx:someTrans)
+		ip_domainHash = try Database.Strict<Address, DomainHash>(env:env, name:Databases.ip_domainHash.rawValue, flags:[.create], tx:someTrans)
 		webserve__clientPub_configData = try Database.Strict<PublicKey, EncodedString>(env:env, name:Databases.webServe__clientPub_configData.rawValue, flags:[.create], tx:someTrans)
 		log.trace("successfully created databases")
 		try someTrans.commit()
@@ -355,43 +447,39 @@ public struct WireguardDatabase: Sendable {
 	
 	/// The setup function for a new host. Creates new databases for the host.
 	/// Adds necessary metadata values for the host to the metadata database.
-	public func install(wg_primaryInterfaceName:EncodedString, wg_serverPublicDomainName:EncodedString, wg_resolvedServerPublicIPv4:AddressV4, wg_resolvedServerPublicIPv6:AddressV6, wg_serverPublicListenPort:EncodedUInt16, serverIPv6Block:NetworkV6, serverIPv6BlockName:EncodedString, serverIPv4Block:NetworkV4, publicKey:PublicKey, defaultDomainMask:RAW_byte, noHandshakeInvalidationInterval:EncodedTimeInterval = EncodedTimeInterval(RAW_native: 3600), handshakeInvalidationInterval:EncodedTimeInterval = EncodedTimeInterval(RAW_native: 2629800)) throws {
+	public func install(wg_primaryInterfaceName:EncodedString, wg_resolvedServerPublicIPv4:AddressV4, wg_resolvedServerPublicIPv6:AddressV6, wg_serverPublicListenPort:EncodedUInt16, serverIPBlock:Network, serverBlockName:EncodedString, publicKey:PublicKey, defaultDomainMask:RAW_byte, noHandshakeInvalidationInterval:EncodedTimeInterval = EncodedTimeInterval(RAW_native: 3600), handshakeInvalidationInterval:EncodedTimeInterval = EncodedTimeInterval(RAW_native: 2629800)) throws {
 		let newTrans = try Transaction(env: env, readOnly: false)
 		
 		let myClientName = EncodedString("localhost")
-		let myAddress = AddressV6(serverIPv6Block.net.address)
-		let myDomain = NetworkV6(myAddress.string + "/\(defaultDomainMask.RAW_native())")!
-		let myDomainName = wg_serverPublicDomainName
+		let myAddress = Address(serverIPBlock.addressString)!
+		let myDomain = Network(myAddress.string + "/\(defaultDomainMask.RAW_native())")!
+		let myDomainName = serverBlockName
 		let myDomainHash = try DomainHash(domainName: myDomainName)
 		
-		let myIPv4 = AddressV4(serverIPv4Block.net.address)
-		
-		try clientPub_ipv4.setEntry(key:publicKey, value:myIPv4, flags:[], tx:newTrans)
-		try ipv4_clientPub.setEntry(key:myIPv4, value:publicKey, flags:[], tx:newTrans)
-		try clientPub_ipv6.setEntry(key:publicKey, value:myAddress, flags:[], tx:newTrans)
-		try ipv6_clientPub.setEntry(key:myAddress, value:publicKey, flags:[], tx:newTrans)
+		try clientPub_ip.setEntry(key:publicKey, value:myAddress, flags:[], tx:newTrans)
+		try ip_clientPub.setEntry(key:myAddress, value:publicKey, flags:[], tx:newTrans)
 		try clientPub_clientName.setEntry(key:publicKey, value:myClientName, flags:[], tx:newTrans)
 		try clientPub_createdOn.setEntry(key:publicKey, value:bedrock.Date.Seconds(), flags:[], tx:newTrans)
 		try clientPub_domainHash.setEntry(key:publicKey, value:myDomainHash, flags:[], tx:newTrans)
 		
-		try domainHash_networkV6.setEntry(key:myDomainHash, value:myDomain, flags: [], tx:newTrans)
-		try networkV6_domainHash.setEntry(key:myDomain, value:myDomainHash, flags: [], tx:newTrans)
+		try domainHash_network.setEntry(key:myDomainHash, value:myDomain, flags: [], tx:newTrans)
+		try network_domainHash.setEntry(key:myDomain, value:myDomainHash, flags: [], tx:newTrans)
 
 		try domainHash_securityKey.setEntry(key:myDomainHash, value:SecurityKey(randomBytes: try generateRandomBytes(count: MemoryLayout<SecurityKey>.size))!, flags:[], tx:newTrans)
 		try domainHash_clientPub.setEntry(key:myDomainHash, value:publicKey, flags:[], tx:newTrans)
 		try domainHash_clientNameHash.setEntry(key: myDomainHash, value: ClientNameHash(clientName: myClientName), flags: [], tx: newTrans)
+		try ip_domainHash.setEntry(key: myAddress, value: myDomainHash, flags: [], tx: newTrans)
 		try domainHash_domainName.setEntry(key: myDomainHash, value: myDomainName, flags: [], tx: newTrans)
 		
-		try addressName_hostSubnet.setEntry(key: serverIPv6BlockName, value: serverIPv6Block, flags: [], tx: newTrans)
-		
+		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPrimarySubnet.rawValue), value: serverIPBlock, flags: [], tx: newTrans)
+		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPrimarySubnetName.rawValue), value: serverBlockName, flags: [], tx: newTrans)
+
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_primaryInterfaceName.rawValue), value: wg_primaryInterfaceName, flags: [], tx: newTrans)
-		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPublicDomainName.rawValue), value: wg_serverPublicDomainName, flags: [], tx: newTrans)
 		
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPublicIPv4Address.rawValue), value: wg_resolvedServerPublicIPv4, flags: [], tx: newTrans)
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPublicIPv6Address.rawValue), value: wg_resolvedServerPublicIPv6, flags: [], tx: newTrans)
 		
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPublicListenPort.rawValue), value: wg_serverPublicListenPort, flags: [], tx: newTrans)
-		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverIPv4Block.rawValue), value: serverIPv4Block, flags: [], tx: newTrans)
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), value: publicKey, flags: [], tx: newTrans)
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_defaultDomainMask.rawValue), value: defaultDomainMask, flags: [], tx: newTrans)
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_noHandshakeInvalidationInterval.rawValue), value: noHandshakeInvalidationInterval, flags: [], tx: newTrans)
@@ -411,81 +499,56 @@ public struct WireguardDatabase: Sendable {
 		return try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicListenPort.rawValue), as: EncodedUInt16.self, tx: newTrans)!
 	}
 	
-	public func getWireguardConfigMetas() throws -> (EncodedString, EncodedUInt16, [NetworkV6], AddressV4, PublicKey, EncodedString, AddressV4, AddressV6) {
+	public func getWireguardConfigMetas() throws -> (EncodedUInt16, Network, PublicKey, EncodedString, AddressV4, AddressV6) {
 		let newTrans = try Transaction(env: env, readOnly: true)
-		let getDNSName = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicDomainName.rawValue), as: EncodedString.self, tx: newTrans)!
 		let getPort = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicListenPort.rawValue), as: EncodedUInt16.self, tx: newTrans)!
 		
-		var ipv6Subnets = [NetworkV6]()
-		addressName_hostSubnet.cursor(tx:newTrans) { cursor in
-			for (_, host) in cursor.makeIterator() {
-				ipv6Subnets.append(host)
-			}
-		}
-		let ipv4Address = AddressV4(try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverIPv4Block.rawValue), as: NetworkV4.self, tx: newTrans)!.net.address)
+		let primaryServerSubnet = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPrimarySubnet.rawValue), as: Network.self, tx: newTrans)!
 		let serverPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: newTrans)!
 		let publicInterfaceName = try metadata.loadEntry(key: EncodedString(Metadatas.wg_primaryInterfaceName.rawValue), as: EncodedString.self, tx: newTrans)!
 
 		let publicIPv4Interface = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicIPv4Address.rawValue), as: AddressV4.self, tx: newTrans)!
 		let publicIPv6Interface = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicIPv6Address.rawValue), as: AddressV6.self, tx: newTrans)!
 
-		return (getDNSName, getPort, ipv6Subnets, ipv4Address, serverPubKey, publicInterfaceName, publicIPv4Interface, publicIPv6Interface)
-	}
-	
-	/// Adds a new IPv6 network for the host to the database.
-	/// - Parameters
-	/// 	- name: The new network name.
-	/// 	- network: The network to be added.
-	public func addNetwork(name:EncodedString, network:NetworkV6) throws {
-		let newTrans = try Transaction(env: env, readOnly: false)
-		try addressName_hostSubnet.setEntry(key: name, value: network, flags: [.noOverwrite], tx: newTrans)
-		try newTrans.commit()
+		return (getPort, primaryServerSubnet, serverPubKey, publicInterfaceName, publicIPv4Interface, publicIPv6Interface)
 	}
 	
 	/// Adds a domain to the hosts database.
-	/// A domain is a soft-concept used for peer categorization. The domain of a peer is indicated by the
-	/// middle X bytes of the peers IP address where `X = 128 - (128 - wg_defaultDomainMask) - host.subnetPrefix`
-	/// The domain applies to all of a peer's IPv6 addresses which come from the host.
 	/// - Parameters
-	/// 	- dk: The domain hash.
-	/// 	- sk: The security key to be validated.
-	public func domainMake(name:EncodedString) throws -> (NetworkV6, SecurityKey) {
+	/// 	- name: The domain name.
+	/// 	- subnet: The network of the domain.
+	public func domainMake(name:EncodedString, subnet:Network) throws -> SecurityKey {
 		let newTrans = try Transaction(env: env, readOnly: false)
 		let domainHash = try DomainHash(domainName: name)
-		// get the default domain mask size
-		let maskNumber = try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_defaultDomainMask.rawValue), as: RAW_byte.self, tx: newTrans)!
 		
-		var suggestedDomainSubnet:NetworkV6
-		repeat {
-			// Make the host specific bytes all 0's
-			let address = try generateSecureRandomBytes(as: bedrock_ip.AddressV6.self)
-			suggestedDomainSubnet = NetworkV6(bedrock_ip.NetworkV6(address: address, subnetPrefix: maskNumber.RAW_native()))
-		} while try self.networkV6_domainHash.containsEntry(key: suggestedDomainSubnet, tx: newTrans)
+		guard try self.network_domainHash.containsEntry(key: subnet, tx: newTrans) == false else {
+			throw LMDBError.keyExists
+		}
 		
 		// write the domain and name to the database
-		try self.domainHash_networkV6.setEntry(key: domainHash, value: suggestedDomainSubnet, flags: [.noOverwrite], tx: newTrans)
-		try self.networkV6_domainHash.setEntry(key: suggestedDomainSubnet, value: domainHash, flags: [.noOverwrite], tx: newTrans)
+		try self.domainHash_network.setEntry(key: domainHash, value: subnet, flags: [.noOverwrite], tx: newTrans)
+		try self.network_domainHash.setEntry(key: subnet, value: domainHash, flags: [.noOverwrite], tx: newTrans)
 		
 		let securityKey = SecurityKey(randomBytes: try generateRandomBytes(count: MemoryLayout<SecurityKey>.size))!
 		try self.domainHash_securityKey.setEntry(key: domainHash, value: securityKey, flags: [], tx: newTrans)
 		try self.domainHash_domainName.setEntry(key: domainHash, value: name, flags: [.noOverwrite], tx: newTrans)
 		
 		try newTrans.commit()
-		return (suggestedDomainSubnet, securityKey)
+		return securityKey
 	}
 	
 	/// Remove a domain and all clients associated with the domain.
 	/// - Parameters
 	/// 	- name: The domain name.
-	public func domainRemove(name:EncodedString) throws {
+	public func domainRemove(name:EncodedString) throws -> Network {
 		let newTrans = try Transaction(env: env, readOnly: false)
 		let domainHash = try DomainHash(domainName: name)
 		// get the domain of this network
-		let domain = try domainHash_networkV6.loadEntry(key: domainHash, tx: newTrans)
+		let domain = try domainHash_network.loadEntry(key: domainHash, tx: newTrans)
 		
 		// delete the domains from the database
-		try domainHash_networkV6.deleteEntry(key:domainHash, tx:newTrans)
-		try networkV6_domainHash.deleteEntry(key:domain, tx:newTrans)
+		try domainHash_network.deleteEntry(key:domainHash, tx:newTrans)
+		try network_domainHash.deleteEntry(key:domain, tx:newTrans)
 		try domainHash_securityKey.deleteEntry(key:domainHash, tx:newTrans)
 		try domainHash_domainName.deleteEntry(key:domainHash, tx:newTrans)
 		
@@ -497,34 +560,26 @@ public struct WireguardDatabase: Sendable {
 		}
 		
 		try newTrans.commit()
+		return domain
 	}
-	
+
 	public struct DomainInfo {
 		public let name:EncodedString
-		public let networks:[NetworkV6]
+		public let network:Network
 		public let securityKey:SecurityKey
 	}
 	
 	public func allDomains() throws -> [DomainInfo] {
 		let newTrans = try Transaction(env: env, readOnly: true)
 		var domains = [DomainInfo]()
-		
-		let maskNumber = try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_defaultDomainMask.rawValue), as: RAW_byte.self, tx: newTrans)!
-		
-		try addressName_hostSubnet.cursor(tx: newTrans) { hostCursor in
-			try domainHash_securityKey.cursor(tx: newTrans) { securityKeyCursor in
-				try domainHash_networkV6.cursor(tx: newTrans) { networkCursor in
-					try domainHash_domainName.cursor(tx: newTrans) { nameCursor in
-						for (hash, domainNetwork) in networkCursor.makeIterator() {
-							let securityKey = try securityKeyCursor.opSet(key: hash)
-							let name = try nameCursor.opSet(key: hash)
-							var networks = [NetworkV6]()
-							for (_, host) in hostCursor.makeIterator() {
-								let addr = AddressV6((host.net.address & host.net.subnetMask) | (domainNetwork.net.address & ~host.net.subnetMask))
-								networks.append(NetworkV6(bedrock_ip.NetworkV6(address: addr.addr, subnetPrefix: maskNumber.RAW_native())))
-							}
-							domains.append(DomainInfo(name: name, networks: networks, securityKey: securityKey))
-						}
+				
+		try domainHash_securityKey.cursor(tx: newTrans) { securityKeyCursor in
+			try domainHash_network.cursor(tx: newTrans) { networkCursor in
+				try domainHash_domainName.cursor(tx: newTrans) { nameCursor in
+					for (hash, domainNetwork) in networkCursor.makeIterator() {
+						let securityKey = try securityKeyCursor.opSet(key: hash)
+						let name = try nameCursor.opSet(key: hash)
+						domains.append(DomainInfo(name: name, network: domainNetwork, securityKey: securityKey))
 					}
 				}
 			}
@@ -571,81 +626,63 @@ public struct WireguardDatabase: Sendable {
 	public func validateDomain(name:EncodedString) throws -> Bool {
 		let newTrans = try Transaction(env: env, readOnly: true)
 		let domainHash = try DomainHash(domainName: name)
-		return try self.domainHash_networkV6.containsEntry(key: domainHash, tx: newTrans)
+		return try self.domainHash_network.containsEntry(key: domainHash, tx: newTrans)
 	}
 	
-	fileprivate func _clientAssignIPv4(publicKey:PublicKey, tx:borrowing Transaction) throws -> AddressV4 {
-		let myPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: tx)!
-		guard myPubKey != publicKey else {
-			throw WGDBError.immutableClient
-		}
-		let ipv4Subnet = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverIPv4Block.rawValue), as: NetworkV4.self, tx: tx)!
-		var newV4:AddressV4
-		repeat {
-			newV4 = AddressV4(try ipv4Subnet.net.randomAddress())
-		} while try self.ipv4_clientPub.containsEntry(key:newV4, tx:tx) == true
-		try self.clientPub_ipv4.setEntry(key:publicKey, value:newV4, flags:[.noOverwrite], tx:tx)
-		try self.ipv4_clientPub.setEntry(key:newV4, value:publicKey, flags:[.noOverwrite], tx:tx)
-		return newV4
-	}
-	
-	/// Creates and assigns a new IPv4 address for a client.
+	@discardableResult
+	/// Creates and assigns a new IP address in the specified domain for a client.
 	/// - Parameters
 	/// 	- domain: The domain of the client.
 	/// 	- name: The human readable name of the client.
-	public func clientAssignIPv4(domain:EncodedString, name:EncodedString) throws -> (AddressV4, AddressV6, PublicKey) {
+	public func clientAssignDomain(publicKey:PublicKey, domain:EncodedString) throws -> Address {
 		let newTrans = try Transaction(env: env, readOnly: false)
 		let domainHash = try DomainHash(domainName: domain)
-		
-		let ret = try self.domainHash_clientPub.cursor(tx: newTrans) { domainClientPubCursor in
-			return try self.clientPub_clientName.cursor(tx: newTrans) { clientNameCursor in
-				
-				for (_, ourClientPubKey) in domainClientPubCursor.makeDupIterator(key: domainHash) {
-					let clientName = try clientNameCursor.opSet(key: ourClientPubKey)
-					
-					if (clientName == name) {
-						let existingAddress = try self.clientPub_ipv6.loadEntry(key: ourClientPubKey, tx: newTrans)
-						return (try self._clientAssignIPv4(publicKey:ourClientPubKey, tx:newTrans), existingAddress, ourClientPubKey)
-					}
+
+		// Make sure the key doesn't already belong to the domain
+		try domainHash_clientPub.cursor(tx:newTrans) { cursor in 
+			for (_, storedPubKey) in cursor.makeDupIterator(key: domainHash) {
+				if (publicKey == storedPubKey) {
+					throw WGDBError.clientExistsInDomain
 				}
-				throw LMDBError.notFound
 			}
 		}
+		
+		let myPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: newTrans)!
+		guard myPubKey != publicKey else {
+			throw WGDBError.immutableClient
+		}
+		let domainSubnet = try domainHash_network.loadEntry(key: domainHash, tx: newTrans)
+
+		var newIP:Address
+		repeat {
+			newIP = Address(try domainSubnet.net.randomAddress())
+		} while try self.ip_clientPub.containsEntry(key:newIP, tx:newTrans) == true
+		try self.clientPub_ip.setEntry(key:publicKey, value:newIP, flags:[], tx:newTrans)
+		try self.ip_clientPub.setEntry(key:newIP, value:publicKey, flags:[.noOverwrite], tx:newTrans)
+		try self.clientPub_domainHash.setEntry(key:publicKey, value:domainHash, flags:[], tx:newTrans)
+		try self.domainHash_clientPub.setEntry(key:domainHash, value:publicKey, flags:[], tx:newTrans)
+		try self.ip_domainHash.setEntry(key: newIP, value: domainHash, flags: [.noOverwrite], tx: newTrans)
 		
 		try newTrans.commit()
-		return ret
+		return newIP
 	}
 	
-	fileprivate func _clientMake(name:EncodedString, publicKey:PublicKey, domain:EncodedString, ipv4:Bool, noHandshakeInvalidation:bedrock.Date.Seconds?, tx:borrowing Transaction) throws -> ([AddressV6], AddressV4?) {
+	fileprivate func _clientMake(name:EncodedString, publicKey:PublicKey, domain:EncodedString, noHandshakeInvalidation:bedrock.Date.Seconds?, tx:borrowing Transaction) throws -> Address {
 		let domainHash = try DomainHash(domainName: domain)
+				
+		let domainSubnet = try domainHash_network.loadEntry(key: domainHash, tx: tx)
+
+		var ipAddress:Address
+		repeat {
+			ipAddress = Address(try domainSubnet.net.randomAddress())
+		} while try self.ip_clientPub.containsEntry(key:ipAddress, tx:tx) == true
+		try self.clientPub_ip.setEntry(key:publicKey, value:ipAddress, flags:[.noOverwrite], tx:tx)
+		try self.ip_clientPub.setEntry(key:ipAddress, value:publicKey, flags:[.noOverwrite], tx:tx)
 		
-		let domainNetwork = try domainHash_networkV6.loadEntry(key: domainHash, tx: tx)
-		
-		let v4Addr:AddressV4?
-		if (ipv4) {
-			v4Addr = try _clientAssignIPv4(publicKey: publicKey, tx: tx)
-		} else {
-			v4Addr = nil
-		}
-		
-		var v6Addresses = [AddressV6]()
-		try self.addressName_hostSubnet.cursor(tx: tx) { hostCursor in
-			for (_, host) in hostCursor.makeIterator() {
-				var newAddress:AddressV6
-				repeat {
-					newAddress = AddressV6((host.net.address & host.net.subnetMask) | (try domainNetwork.net.randomAddress() & ~host.net.subnetMask))
-				} while try self.ipv6_clientPub.containsEntry(key:newAddress, tx:tx) == true
-				v6Addresses.append(newAddress)
-			}
-		}
-		
-		for address in v6Addresses {
-			try self.ipv6_clientPub.setEntry(key: address, value: publicKey, flags: [.noOverwrite], tx: tx)
-			try self.clientPub_ipv6.setEntry(key: publicKey, value: address, flags: [], tx: tx)
-		}
 		try self.clientPub_clientName.setEntry(key: publicKey, value: name, flags: [.noOverwrite], tx: tx)
 		try self.clientPub_createdOn.setEntry(key: publicKey, value: bedrock.Date.Seconds(), flags: [.noOverwrite], tx: tx)
 		try self.clientPub_domainHash.setEntry(key: publicKey, value: domainHash, flags: [.noOverwrite], tx: tx)
+		try self.ip_domainHash.setEntry(key: ipAddress, value: domainHash, flags: [.noOverwrite], tx: tx)
 		
 		if noHandshakeInvalidation != nil {
 			try self.clientPub_invalidDate.setEntry(key: publicKey, value: noHandshakeInvalidation!, flags: [.noOverwrite], tx: tx)
@@ -660,7 +697,7 @@ public struct WireguardDatabase: Sendable {
 		try self.domainHash_clientPub.setEntry(key: domainHash, value: publicKey, flags: [], tx: tx)
 		try self.domainHash_clientNameHash.setEntry(key: domainHash, value: ClientNameHash(clientName: name), flags: [.noDupData], tx: tx)
 		
-		return (v6Addresses, v4Addr)
+		return ipAddress
 	}
 	
 	/// Creates a new client with their ip addresses
@@ -668,15 +705,12 @@ public struct WireguardDatabase: Sendable {
 	/// 	- name: The name of the new client.
 	/// 	- publicKey: The public key of the new client.
 	/// 	- domain: The IPv6 domain of the client.
-	/// 	- ipv4: An boolean indicating the creation of an IPv4 address for the client.
 	/// 	- noHandshakeInvalidation: The date indicating when to delete the client if no handshakes have occured.
-	/// 	- tx: The borrowed transaction on the environment.
 	/// - Returns
-	/// 	- [AddressV6]]: A list of the new IPv6 addresses for the client's [Interface] Address
-	/// 	- AddressV4?: The IPv4 address (if provided) for the client's [Interface] Address
-	public func clientMake(name:EncodedString, publicKey:PublicKey, domain:EncodedString, ipv4:Bool = false, noHandshakeInvalidation:bedrock.Date.Seconds? = nil) throws -> ([AddressV6], AddressV4?) {
+	/// 	- Address: The new address for the client.
+	public func clientMake(name:EncodedString, publicKey:PublicKey, domain:EncodedString, noHandshakeInvalidation:bedrock.Date.Seconds? = nil) throws -> Address {
 		let newTrans = try Transaction(env: env, readOnly: false)
-		let ret = try _clientMake(name:name, publicKey:publicKey, domain:domain, ipv4:ipv4, noHandshakeInvalidation:noHandshakeInvalidation, tx:newTrans)
+		let ret = try _clientMake(name:name, publicKey:publicKey, domain:domain, noHandshakeInvalidation:noHandshakeInvalidation, tx:newTrans)
 		try newTrans.commit()
 		return ret
 	}
@@ -687,25 +721,21 @@ public struct WireguardDatabase: Sendable {
 			throw WGDBError.immutableClient
 		}
 		
-		let clientDomain = try self.clientPub_domainHash.loadEntry(key: publicKey, tx: tx)
-		let clientName = try self.clientPub_clientName.loadEntry(key: publicKey, tx: tx)
-		
-		let hadIPv4:Bool
-		do {
-			let ipv4Addr = try self.clientPub_ipv4.loadEntry(key: publicKey, tx: tx)
-			try self.clientPub_ipv4.deleteEntry(key: publicKey, tx: tx)
-			try self.ipv4_clientPub.deleteEntry(key: ipv4Addr, tx: tx)
-			hadIPv4 = true
-		} catch LMDBError.notFound {
-			hadIPv4 = false
-		}
-		
-		try clientPub_ipv6.cursor(tx:tx) { cursor in
-			for (_, ipv6Addr) in cursor.makeDupIterator(key: publicKey) {
-				try self.ipv6_clientPub.deleteEntry(key: ipv6Addr, tx: tx)
+		var clientDomains = [DomainHash]()
+		self.clientPub_domainHash.cursor(tx:tx) { cursor in 
+			for (_, clientDomain) in cursor.makeDupIterator(key: publicKey) {
+				clientDomains.append(clientDomain)
 			}
 		}
-		try self.clientPub_ipv6.deleteEntry(key: publicKey, tx: tx)
+		let clientName = try self.clientPub_clientName.loadEntry(key: publicKey, tx: tx)
+		
+		try clientPub_ip.cursor(tx:tx) { cursor in
+			for (_, ipAddr) in cursor.makeDupIterator(key: publicKey) {
+				try self.ip_clientPub.deleteEntry(key: ipAddr, tx: tx)
+				try self.ip_domainHash.deleteEntry(key: ipAddr, tx: tx)
+			}
+		}
+		try self.clientPub_ip.deleteEntry(key: publicKey, tx: tx)
 		try self.clientPub_clientName.deleteEntry(key: publicKey, tx: tx)
 		try self.clientPub_domainHash.deleteEntry(key: publicKey, tx: tx)
 		try self.clientPub_createdOn.deleteEntry(key: publicKey, tx: tx)
@@ -728,12 +758,16 @@ public struct WireguardDatabase: Sendable {
 		}
 		
 		try self.clientPub_invalidDate.deleteEntry(key:publicKey, tx:tx)
-		try self.domainHash_clientPub.deleteEntry(key: clientDomain, value:publicKey, tx: tx)
-		try self.domainHash_clientNameHash.deleteEntry(key: clientDomain, value:ClientNameHash(clientName: clientName), tx: tx)
+
+		// Remove the public key from each of its domains
+		for clientDomain in clientDomains {
+			try self.domainHash_clientPub.deleteEntry(key: clientDomain, value:publicKey, tx: tx)
+			try self.domainHash_clientNameHash.deleteEntry(key: clientDomain, value:ClientNameHash(clientName: clientName), tx: tx)
+		}
 		
 		// webserve code here if needed
 		
-		log.debug("successfully removed client from database", metadata:["public_key": "\(publicKey.string)", "client_name": "\(String(clientName))", "client_domain": "\(clientDomain.string)", "had_ipv4": "\(hadIPv4)", "did_handshake": "\(didHandshake)", "did_have_endpoint": "\(didCaptureEndpoint)" /*"had_webserve_config": "\(hadWebserveConfig)"*/])
+		log.debug("successfully removed client from database", metadata:["public_key": "\(publicKey.string)", "client_name": "\(String(clientName))", "client_domains": "\(clientDomains.map {$0.string}.joined(separator:", "))", "did_handshake": "\(didHandshake)", "did_have_endpoint": "\(didCaptureEndpoint)" /*"had_webserve_config": "\(hadWebserveConfig)"*/])
 		return publicKey
 	}
 	
@@ -778,12 +812,10 @@ public struct WireguardDatabase: Sendable {
 	
 	public struct ClientInfo:Hashable {
 		public let publicKey:PublicKey
-		public let address:[AddressV6]
-		public let addressV4:AddressV4?
 		public let name:EncodedString
-		public let domainName:EncodedString
+		public let domains:[EncodedString:Address]
 		public let lastHandshake:bedrock.Date.Seconds?
-		public let endpoint:Address?
+		public let endpoint:bedrock_ip.Address?
 		public let invalidationDate:bedrock.Date.Seconds
 	}
 	
@@ -791,84 +823,77 @@ public struct WireguardDatabase: Sendable {
 		var buildClients = Set<ClientInfo>()
 		
 		let serverPublicKey = try self.getServerPublicKey(tx)
-		return try self.clientPub_ipv6.cursor(tx:tx) { clientAddressCursor in
-			return try self.clientPub_clientName.cursor(tx:tx) { clientNameCursor in
-				return try self.clientPub_domainHash.cursor(tx:tx) { clientDomainCursor in
-					return try self.clientPub_handshakeDate.cursor(tx:tx) { clientHandshakeCursor in
-						return try self.clientPub_endpointAddress.cursor(tx:tx) { clientEndpointCursor in
-							return try self.clientPub_invalidDate.cursor(tx:tx) { clientInvalidationCursor in
-								if domain == nil {
-									for (ourClientKey, clientName) in clientNameCursor {
-										let getDomain = try clientDomainCursor.opSet(key: ourClientKey)
-										let domainName = try self.domainHash_domainName.loadEntry(key: getDomain, tx: tx)
-										log.trace("current client selected", metadata:["name":"\(String(clientName))", "public_key":"\(ourClientKey.string)"])
-										
-										if serverPublicKey != ourClientKey {
-											let addrv4:AddressV4?
-											do {
-												addrv4 = try clientPub_ipv4.loadEntry(key: ourClientKey, tx: tx)
-											} catch LMDBError.notFound {
-												addrv4 = nil
-											}
-											let lastHandshake:bedrock.Date.Seconds?
-											do {
-												lastHandshake = try clientHandshakeCursor.opSet(key: ourClientKey)
-											} catch LMDBError.notFound {
-												lastHandshake = nil
-											}
-											let endpoint:Address?
-											do {
-												endpoint = try clientEndpointCursor.opSet(key: ourClientKey)
-											} catch LMDBError.notFound {
-												endpoint = nil
-											}
-											let invalidationDate = try clientInvalidationCursor.opSet(key: ourClientKey)
+		return try self.ip_domainHash.cursor(tx:tx) { ipDomainCursor in 
+			return try self.clientPub_ip.cursor(tx:tx) { clientAddressCursor in
+				return try self.clientPub_clientName.cursor(tx:tx) { clientNameCursor in
+					return try self.clientPub_domainHash.cursor(tx:tx) { clientDomainCursor in
+						return try self.clientPub_handshakeDate.cursor(tx:tx) { clientHandshakeCursor in
+							return try self.clientPub_endpointAddress.cursor(tx:tx) { clientEndpointCursor in
+								return try self.clientPub_invalidDate.cursor(tx:tx) { clientInvalidationCursor in
+									if domain == nil {
+										for (ourClientKey, clientName) in clientNameCursor {
+											log.trace("current client selected", metadata:["name":"\(String(clientName))", "public_key":"\(ourClientKey.string)"])
 											
-											var ipv6Addresses = [AddressV6]()
-											for (_, clientAddress) in clientAddressCursor.makeDupIterator(key: ourClientKey) {
-												ipv6Addresses.append(clientAddress)
-											}
-											
-											buildClients.update(with:ClientInfo(publicKey:ourClientKey, address:ipv6Addresses, addressV4:addrv4, name:clientName, domainName:domainName, lastHandshake:lastHandshake, endpoint:endpoint, invalidationDate:invalidationDate))
-										}
-									}
-									return buildClients
-								} else {
-									let domainHash = try DomainHash(domainName: domain!)
-									let domainName = try self.domainHash_domainName.loadEntry(key: domainHash, tx: tx)
-									try self.domainHash_clientPub.cursor(tx:tx) { domainHashCursor in
-										for (_, clientPubKey) in domainHashCursor.makeDupIterator(key: domainHash) {
-											let clientName = try clientNameCursor.opSet(key: clientPubKey)
-											if serverPublicKey != clientPubKey {
-												let addrv4:AddressV4?
-												do {
-													addrv4 = try clientPub_ipv4.loadEntry(key: clientPubKey, tx: tx)
-												} catch LMDBError.notFound {
-													addrv4 = nil
-												}
+											if serverPublicKey != ourClientKey {
 												let lastHandshake:bedrock.Date.Seconds?
 												do {
-													lastHandshake = try clientHandshakeCursor.opSet(key: clientPubKey)
+													lastHandshake = try clientHandshakeCursor.opSet(key: ourClientKey)
 												} catch LMDBError.notFound {
 													lastHandshake = nil
 												}
-												let endpoint:Address?
+												let endpoint:bedrock_ip.Address?
 												do {
-													endpoint = try clientEndpointCursor.opSet(key: clientPubKey)
+													endpoint = try clientEndpointCursor.opSet(key: ourClientKey)
 												} catch LMDBError.notFound {
 													endpoint = nil
 												}
-												let invalidationDate = try clientInvalidationCursor.opSet(key: clientPubKey)
-												var ipv6Addresses = [AddressV6]()
-												for (_, clientAddress) in clientAddressCursor.makeDupIterator(key: clientPubKey) {
-													ipv6Addresses.append(clientAddress)
+												let invalidationDate = try clientInvalidationCursor.opSet(key: ourClientKey)
+												
+												
+												var domains = [EncodedString:Address]()
+												for (_, clientAddress) in clientAddressCursor.makeDupIterator(key: ourClientKey) {
+													let getDomain = try ipDomainCursor.opSet(key:clientAddress)
+													let domainName = try self.domainHash_domainName.loadEntry(key: getDomain, tx: tx)
+													domains[domainName] = clientAddress
 												}
 												
-												buildClients.update(with:ClientInfo(publicKey:clientPubKey, address:ipv6Addresses, addressV4:addrv4, name:clientName, domainName:domainName, lastHandshake:lastHandshake, endpoint:endpoint, invalidationDate:invalidationDate))
+												buildClients.update(with:ClientInfo(publicKey:ourClientKey, name:clientName, domains:domains, lastHandshake:lastHandshake, endpoint:endpoint, invalidationDate:invalidationDate))
 											}
 										}
+										return buildClients
+									} else {
+										let domainHash = try DomainHash(domainName: domain!)
+										let domainName = try self.domainHash_domainName.loadEntry(key: domainHash, tx: tx)
+										try self.domainHash_clientPub.cursor(tx:tx) { domainHashCursor in
+											for (_, clientPubKey) in domainHashCursor.makeDupIterator(key: domainHash) {
+												let clientName = try clientNameCursor.opSet(key: clientPubKey)
+												if serverPublicKey != clientPubKey {
+													let lastHandshake:bedrock.Date.Seconds?
+													do {
+														lastHandshake = try clientHandshakeCursor.opSet(key: clientPubKey)
+													} catch LMDBError.notFound {
+														lastHandshake = nil
+													}
+													let endpoint:bedrock_ip.Address?
+													do {
+														endpoint = try clientEndpointCursor.opSet(key: clientPubKey)
+													} catch LMDBError.notFound {
+														endpoint = nil
+													}
+													let invalidationDate = try clientInvalidationCursor.opSet(key: clientPubKey)
+													var domains = [EncodedString:Address]()
+													for (_, clientAddress) in clientAddressCursor.makeDupIterator(key: clientPubKey) {
+														if try ipDomainCursor.opSet(key:clientAddress) == domainHash {
+															domains[domainName] = clientAddress
+														}
+													}
+													
+													buildClients.update(with:ClientInfo(publicKey:clientPubKey, name:clientName, domains:domains, lastHandshake:lastHandshake, endpoint:endpoint, invalidationDate:invalidationDate))
+												}
+											}
+										}
+										return buildClients
 									}
-									return buildClients
 								}
 							}
 						}
@@ -891,7 +916,7 @@ public struct WireguardDatabase: Sendable {
 		let newTrans = try Transaction(env: env, readOnly: true)
 		let domainHash = try DomainHash(domainName: domain)
 		let clientNameHash = try ClientNameHash(clientName: clientName)
-		if try domainHash_networkV6.containsEntry(key: domainHash, tx: newTrans) {
+		if try domainHash_network.containsEntry(key: domainHash, tx: newTrans) {
 			return try domainHash_clientNameHash.cursor(tx:newTrans) { cursor in 
 				if try cursor.containsEntry(key: domainHash, value: clientNameHash) {
 					return false
@@ -985,7 +1010,7 @@ public struct WireguardDatabase: Sendable {
 	
 	public enum ProcessedHandshakeAction {
 		case removeClient(PublicKey)
-		case resolveIP(Address)
+		case resolveIP(bedrock_ip.Address)
 	}
 	
 	/// Processes all handshakes passed into the function. Moves invalidation dates accordingly.
@@ -993,7 +1018,7 @@ public struct WireguardDatabase: Sendable {
 	/// 	- handshakes: The dictionary of the client's public key to the date the handshake occured.
 	/// 	- endpoints: The dictionary of the client's public key to their endpoint address.
 	/// 	- all: The complete set of client public keys.
-	public func processHandshakes(_ handshakes:[PublicKey:bedrock.Date.Seconds], endpoints:[PublicKey:Address], all:Set<PublicKey>) throws -> [ProcessedHandshakeAction] {
+	public func processHandshakes(_ handshakes:[PublicKey:bedrock.Date.Seconds], endpoints:[PublicKey:bedrock_ip.Address], all:Set<PublicKey>) throws -> [ProcessedHandshakeAction] {
 		let newTrans = try Transaction(env: env, readOnly: false)
 		var returnActions = [ProcessedHandshakeAction]()
 		

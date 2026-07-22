@@ -19,3 +19,14 @@ extension bedrock_ip.NetworkV6 {
 		return result
 	}
 }
+
+extension bedrock_ip.Network {
+	public func randomAddress() throws -> bedrock_ip.Address {
+		switch self {
+			case .v4(let v4):
+				return bedrock_ip.Address(String(try v4.randomAddress()))!
+			case .v6(let v6):
+				return bedrock_ip.Address(String(try v6.randomAddress()))!
+		}
+	}
+}

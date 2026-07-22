@@ -81,7 +81,7 @@ final class HandshakeChecker: Service {
 					}
 					
 					// run the shell command to check for the endpoints of each client
-					var endpoints = [PublicKey:Address]()
+					var endpoints = [PublicKey:bedrock_ip.Address]()
 					let checkEndpoints = try await Command(sh: "sudo wg show \(String(self.interfaceName)) endpoints", environment: CurrentEnvironment.environmentVariables()).runSync()
 					guard checkEndpoints.succeeded == true else {
 						self.logger.error("was not able to check wireguard client endpoints")
@@ -124,7 +124,7 @@ final class HandshakeChecker: Service {
 							if (addrSect.first == "[" && addrSect.last == "]" && addrSect.contains(":") == true) {
 								// ipv6
 								let asStr = String(addrSect[addrSect.index(after:addrSect.startIndex)..<addrSect.index(before:addrSect.endIndex)])
-								guard let asV6 = Address(asStr) else {
+								guard let asV6 = bedrock_ip.Address(asStr) else {
 									self.logger.error("unable to parse IPv6 address from wireguard endpoints output", metadata:["ip": "\(asStr)"])
 									throw Error.endpointCheckError
 								}
@@ -132,7 +132,7 @@ final class HandshakeChecker: Service {
 								endpoints[publicKey] = asV6
 							} else if addrSect.contains(".") == true {
 								// ipv4
-								guard let asV4 = Address(addrSect) else {
+								guard let asV4 = bedrock_ip.Address(addrSect) else {
 									self.logger.error("unable to parse IPv4 address from wireguard endpoints output", metadata:["ip": "\(addrSect)"])
 									throw Error.endpointCheckError
 								}

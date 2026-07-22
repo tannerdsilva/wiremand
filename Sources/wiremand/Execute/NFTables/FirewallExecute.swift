@@ -18,11 +18,13 @@ struct FirewallExecutor {
 		commands.append("flush table ip \(table)")
 
 		commands.append("add chain ip \(table) \(whitelistChain)")
+		commands.append("add chain ip \(table) \(domainIsolationChain)")
 
 		commands.append("add chain ip \(table) forward { type filter hook forward priority filter; policy drop; }")
 		commands.append("add rule ip \(table) forward iif \"lo\" counter accept")
 		commands.append("add rule ip \(table) forward ct state established,related counter accept")
 		commands.append("add rule ip \(table) forward jump \(whitelistChain)")
+		commands.append("add rule ip \(table) forward jump \(domainIsolationChain)")
 
 		// IPv6 Table
 		commands.append("add table ip6 \(table6)")
@@ -43,45 +45,46 @@ struct FirewallExecutor {
 	static func createDomainFirewall(domains: [WireguardDatabase.DomainInfo], interfaceName: String, wgListenPort: UInt16) -> [String] {
 		var commands: [String] = []
 
-		let table = "domain_isolation"
-
 		commands.append("add chain ip6 \(table6) \(domainIsolationChain)")
 		commands.append("flush chain ip6 \(table6) \(domainIsolationChain)")
+
+		commands.append("add chain ip \(table) \(domainIsolationChain)")
+		commands.append("flush chain ip \(table) \(domainIsolationChain)")
 		
 		for domain in domains {
-			let safeName = String(domain.name).replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "_", options: .regularExpression)
-			let setElements = domain.networks.map(\.cidrstring).joined(separator: ", ")
-			
-			commands.append("add set ip6 \(table6) \(safeName)_subnets { type ipv6_addr; flags interval; }")
-			commands.append("add element ip6 \(table6) \(safeName)_subnets { \(setElements) }")
-
-			commands.append("add rule ip6 \(table6) \(domainIsolationChain) ip6 saddr @\(safeName)_subnets ip6 daddr @\(safeName)_subnets counter log prefix \"DOMAIN_ACCEPT_\(safeName.uppercased()): \" accept")
+			if (domain.network.isV4) {
+				commands.append("add rule ip \(table) \(domainIsolationChain) ip saddr \(domain.network.cidrstring) ip daddr \(domain.network.cidrstring) counter log prefix \"DOMAIN_ACCEPT_V4: \" accept")
+			} else {
+				commands.append("add rule ip6 \(table6) \(domainIsolationChain) ip6 saddr \(domain.network.cidrstring) ip6 daddr \(domain.network.cidrstring) counter log prefix \"DOMAIN_ACCEPT_V6: \" accept")
+			}
 		}
 		
 		return commands
 	}
 
-	/// Creates the NFTable commands for creating the client whitelist.
+	/// Creates the NFTable commands for creating the domain whitelist.
 	/// - Parameters
-	/// 	- ipv4Dictionary: The dictionary client IPv4 addresses to the array of IPv4 addresses to whitelist.
-	/// 	- ipv6Dictionary: The dictionary client IPv6 addresses to the array of IPv6 addresses to whitelist.
-	static func createWhitelist(ipv4Dictionary:[String:[String]], ipv6Dictionary:[String:[String]]) -> [String] {
+	/// 	- ipv4Rules: The dictionary of IPv4 domains to nft rules.
+	/// 	- ipv6Rules: The dictionary of IPv6 domains to nft rules.
+	static func createWhitelist(ipv4Rules:[String:[String]], ipv6Rules:[String:[String]]) -> [String] {
 		var commands: [String] = []
 
 		commands.append("add chain ip \(table) \(whitelistChain)")
 		commands.append("flush chain ip \(table) \(whitelistChain)")
 
-		for (clientIP, whitelist) in ipv4Dictionary {
-			let whitelistIPs = whitelist.joined(separator:", ")
-			commands.append("add rule ip \(table) \(whitelistChain) ct state new ip saddr \(clientIP) ip daddr { \(whitelistIPs) } counter log prefix \"WHITELIST_ACCEPT: \" accept")
+		for (domain, rules) in ipv4Rules {
+			for rule in rules {
+				commands.append("add rule ip \(table) \(whitelistChain) ip saddr \(domain) \(rule)")
+			}
 		}
 
 		commands.append("add chain ip6 \(table6) \(whitelistChain)")
 		commands.append("flush chain ip6 \(table6) \(whitelistChain)")
 
-		for (clientIP, whitelist) in ipv6Dictionary {
-			let whitelistIPs = whitelist.joined(separator:", ")
-			commands.append("add rule ip6 \(table6) \(whitelistChain) ct state new ip6 saddr \(clientIP) ip6 daddr { \(whitelistIPs) } counter log prefix \"WHITELIST_ACCEPT: \" accept")
+		for (domain, rules) in ipv6Rules {
+			for rule in rules {
+				commands.append("add rule ip6 \(table6) \(whitelistChain) ip6 saddr \(domain) \(rule)")
+			}
 		}
 
 		return commands
@@ -90,11 +93,11 @@ struct FirewallExecutor {
 	/// A function to reload the firewall (specifically for the whitelist section).
 	/// The function should be called whenever a new whitelist change is added to the firewall database.
 	static func reloadWhitelist(firewallDB: FirewallDatabase) throws {
-		let ipv4Dict = try firewallDB.getAllWhitelistedIPv4()
-		let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Dict.map { ($0.key.string, $0.value.map { $0.string }) })
-		let ipv6Dict = try firewallDB.getAllWhitelistedIPv6()
-		let ipv6Whitelist = Dictionary(uniqueKeysWithValues: ipv6Dict.map { ($0.key.string, $0.value.map { $0.string }) })
-		let whitelistCommands = FirewallExecutor.createWhitelist(ipv4Dictionary: ipv4Whitelist, ipv6Dictionary: ipv6Whitelist)
+		let ipv4Rules = try firewallDB.getIPv4Rules()
+		let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Rules.map { ($0.key.cidrstring, $0.value.map { String($0) }) })
+		let ipv6Rules = try firewallDB.getIPv6Rules()
+		let ipv6Whitelist = Dictionary(uniqueKeysWithValues: ipv6Rules.map { ($0.key.cidrstring, $0.value.map { String($0) }) })
+		let whitelistCommands = FirewallExecutor.createWhitelist(ipv4Rules:ipv4Whitelist, ipv6Rules:ipv6Whitelist)
 		let nftableExecutor = try NFTables()
 		try nftableExecutor.run(commands: whitelistCommands)
 	}
@@ -102,16 +105,8 @@ struct FirewallExecutor {
 	// A function to reload the firewall (specifically for the domain isolation section).
 	// The function should be called whenever a domain is created, a domain is destroyed, or a new server network is created.
 	static func reloadDomainIsolation(wgdb: WireguardDatabase) throws {
-		let domains = try wgdb.allDomains()
-		let domainIPStrings = domains.map { $0.networks.map { $0.addressString } }.flatMap { $0 }
 		let domainIsolationCommands = FirewallExecutor.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
 		let nftableExecutor = try NFTables()
 		try nftableExecutor.run(commands: domainIsolationCommands)
-	}
-
-	static func removeDomainSet(domain:String) throws {
-		let nftableExecutor = try NFTables()
-		let safeName = String(domain).replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "_", options: .regularExpression)
-		try nftableExecutor.run(commands: ["delete set ip6 \(table6) \(safeName)_subnets"])
 	}
 }

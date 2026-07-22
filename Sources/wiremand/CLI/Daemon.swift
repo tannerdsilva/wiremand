@@ -54,7 +54,7 @@ extension CLI {
 			let ipdb = try IPDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 			let firewallDB = try FirewallDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 			
-			let (_, _, _, _, _, interfaceName, publicIPv4Interface, publicIPv6Interface) = try wgdb.getWireguardConfigMetas()
+			let (_, _, _, interfaceName, publicIPv4Interface, publicIPv6Interface) = try wgdb.getWireguardConfigMetas()
 
 			// Setting up the firewall
 			let fileContent:String!
@@ -66,14 +66,12 @@ extension CLI {
 				throw Self.Error.missingFirewallFile
 			}
 			let bootFirewallCommands = fileContent.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-			let domains = try wgdb.allDomains()
-			let domainIPStrings = domains.map { $0.networks.map { $0.addressString } }.flatMap { $0 }
 			let domainIsolationCommands = FirewallExecutor.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
-			let ipv4Dict = try firewallDB.getAllWhitelistedIPv4()
-			let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Dict.map { ($0.key.string, $0.value.map { $0.string }) })
-			let ipv6Dict = try firewallDB.getAllWhitelistedIPv6()
-			let ipv6Whitelist = Dictionary(uniqueKeysWithValues: ipv6Dict.map { ($0.key.string, $0.value.map { $0.string }) })
-			let whitelistCommands = FirewallExecutor.createWhitelist(ipv4Dictionary: ipv4Whitelist, ipv6Dictionary: ipv6Whitelist)
+			let ipv4Rules = try firewallDB.getIPv4Rules()
+			let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Rules.map { ($0.key.cidrstring, $0.value.map { String($0) }) })
+			let ipv6Rules = try firewallDB.getIPv6Rules()
+			let ipv6Whitelist = Dictionary(uniqueKeysWithValues: ipv6Rules.map { ($0.key.cidrstring, $0.value.map { String($0) }) })
+			let whitelistCommands = FirewallExecutor.createWhitelist(ipv4Rules:ipv4Whitelist, ipv6Rules:ipv6Whitelist)
 			let ipFilters = FirewallExecutor.createIPFilters()
 			let nftableExecutor = try NFTables()
 			try nftableExecutor.run(commands: bootFirewallCommands + ipFilters + whitelistCommands + domainIsolationCommands)

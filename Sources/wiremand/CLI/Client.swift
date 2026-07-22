@@ -12,7 +12,7 @@ extension CLI {
 		}
 		static let configuration = CommandConfiguration(
 			abstract:"manage wireguard clients.",
-			subcommands:[Punt.self, ProvisionIPv4.self, Revoke.self, Make.self, List.self, Rename.self]
+			subcommands:[Punt.self, ProvisionIP.self, Revoke.self, Make.self, List.self, Rename.self]
 		)
 				
 		struct Punt:AsyncParsableCommand {
@@ -36,30 +36,35 @@ extension CLI {
 			}
 		}
 		
-		struct ProvisionIPv4:AsyncParsableCommand {
+		struct ProvisionIP:AsyncParsableCommand {
 			static let configuration = CommandConfiguration(
-				commandName:"provision-ipv4",
-				abstract:"assign an IPv4 address to a client."
+				commandName:"provision-ip",
+				abstract:"add a client to another domain"
 			)
-
-			@OptionGroup
-			var domainName:DomainNameGroup
 		
 			@OptionGroup
 			var globals:GlobalCLIOptions
+
+			@Argument
+			var publicKey:PublicKey
+
+			@Argument
+			var domain:EncodedString
 			
 			mutating func run() async throws {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				
-				try domainName.promptInteractivelyIfNecessary(db:wgdb)
-
-				let (_, _, _, _, _, interfaceName, _, _) = try wgdb.getWireguardConfigMetas()
-				let (newV4, curV6, publicKey) = try wgdb.clientAssignIPv4(domain:domainName.domain!, name:domainName.name!)
-				try await WireguardExecutor.updateExistingClient(publicKey:publicKey, with:curV6, and:newV4, interfaceName:interfaceName)
+				let (_, wgPrimarySubnet, _, interfaceName, _, _) = try wgdb.getWireguardConfigMetas()
+				try wgdb.clientAssignDomain(publicKey:publicKey, domain:domain)
+				let clientAddresses = try wgdb.allClients().filter { $0.publicKey == publicKey }.first!.domains.values
+				try await WireguardExecutor.updateExistingClient(publicKey:publicKey, with:Array(clientAddresses), interfaceName:interfaceName)
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
-				print(Colors.Green("Client IPv4 address successfully applied!"))
-				print("Please update the client's WireGuard configuration file!\nIn the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" with the following line:\n")
-				print("AllowedIPs=\(curV6.string)/64,\(newV4.string)/24")
+				print(Colors.Green("Client successfully added to \(String(domain))!"))
+				print("Please update the client's WireGuard configuration file!\nIn the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" lines with the following lines:\n")
+				let ipEntries = clientAddresses.map { "\($0.isV4 ? "\($0.string)/24" : "\($0.string)/64")" }
+				print("AllowedIPs = \(ipEntries.joined(separator: ", "))")
+				let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
+				print("AllowedIPs = \(dnsAllowedIPString)")
 				
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
@@ -79,14 +84,13 @@ extension CLI {
 			
 			mutating func run() async throws {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
-				let firewallDB = try FirewallDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				
+				let interfaceName = try wgdb.primaryInterfaceName()
 				try domainName.promptInteractivelyIfNecessary(db:wgdb)
 
-				let clients = try wgdb.allClients()
 				let removedClientPub = try wgdb.clientRemove(domain:domainName.domain!, name:domainName.name!)
-				try firewallDB.removeClient(client: clients.first(where: { $0.publicKey == removedClientPub })!)
-				try FirewallExecutor.reloadWhitelist(firewallDB: firewallDB)
+				try await WireguardExecutor.uninstall(publicKey: removedClientPub, interfaceName: interfaceName)
+				try await WireguardExecutor.saveConfiguration(interfaceName: interfaceName, logLevel: globals.logLevel)
 
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
@@ -116,17 +120,6 @@ extension CLI {
 			)
 			var noDNSService:Bool = false
 			
-			@Flag(name:[
-					.customShort("4", allowingJoined:true),
-					.customLong("ipv4", withSingleDash:false)
-				], 
-				help:ArgumentHelp(
-					"Assign an IPv4 address for this client.",
-					discussion:"This address will be randomly generated and printed in standard output."
-				)
-			)
-			var ipv4:Bool = false
-			
 			@OptionGroup
 			var globals:GlobalCLIOptions
 			
@@ -147,37 +140,28 @@ extension CLI {
 					usePublicKey = publicKey!
 				}
 				
-				let (newClientAddresses, optionalV4) = try wgdb.clientMake(name:domainName.name!, publicKey:usePublicKey, domain:domainName.domain!, ipv4:ipv4)
+				let address = try wgdb.clientMake(name:domainName.name!, publicKey:usePublicKey, domain:domainName.domain!)
 				
-				let (wg_dns_name, wg_port, wgInternalNetwork, serverV4, serverPub, interfaceName, ipv4Public, ipv6Public) = try wgdb.getWireguardConfigMetas()
+				let (wgPort, wgPrimarySubnet, pubKey, interfaceName, ipv4Public, ipv6Public) = try wgdb.getWireguardConfigMetas()
 
 				var buildKey = "[Interface]\n"
 				if publicKey == nil {
 					buildKey += "PrivateKey = " + newKeys.privateKey + "\n"
 				}
-				let ipv6Addresses = newClientAddresses.map({ $0.string + "/128" }).joined(separator: ", ")
-				buildKey += "Address = " + ipv6Addresses + "\n"
-				if optionalV4 != nil {
-					buildKey += "Address = " + optionalV4!.string + "/32\n"
-				}
-				if noDNSService == false {
-					let dnsAddresses = wgInternalNetwork.map { $0.addressString }.joined(separator: ", ")
-					buildKey += "DNS = \(dnsAddresses)\n"
-				}
+				let ipAddress = address.string + "\(address.isV4 ? "/32" : "/128")"
+				buildKey += "Address = " + ipAddress + "\n"
+				buildKey += "DNS = \(wgPrimarySubnet.addressString)\n"
 				buildKey += "[Peer]\n"
-				buildKey += "PublicKey = " + serverPub.string + "\n"
-				buildKey += "PresharedKey = " + newKeys.presharedKey + "\n"
-				let allowedIPs = wgInternalNetwork.map { $0.cidrstring }.joined(separator: ", ")
-				buildKey += "AllowedIPs = \(allowedIPs)"
-				if (optionalV4 != nil) {
-					buildKey += ", \(serverV4.string)/32\n"
-				} else {
-					buildKey += "\n"
-				}
-				buildKey += "Endpoint = \(ipv4Public.string):\(wg_port.RAW_native())\n"
+				buildKey += "PublicKey = \(pubKey.string)\n"
+				buildKey += "PresharedKey = \(newKeys.presharedKey)\n"
+				let ipAddressSubnet = address.string + "\(address.isV4 ? "/24" : "/64")"
+				buildKey += "AllowedIPs = \(ipAddressSubnet)\n"
+				let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
+				buildKey += "AllowedIPs = \(dnsAllowedIPString)"
+				buildKey += "Endpoint = \(ipv4Public.string):\(wgPort.RAW_native())\n"
 				buildKey += "PersistentKeepalive = 25" + "\n"
 				
-				try await WireguardExecutor.install(publicKey:usePublicKey, presharedKey:newKeys.presharedKey, addresses:newClientAddresses, addressv4:optionalV4, interfaceName:interfaceName)
+				try await WireguardExecutor.install(publicKey:usePublicKey, presharedKey:newKeys.presharedKey, addresses:[address], interfaceName:interfaceName)
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
 				try wgdb.serveConfiguration(EncodedString(buildKey), forPublicKey:usePublicKey)
 				let domainHash = try DomainHash(domainName: domainName.domain!)
@@ -201,7 +185,7 @@ extension CLI {
 					"Filter the list to a specified domain."
 				)
 			)
-			var domain:String? = nil
+			var domain:EncodedString? = nil
 			
 			@Flag(
 				name:.shortAndLong,
@@ -216,11 +200,21 @@ extension CLI {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				let ipdb = try IPDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				
-				var allClients = try wgdb.allClients()
+				var allClients = Set<WireguardDatabase.ClientInfo>()
 				if (domain != nil) {
-					allClients = allClients.filter({ String($0.domainName).lowercased() == domain!.lowercased() })
+					allClients = try wgdb.allClients(domain:domain)
+				} else {
+					allClients = try wgdb.allClients()
 				}
-				let domainGroup = Dictionary(grouping:allClients, by: { $0.domainName })
+
+				var domainGroup = [EncodedString:[WireguardDatabase.ClientInfo]]()
+
+				for client in allClients {
+					for domain in client.domains.keys {
+						domainGroup[domain, default: []].append(client)
+					}
+				}
+
 				let iterateList = domainGroup.sorted(by: { $0.key < $1.key })
 				let nowDate = bedrock.Date.Seconds()
 				for domainToList in iterateList {
@@ -280,16 +274,11 @@ extension CLI {
 							
 							// print the client address
 							if (windowsLegacy == false) {
-								let addresses = curClient.address.compactMap { $0.string }.joined(separator: ", ")
-								print(Colors.dim("\t  - \(addresses)"), terminator:"")
+								let address = curClient.domains[domainToList.key]!.string
+								print(Colors.dim("\t  - \(address)"), terminator:"")
 							} else {
-								let replaceString = curClient.address
-									.map { $0.string.replacingOccurrences(of: ":", with: "-") + ".ipv6-literal.net" }
-									.joined(separator: ",")
+								let replaceString = curClient.domains[domainToList.key]!.string.replacingOccurrences(of: ":", with: "-") + ".ipv6-literal.net"
 								print(Colors.cyan("\t  - \(replaceString)"), terminator:"")
-							}
-							if (curClient.addressV4 != nil) {
-								print(Colors.dim(" & \(curClient.addressV4!.string)"), terminator:"")
 							}
 							
 							// print the public key of the client
@@ -359,7 +348,7 @@ extension CLI.Client {
 					default:
 						print("Please select a domain for this action:")
 						for curSub in allDomains {
-							print(Colors.dim("  - \(curSub.name)"))
+							print(Colors.dim("  - \(String(curSub.name))"))
 						}
 						repeat {
 							print("Domain name: ", terminator:"")
@@ -385,7 +374,7 @@ extension CLI.Client {
 					default:
 						print(Colors.Yellow("There are \(allClients.count) clients on this domain:"))
 						for curClient in allClients.sorted(by: { $0.name < $1.name }) {
-							print(Colors.dim("\t-\t\(curClient.name)"))
+							print(Colors.dim("\t-\t\(String(curClient.name))"))
 						}
 				}
 				repeat {
