@@ -350,6 +350,18 @@ extension CLI {
 				appLogger.critical("unable to reload the systemctl daemon")
 				throw Error.daemonReloadError
 			}
+
+			appLogger.info("Configuring dnsmasq host files")
+
+			guard try await Command(sh: "sudo touch /var/lib/\(installUserName)/hosts-auto && sudo touch /var/lib/\(installUserName)/hosts-manual", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
+				appLogger.critical("unable to create the hosts-auto and hosts-manual files")
+				throw Error.daemonReloadError
+			}
+
+			guard try await Command(sh: "sudo chmod 644 /var/lib/\(installUserName)/hosts-auto && sudo chmod 644 /var/lib/\(installUserName)/hosts-manual", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
+				appLogger.critical("unable to change permissions on the hosts-auto and hosts-manual files")
+				throw Error.daemonReloadError
+			}
 			
 			appLogger.info("Installation complete. Please restart this machine.")
 		}

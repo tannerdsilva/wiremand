@@ -24,7 +24,7 @@ Wiremand is a Swift-based command-line tool and systemd daemon designed to autom
 
 ## Install/Setup
 
-Install nftables `apt-get install libnftables-dev`. Swift build wiremand. Reboot the machine.
+Install nftables `apt-get install libnftables-dev`. Swift build wiremand and run the install CLI command. Reboot the machine.
 
 Edit the stubby file. `nano /etc/stubby/stubby.yml` (or your text editor of choosing) and change the Listen Address to
 
@@ -32,7 +32,7 @@ Edit the stubby file. `nano /etc/stubby/stubby.yml` (or your text editor of choo
     - 127.0.0.1@5353
     - 0::1@5353
 
-Save the changes. Then run `systemctl restart stubby`
+Save the changes. Then run `systemctl restart stubby` and `systemctl restart dnsmasq`.
 
 ## Public API
 
@@ -45,7 +45,7 @@ Getting a key that has been created on the server: `curl -k "https://serverPubli
 ### Client Management
 | Command | Description |
 |---------|-------------|
-| `wiremand client make --domain <domain> --name <name> [--ipv4] [--public-key <BASE64>]` | Create a new client |
+| `wiremand client make --domain <domain> --name <name> [--public-key <BASE64>]` | Create a new client |
 | `wiremand client list [--domain <domain>] [--windows-legacy]` | List active clients with handshake/endpoint status |
 | `wiremand client rename <BASE64_KEY> <newname>` | Change a client's display name |
 | `wiremand client provision-ip <BASE64_KEY> <domain>` | Assign an ip address to a client in a domain |

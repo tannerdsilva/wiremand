@@ -638,6 +638,9 @@ public struct WireguardDatabase: Sendable {
 		let newTrans = try Transaction(env: env, readOnly: false)
 		let domainHash = try DomainHash(domainName: domain)
 
+		let clientName = try clientPub_clientName.loadEntry(key:publicKey, tx:newTrans)
+		let clientNameHash = try ClientNameHash(clientName: clientName)
+
 		// Make sure the key doesn't already belong to the domain
 		try domainHash_clientPub.cursor(tx:newTrans) { cursor in 
 			for (_, storedPubKey) in cursor.makeDupIterator(key: domainHash) {
@@ -661,6 +664,7 @@ public struct WireguardDatabase: Sendable {
 		try self.ip_clientPub.setEntry(key:newIP, value:publicKey, flags:[.noOverwrite], tx:newTrans)
 		try self.clientPub_domainHash.setEntry(key:publicKey, value:domainHash, flags:[], tx:newTrans)
 		try self.domainHash_clientPub.setEntry(key:domainHash, value:publicKey, flags:[], tx:newTrans)
+		try self.domainHash_clientNameHash.setEntry(key:domainHash, value: clientNameHash, flags:[], tx:newTrans)
 		try self.ip_domainHash.setEntry(key: newIP, value: domainHash, flags: [.noOverwrite], tx: newTrans)
 		
 		try newTrans.commit()
@@ -796,7 +800,9 @@ public struct WireguardDatabase: Sendable {
 			return try domainHash_clientNameHash.cursor(tx: newTrans) { domainHashCursor in
 				for (publicKey, clientName) in cursor.makeIterator() {
 					if clientName == name {
+						print("1")
 						if try domainHashCursor.containsEntry(key: domainHash, value: ClientNameHash(clientName: clientName)) {
+							print("2")
 							try _clientRemove(publicKey: publicKey, tx: newTrans)
 							return publicKey
 						}
