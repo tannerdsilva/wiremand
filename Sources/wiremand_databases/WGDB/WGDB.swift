@@ -800,9 +800,7 @@ public struct WireguardDatabase: Sendable {
 			return try domainHash_clientNameHash.cursor(tx: newTrans) { domainHashCursor in
 				for (publicKey, clientName) in cursor.makeIterator() {
 					if clientName == name {
-						print("1")
 						if try domainHashCursor.containsEntry(key: domainHash, value: ClientNameHash(clientName: clientName)) {
-							print("2")
 							try _clientRemove(publicKey: publicKey, tx: newTrans)
 							return publicKey
 						}
