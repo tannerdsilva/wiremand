@@ -64,10 +64,20 @@ extension CLI {
 				let firewallDB = try FirewallDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				let interfaceName = try wgdb.primaryInterfaceName()
 				let removedClients = try wgdb.allClients(domain: EncodedString(domainName.lowercased()))
-				let subnet = try wgdb.domainRemove(name:EncodedString(domainName.lowercased()))
+				let (subnet, clientStatuses) = try wgdb.domainRemove(name:EncodedString(domainName.lowercased()))
 				try await WireguardExecutor.uninstallDomain(subnet: subnet, interfaceName: interfaceName)
+				let allClients = try wgdb.allClients()
 				for client in removedClients {
-					try await WireguardExecutor.uninstall(publicKey: client.publicKey, interfaceName: interfaceName)
+					if clientStatuses[client.publicKey] == true {
+						print(Colors.Red("Client revoked and uninstalled from the server.\n\t - PublicKey: \(client.publicKey.string)\n\t - Name: \(String(client.name))"))
+						try await WireguardExecutor.uninstall(publicKey: client.publicKey, interfaceName: interfaceName)
+					} else {
+						print(Colors.Yellow("Client removed from domain, but still exists in the server."))
+						print(Colors.Yellow("\t - PublicKey: \(client.publicKey.string)"))
+						let remainingDomains = allClients.filter { $0.publicKey == client.publicKey }.first!.domains.keys.map { String($0) }.joined(separator: ", ")
+						print(Colors.Yellow("\t - Domains: \(remainingDomains)"))
+					}
+					
 				}
 				try await WireguardExecutor.saveConfiguration(interfaceName: interfaceName, logLevel: globals.logLevel)
 				try FirewallExecutor.reloadWhitelist(firewallDB: firewallDB)

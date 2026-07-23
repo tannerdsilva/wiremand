@@ -8,15 +8,15 @@ Wiremand is a Swift-based command-line tool and systemd daemon designed to autom
 
 ## Features
 
-🔑 Client Lifecycle Management - Create, list, rename, assign IPv4, extend expiry, and revoke clients
+🔑 Client Lifecycle Management - Create, list, rename, modify, and revoke clients
 
 🌐 Domain Segmentation - Partition clients into isolated logical domains with dedicated security keys
 
-🛡️ Per-Client Firewall Whitelisting - Granular IPv4/IPv6 allowlists enforced via nftables
+🛡️ Per-Client Firewall Whitelisting - Granular domain allowlisting enforced via nftables
 
 ⏱️ Automatic Handshake Revocation - Clients are auto-revoked after configurable inactivity periods
 
-🌍 IP Geolocation & ISP Resolution - Optional ipstack.com integration for endpoint mapping
+🌍 IP Geolocation & ISP Resolution - Optional ipstack.com integration for client endpoint mapping
 
 📡 Web Provisioning API - Secure HTTPS endpoints for self-service client configuration
 
@@ -48,7 +48,8 @@ Getting a key that has been created on the server: `curl -k "https://serverPubli
 | `wiremand client make --domain <domain> --name <name> [--public-key <BASE64>]` | Create a new client |
 | `wiremand client list [--domain <domain>] [--windows-legacy]` | List active clients with handshake/endpoint status |
 | `wiremand client rename <BASE64_KEY> <newname>` | Change a client's display name |
-| `wiremand client provision-ip <BASE64_KEY> <domain>` | Assign an ip address to a client in a domain |
+| `wiremand client add-domain --domain <domain> --name <name>` | Assign an ip address to a client in a domain |
+| `wiremand client remove-domain --domain <domain> --name <name>` | Remove a client from a domain |
 | `wiremand client punt --domain <domain> --name <name>` | Extend client's auto-revoke deadline |
 | `wiremand client revoke --domain <domain> --name <name>` | Remove client from WG, firewall, and DNS |
 

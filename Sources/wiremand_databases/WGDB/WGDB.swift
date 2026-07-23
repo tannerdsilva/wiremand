@@ -540,7 +540,10 @@ public struct WireguardDatabase: Sendable {
 	/// Remove a domain and all clients associated with the domain.
 	/// - Parameters
 	/// 	- name: The domain name.
-	public func domainRemove(name:EncodedString) throws -> Network {
+	/// - Returns
+	/// 	- Network: The network of the removed domain.
+	/// 	- [PublicKey:Bool]: A dictionary of the removed client public key and a bool indicating its revoked status.
+	public func domainRemove(name:EncodedString) throws -> (Network, [PublicKey:Bool])  {
 		let newTrans = try Transaction(env: env, readOnly: false)
 		let domainHash = try DomainHash(domainName: name)
 		// get the domain of this network
@@ -553,14 +556,17 @@ public struct WireguardDatabase: Sendable {
 		try domainHash_domainName.deleteEntry(key:domainHash, tx:newTrans)
 		
 		// remove any clients that may have belonged to this domain
-		try domainHash_clientPub.cursor(tx: newTrans) { cursor in
+		let clientStatus = try domainHash_clientPub.cursor(tx: newTrans) { cursor in
+			var clientStatus = [PublicKey:Bool]()
 			for (_, ourClientPubKey) in cursor.makeDupIterator(key: domainHash) {
-				try self._clientRemove(publicKey: ourClientPubKey, tx: newTrans)
+				let status = try self._clientRemoveDomain(publicKey: ourClientPubKey, domain:name, tx: newTrans)
+				clientStatus[ourClientPubKey] = status
 			}
+			return clientStatus
 		}
 		
 		try newTrans.commit()
-		return domain
+		return (domain, clientStatus)
 	}
 
 	public struct DomainInfo {
@@ -634,19 +640,22 @@ public struct WireguardDatabase: Sendable {
 	/// - Parameters
 	/// 	- domain: The domain of the client.
 	/// 	- name: The human readable name of the client.
-	public func clientAssignDomain(publicKey:PublicKey, domain:EncodedString) throws -> Address {
+	public func clientAssignDomain(domain:EncodedString, name:EncodedString) throws -> Address {
 		let newTrans = try Transaction(env: env, readOnly: false)
 		let domainHash = try DomainHash(domainName: domain)
+		let clientNameHash = try ClientNameHash(clientName: name)
 
-		let clientName = try clientPub_clientName.loadEntry(key:publicKey, tx:newTrans)
-		let clientNameHash = try ClientNameHash(clientName: clientName)
-
-		// Make sure the key doesn't already belong to the domain
-		try domainHash_clientPub.cursor(tx:newTrans) { cursor in 
-			for (_, storedPubKey) in cursor.makeDupIterator(key: domainHash) {
-				if (publicKey == storedPubKey) {
-					throw WGDBError.clientExistsInDomain
+		let publicKey = try clientPub_clientName.cursor(tx: newTrans) { cursor in
+			return try domainHash_clientNameHash.cursor(tx: newTrans) { domainHashCursor in
+				for (publicKey, clientName) in cursor.makeIterator() {
+					if clientName == name {
+						guard try domainHashCursor.containsEntry(key: domainHash, value: clientNameHash) == false else {
+							throw WGDBError.clientExistsInDomain
+						}
+						return publicKey
+					}
 				}
+				throw LMDBError.notFound
 			}
 		}
 		
@@ -669,6 +678,87 @@ public struct WireguardDatabase: Sendable {
 		
 		try newTrans.commit()
 		return newIP
+	}
+
+	/// Fileprivate version of `clientRemoveDomain` to be used in `domainRemove`.
+	fileprivate func _clientRemoveDomain(publicKey:PublicKey, domain:EncodedString, tx:borrowing Transaction) throws -> Bool {
+		let domainHash = try DomainHash(domainName: domain)
+		let clientName = try clientPub_clientName.loadEntry(key:publicKey, tx:tx)
+		let clientNameHash = try ClientNameHash(clientName: clientName)
+
+		return try clientPub_ip.cursor(tx:tx) { cursor in 
+			var count = 0
+			for (_, _) in cursor.makeDupIterator(key:publicKey) { count += 1 }
+			if count == 1 {
+				// The client only in this domain. Revoke it and return true.
+				try self._clientRemove(publicKey: publicKey, tx:tx)
+				return true
+			} else {
+				// The client exists in other domains. Remove it from this one and return false.
+				let clientIP = try clientPub_ip.loadEntry(key:publicKey, tx:tx)
+
+				try self.clientPub_ip.deleteEntry(key:publicKey, value:clientIP, tx:tx)
+				try self.ip_clientPub.deleteEntry(key:clientIP, value:publicKey, tx:tx)
+				try self.clientPub_domainHash.deleteEntry(key:publicKey, value:domainHash, tx:tx)
+				try self.domainHash_clientPub.deleteEntry(key:domainHash, value:publicKey, tx:tx)
+				try self.domainHash_clientNameHash.deleteEntry(key:domainHash, value: clientNameHash, tx:tx)
+				try self.ip_domainHash.deleteEntry(key: clientIP, value: domainHash, tx: tx)
+
+				return false
+			}
+		}
+	}
+
+	@discardableResult
+	/// Removes a client from a specified domain.
+	/// If it's the last domain they belong to, then it revokes the key.
+	/// - Parameters
+	/// 	- domain: The domain of the client.
+	/// 	- name: The human readable name of the client.
+	/// - Returns
+	/// 	- Bool: The status of the client after domain removal. If true, then it was revoked.
+	public func clientRemoveDomain(domain:EncodedString, name:EncodedString) throws -> (PublicKey, Bool) {
+		let newTrans = try Transaction(env: env, readOnly: false)
+		let domainHash = try DomainHash(domainName: domain)
+		let clientNameHash = try ClientNameHash(clientName: name)
+
+		let publicKey = try clientPub_clientName.cursor(tx: newTrans) { cursor in
+			return try domainHash_clientNameHash.cursor(tx: newTrans) { domainHashCursor in
+				for (publicKey, clientName) in cursor.makeIterator() {
+					if clientName == name {
+						if try domainHashCursor.containsEntry(key: domainHash, value: ClientNameHash(clientName: clientName)) {
+							return publicKey
+						}
+					}
+				}
+				throw LMDBError.notFound
+			}
+		}
+
+		let ret = try clientPub_ip.cursor(tx:newTrans) { cursor in 
+			var count = 0
+			for (_, _) in cursor.makeDupIterator(key:publicKey) { count += 1 }
+			if count == 1 {
+				// The client only in this domain. Revoke it and return true.
+				try self._clientRemove(publicKey: publicKey, tx:newTrans)
+				return true
+			} else {
+				// The client exists in other domains. Remove it from this one and return false.
+				let clientIP = try clientPub_ip.loadEntry(key:publicKey, tx:newTrans)
+
+				try self.clientPub_ip.deleteEntry(key:publicKey, value:clientIP, tx:newTrans)
+				try self.ip_clientPub.deleteEntry(key:clientIP, value:publicKey, tx:newTrans)
+				try self.clientPub_domainHash.deleteEntry(key:publicKey, value:domainHash, tx:newTrans)
+				try self.domainHash_clientPub.deleteEntry(key:domainHash, value:publicKey, tx:newTrans)
+				try self.domainHash_clientNameHash.deleteEntry(key:domainHash, value: clientNameHash, tx:newTrans)
+				try self.ip_domainHash.deleteEntry(key: clientIP, value: domainHash, tx: newTrans)
+
+				return false
+			}
+		}
+		
+		try newTrans.commit()
+		return (publicKey, ret)
 	}
 	
 	fileprivate func _clientMake(name:EncodedString, publicKey:PublicKey, domain:EncodedString, noHandshakeInvalidation:bedrock.Date.Seconds?, tx:borrowing Transaction) throws -> Address {
@@ -808,7 +898,6 @@ public struct WireguardDatabase: Sendable {
 				}
 				throw LMDBError.notFound
 			}
-			
 		}
 		try newTrans.commit()
 		return ret

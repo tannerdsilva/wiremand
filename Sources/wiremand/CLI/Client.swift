@@ -12,7 +12,7 @@ extension CLI {
 		}
 		static let configuration = CommandConfiguration(
 			abstract:"manage wireguard clients.",
-			subcommands:[Punt.self, ProvisionIP.self, Revoke.self, Make.self, List.self, Rename.self]
+			subcommands:[Punt.self, AddDomain.self, RemoveDomain.self, Revoke.self, Make.self, List.self, Rename.self]
 		)
 				
 		struct Punt:AsyncParsableCommand {
@@ -23,7 +23,6 @@ extension CLI {
 			@OptionGroup
 			var domainName:DomainNameGroup
 
-//			@OptionGroup
 			var globals:GlobalCLIOptions = GlobalCLIOptions()
 			
 			mutating func run() async throws {
@@ -36,36 +35,74 @@ extension CLI {
 			}
 		}
 		
-		struct ProvisionIP:AsyncParsableCommand {
+		struct AddDomain:AsyncParsableCommand {
 			static let configuration = CommandConfiguration(
-				commandName:"provision-ip",
+				commandName:"add-domain",
 				abstract:"add a client to another domain"
 			)
+
+			@OptionGroup
+			var domainName:DomainNameGroup
 		
 			@OptionGroup
 			var globals:GlobalCLIOptions
 
-			@Argument
-			var publicKey:PublicKey
+			mutating func run() async throws {
+				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				
+				let (_, wgPrimarySubnet, _, interfaceName, _, _) = try wgdb.getWireguardConfigMetas()
+				try wgdb.clientAssignDomain(domain:domainName.domain!, name:domainName.name!)
+				let clientInfo = try wgdb.allClients().filter { $0.name == domainName.name! }.first!
+				try await WireguardExecutor.updateExistingClient(publicKey:clientInfo.publicKey, with:Array(clientInfo.domains.values), interfaceName:interfaceName)
+				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
+				print(Colors.Green("Client successfully added to \(String(domainName.domain!))!"))
+				print("Please update the client's WireGuard configuration file!\nIn the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" lines with the following lines:\n")
+				let ipEntries = clientInfo.domains.values.map { "\($0.isV4 ? "\($0.string)/24" : "\($0.string)/64")" }
+				print("AllowedIPs = \(ipEntries.joined(separator: ", "))")
+				let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
+				print("AllowedIPs = \(dnsAllowedIPString)")
+				
+				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
+				try await DNSmasqExecutor.reload()
+			}
+		}
 
-			@Argument
-			var domain:EncodedString
+		struct RemoveDomain:AsyncParsableCommand {
+			static let configuration = CommandConfiguration(
+				commandName:"remove-domain",
+				abstract:"removes a client from a domain. If it was the clients only domain, then it revokes them and prevents them from connecting to the server."
+			)
+
+			@OptionGroup
+			var domainName:DomainNameGroup
+
+			@OptionGroup
+			var globals:GlobalCLIOptions
 			
 			mutating func run() async throws {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				
 				let (_, wgPrimarySubnet, _, interfaceName, _, _) = try wgdb.getWireguardConfigMetas()
-				try wgdb.clientAssignDomain(publicKey:publicKey, domain:domain)
-				let clientAddresses = try wgdb.allClients().filter { $0.publicKey == publicKey }.first!.domains.values
-				try await WireguardExecutor.updateExistingClient(publicKey:publicKey, with:Array(clientAddresses), interfaceName:interfaceName)
-				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
-				print(Colors.Green("Client successfully added to \(String(domain))!"))
-				print("Please update the client's WireGuard configuration file!\nIn the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" lines with the following lines:\n")
-				let ipEntries = clientAddresses.map { "\($0.isV4 ? "\($0.string)/24" : "\($0.string)/64")" }
-				print("AllowedIPs = \(ipEntries.joined(separator: ", "))")
-				let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
-				print("AllowedIPs = \(dnsAllowedIPString)")
-				
+				try domainName.promptInteractivelyIfNecessary(db:wgdb)
+
+				let (removedClientPub, status) = try wgdb.clientRemoveDomain(domain:domainName.domain!, name:domainName.name!)
+
+				if status == true {
+					print(Colors.Red("No more domains on the client. Client revoked and uninstalled from the server."))
+					try await WireguardExecutor.uninstall(publicKey: removedClientPub, interfaceName: interfaceName)
+					try await WireguardExecutor.saveConfiguration(interfaceName: interfaceName, logLevel: globals.logLevel)
+				} else {
+					let clientInfo = try wgdb.allClients().filter { $0.name == domainName.name! }.first!
+					try await WireguardExecutor.updateExistingClient(publicKey:clientInfo.publicKey, with:Array(clientInfo.domains.values), interfaceName:interfaceName)
+					try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
+					print(Colors.Green("Client successfully removed from \(String(domainName.domain!))!"))
+					print("Please update the client's WireGuard configuration file!\nIn the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" lines with the following lines:\n")
+					let ipEntries = clientInfo.domains.values.map { "\($0.isV4 ? "\($0.string)/24" : "\($0.string)/64")" }
+					print("AllowedIPs = \(ipEntries.joined(separator: ", "))")
+					let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
+					print("AllowedIPs = \(dnsAllowedIPString)")
+				}
+
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
 			}
