@@ -56,7 +56,12 @@ extension CLI {
 				try await WireguardExecutor.updateExistingClient(publicKey:clientInfo.publicKey, with:Array(clientInfo.domains.values), interfaceName:interfaceName)
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
 				print(Colors.Green("Client successfully added to \(String(domainName.domain!))!"))
-				print("Please update the client's WireGuard configuration file!\nIn the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" lines with the following lines:\n")
+				print("Please update the client's WireGuard configuration file!")
+				print("In the [Interface] section  of this file, please replace the line containing the \"Addresses\" with the following line:\n")
+				let addresses = clientInfo.domains.values.map { $0.string }.joined(separator: ", ")
+				print("Addresses = \(addresses)\n")
+
+				print("In the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" lines with the following lines:\n")
 				let ipEntries = clientInfo.domains.values.map { "\($0.isV4 ? "\($0.string)/24" : "\($0.string)/64")" }
 				print("AllowedIPs = \(ipEntries.joined(separator: ", "))")
 				let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
@@ -96,7 +101,12 @@ extension CLI {
 					try await WireguardExecutor.updateExistingClient(publicKey:clientInfo.publicKey, with:Array(clientInfo.domains.values), interfaceName:interfaceName)
 					try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
 					print(Colors.Green("Client successfully removed from \(String(domainName.domain!))!"))
-					print("Please update the client's WireGuard configuration file!\nIn the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" lines with the following lines:\n")
+					print("Please update the client's WireGuard configuration file!")
+					print("In the [Interface] section  of this file, please replace the line containing the \"Addresses\" with the following line:\n")
+					let addresses = clientInfo.domains.values.map { $0.string }.joined(separator: ", ")
+					print("Addresses = \(addresses)\n")
+
+					print("In the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" lines with the following lines:\n")
 					let ipEntries = clientInfo.domains.values.map { "\($0.isV4 ? "\($0.string)/24" : "\($0.string)/64")" }
 					print("AllowedIPs = \(ipEntries.joined(separator: ", "))")
 					let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"

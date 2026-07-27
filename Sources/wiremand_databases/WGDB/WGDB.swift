@@ -695,16 +695,21 @@ public struct WireguardDatabase: Sendable {
 				return true
 			} else {
 				// The client exists in other domains. Remove it from this one and return false.
-				let clientIP = try clientPub_ip.loadEntry(key:publicKey, tx:tx)
+				for (_, ip) in cursor.makeDupIterator(key:publicKey) {
+					if try ip_domainHash.loadEntry(key:ip, tx:tx) == domainHash {
+						let clientIP = ip
 
-				try self.clientPub_ip.deleteEntry(key:publicKey, value:clientIP, tx:tx)
-				try self.ip_clientPub.deleteEntry(key:clientIP, value:publicKey, tx:tx)
-				try self.clientPub_domainHash.deleteEntry(key:publicKey, value:domainHash, tx:tx)
-				try self.domainHash_clientPub.deleteEntry(key:domainHash, value:publicKey, tx:tx)
-				try self.domainHash_clientNameHash.deleteEntry(key:domainHash, value: clientNameHash, tx:tx)
-				try self.ip_domainHash.deleteEntry(key: clientIP, value: domainHash, tx: tx)
+						try self.clientPub_ip.deleteEntry(key:publicKey, value:clientIP, tx:tx)
+						try self.ip_clientPub.deleteEntry(key:clientIP, value:publicKey, tx:tx)
+						try self.clientPub_domainHash.deleteEntry(key:publicKey, value:domainHash, tx:tx)
+						try self.domainHash_clientPub.deleteEntry(key:domainHash, value:publicKey, tx:tx)
+						try self.domainHash_clientNameHash.deleteEntry(key:domainHash, value: clientNameHash, tx:tx)
+						try self.ip_domainHash.deleteEntry(key: clientIP, value: domainHash, tx: tx)
 
-				return false
+						return false
+					}
+				}
+				throw LMDBError.notFound
 			}
 		}
 	}
@@ -744,16 +749,21 @@ public struct WireguardDatabase: Sendable {
 				return true
 			} else {
 				// The client exists in other domains. Remove it from this one and return false.
-				let clientIP = try clientPub_ip.loadEntry(key:publicKey, tx:newTrans)
+				for (_, ip) in cursor.makeDupIterator(key:publicKey) {
+					if try ip_domainHash.loadEntry(key:ip, tx:newTrans) == domainHash {
+						let clientIP = ip
 
-				try self.clientPub_ip.deleteEntry(key:publicKey, value:clientIP, tx:newTrans)
-				try self.ip_clientPub.deleteEntry(key:clientIP, value:publicKey, tx:newTrans)
-				try self.clientPub_domainHash.deleteEntry(key:publicKey, value:domainHash, tx:newTrans)
-				try self.domainHash_clientPub.deleteEntry(key:domainHash, value:publicKey, tx:newTrans)
-				try self.domainHash_clientNameHash.deleteEntry(key:domainHash, value: clientNameHash, tx:newTrans)
-				try self.ip_domainHash.deleteEntry(key: clientIP, value: domainHash, tx: newTrans)
+						try self.clientPub_ip.deleteEntry(key:publicKey, value:clientIP, tx:newTrans)
+						try self.ip_clientPub.deleteEntry(key:clientIP, value:publicKey, tx:newTrans)
+						try self.clientPub_domainHash.deleteEntry(key:publicKey, value:domainHash, tx:newTrans)
+						try self.domainHash_clientPub.deleteEntry(key:domainHash, value:publicKey, tx:newTrans)
+						try self.domainHash_clientNameHash.deleteEntry(key:domainHash, value: clientNameHash, tx:newTrans)
+						try self.ip_domainHash.deleteEntry(key: clientIP, value: domainHash, tx: newTrans)
 
-				return false
+						return false
+					}
+				}
+				throw LMDBError.notFound
 			}
 		}
 		
