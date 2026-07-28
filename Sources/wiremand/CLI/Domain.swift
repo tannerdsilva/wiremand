@@ -62,7 +62,7 @@ extension CLI {
 			mutating func run() async throws {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				let firewallDB = try FirewallDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
-				let interfaceName = try wgdb.primaryInterfaceName()
+				let (_, wgPrimarySubnet, _, interfaceName, _, _) = try wgdb.getWireguardConfigMetas()
 				let removedClients = try wgdb.allClients(domain: EncodedString(domainName.lowercased()))
 				let (subnet, clientStatuses) = try wgdb.domainRemove(name:EncodedString(domainName.lowercased()))
 				try await WireguardExecutor.uninstallDomain(subnet: subnet, interfaceName: interfaceName)
@@ -73,9 +73,17 @@ extension CLI {
 						try await WireguardExecutor.uninstall(publicKey: client.publicKey, interfaceName: interfaceName)
 					} else {
 						print(Colors.Yellow("Client removed from domain, but still exists in the server."))
-						print(Colors.Yellow("\t - PublicKey: \(client.publicKey.string)"))
-						let remainingDomains = allClients.filter { $0.publicKey == client.publicKey }.first!.domains.keys.map { String($0) }.joined(separator: ", ")
+						print(Colors.Yellow("\t - PublicKey: \(client.publicKey.string)\n\t - Name: \(String(client.name))"))
+						let clientInfo = allClients.filter { $0.publicKey == client.publicKey }.first!
+						let remainingDomains = clientInfo.domains.keys.map { String($0) }.joined(separator: ", ")
 						print(Colors.Yellow("\t - Domains: \(remainingDomains)"))
+						let addresses = clientInfo.domains.values.map { $0.string }.joined(separator: ", ")
+						print("\t Change this client key's Address and AllowedIP fields")
+						print("\t - Address = \(addresses)")
+						let ipEntries = clientInfo.domains.values.map { "\($0.isV4 ? "\($0.string)/24" : "\($0.string)/64")" }
+						print("\t - AllowedIPs = \(ipEntries.joined(separator: ", "))")
+						let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
+						print("\t - AllowedIPs = \(dnsAllowedIPString)")
 					}
 					
 				}

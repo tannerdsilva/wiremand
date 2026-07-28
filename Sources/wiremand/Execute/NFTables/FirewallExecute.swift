@@ -10,6 +10,9 @@ struct FirewallExecutor {
 	static let whitelistChain = "whitelist"
 	static let domainIsolationChain = "domain_isolation"
 
+	/// Creates the NFTable commands for creating the firewall's filter tables.
+	/// These tables need to be created before running any other NFTable commands
+	/// for the filter IPv4 or IPv6 table.
 	static func createIPFilters() -> [String] {
 		var commands: [String] = []
 
@@ -42,7 +45,11 @@ struct FirewallExecutor {
 		return commands
 	}
 
-	static func createDomainFirewall(domains: [WireguardDatabase.DomainInfo], interfaceName: String, wgListenPort: UInt16) -> [String] {
+	/// Creates the NFTable commands for domain isolation.
+	/// Domain isolation is updated automatically according to the servers domains.
+	/// - Parameters
+	/// 	- domains: The array of domains to isolate.
+	static func createDomainFirewall(domains: [WireguardDatabase.DomainInfo]) -> [String] {
 		var commands: [String] = []
 
 		commands.append("add chain ip6 \(table6) \(domainIsolationChain)")
@@ -105,7 +112,7 @@ struct FirewallExecutor {
 	// A function to reload the firewall (specifically for the domain isolation section).
 	// The function should be called whenever a domain is created, a domain is destroyed, or a new server network is created.
 	static func reloadDomainIsolation(wgdb: WireguardDatabase) throws {
-		let domainIsolationCommands = FirewallExecutor.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
+		let domainIsolationCommands = FirewallExecutor.createDomainFirewall(domains: try wgdb.allDomains())
 		let nftableExecutor = try NFTables()
 		try nftableExecutor.run(commands: domainIsolationCommands)
 	}

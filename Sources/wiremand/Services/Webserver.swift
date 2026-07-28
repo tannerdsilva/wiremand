@@ -78,8 +78,14 @@ public final actor PublicHTTPWebServer: Service {
 	}
 }
 
-
 extension PublicHTTPWebServer {
+	/// Handles GET requests to provision new WireGuard clients via the web API.
+	/// Query Parameters
+	/// 	- domain: The human readable domain name.
+	/// 	- dk: The domain hash of the domain name.
+	/// 	- pk: The Base64 Public Key of the client.
+	/// - Behavior: Gets the keys configuration if the client exists on the system.
+	/// - Response: A string of the requested key's Wireguard configuration.
 	fileprivate struct Wireguard_GetKeyResponder:HTTPResponder {
 		let logger = Logger(label: "Wireguard.GetKeyResponder")
 		let wgdb:WireguardDatabase
@@ -140,9 +146,14 @@ extension PublicHTTPWebServer {
 
 extension PublicHTTPWebServer {
 	/// Handles POST requests to provision new WireGuard clients via the web API.
-	/// - Query Params: `domain`, `sk` (security key), `dk` (domain hash), `key_name`, `client_public_key`
+	/// - Query Parameters: 
+	/// 	- domain: The human readable domain name.
+	/// 	- sk: The security key of the domain.
+	/// 	- dk: The domain hash of the domain name.
+	/// 	- key_name: The human readable name for the client key.
+	/// 	- client_public_key: The Wireaguard public key of the client.
 	/// - Behavior: If `key_name` already exists, removes the old client and creates a new one with the provided public key.
-	/// - Response: A string containing the completed client wireguard key.
+	/// - Response: A string of the newly created key's Wireguard configuration.
 	fileprivate struct Wireguard_MakeKeyResponder:HTTPResponder {
 		let logger = Logger(label: "Wireguard.MakeKeyResponder")
 		let wgdb:WireguardDatabase

@@ -6,7 +6,7 @@ import SwiftSlash
 import bedrock
 import bedrock_ip
 
-/// A service for resolving additional information for an IP address.
+/// A service for resolving additional geolocation information for an IP address.
 /// The service runs every ten minutes. It attempts to resolve any pending addresses
 /// in the IP Database. If the resolution fails, then it puts the address in the failed resolution table.
 final class IPStacker: Service {

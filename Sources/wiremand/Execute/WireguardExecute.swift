@@ -4,6 +4,7 @@ import SwiftSlash
 import Logging
 import SystemPackage
 
+/// Executor used for configuring the Wireguard interface and peers on the server. 
 struct WireguardExecutor {
 	enum Error:Swift.Error {
 		case wireguardCmdError

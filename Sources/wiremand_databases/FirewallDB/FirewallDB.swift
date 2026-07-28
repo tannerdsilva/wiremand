@@ -7,7 +7,7 @@ import bedrock_ip
 
 // The storage for user added NFTable firewall rules.
 // The base policy for the firewall is a policy drop, so
-// any rules added should include an accept as the result of the rule.
+// any rules added should NOT include a "drop" as the result of the rule.
 public struct FirewallDatabase: Sendable {
     enum Databases: String {
         case networkV4_firewallRule = "networkV4_firewallRule"

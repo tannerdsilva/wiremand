@@ -66,7 +66,7 @@ extension CLI {
 				throw Self.Error.missingFirewallFile
 			}
 			let bootFirewallCommands = fileContent.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-			let domainIsolationCommands = FirewallExecutor.createDomainFirewall(domains: try wgdb.allDomains(), interfaceName: String(try wgdb.primaryInterfaceName()), wgListenPort: try wgdb.getPublicListenPort().RAW_native())
+			let domainIsolationCommands = FirewallExecutor.createDomainFirewall(domains: try wgdb.allDomains())
 			let ipv4Rules = try firewallDB.getIPv4Rules()
 			let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Rules.map { ($0.key.cidrstring, $0.value.map { String($0) }) })
 			let ipv6Rules = try firewallDB.getIPv6Rules()

@@ -4,6 +4,8 @@ import SwiftSlash
 import wiremand_databases
 
 extension WireguardDatabase.ClientInfo {
+	/// Creates the DNS string for a Client's name and all of 
+	/// the addresses for the domains of the client.
 	public func dynamicDNSLine() -> String {
 		var lines = [String]()
 		for (domain, address) in self.domains {
@@ -27,6 +29,7 @@ struct DNSmasqExecutor {
 	}
 	/// Exports the DNS entries for each client in the database.
 	/// Creates the DNS mapping of `clientName.domainName.wg` to the client address.
+	/// Exports the DNS entries into the /var/lib/username/hosts-auto file.
 	public static func exportAutomaticDNSEntries(db:WireguardDatabase) throws {
 		let clients = try db.allClients().compactMap { $0.dynamicDNSLine() }.joined(separator: "\n")
 		// install the systemd service for the daemon
