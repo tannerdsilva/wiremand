@@ -3,6 +3,7 @@ import Foundation
 import Logging
 import bedrock
 import wiremand_databases
+import bedrock_ip
 
 extension CLI {
 	struct Client:AsyncParsableCommand {
@@ -62,7 +63,13 @@ extension CLI {
 				print("Address = \(addresses)\n")
 
 				print("In the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" lines with the following lines:\n")
-				let ipEntries = clientInfo.domains.values.map { "\($0.isV4 ? "\($0.string)/24" : "\($0.string)/64")" }
+				let ipEntries = clientInfo.domains.values.map { 
+					if $0.isV4 {
+						String(bedrock_ip.AddressV4(subnetPrefix: 24)! & bedrock_ip.AddressV4($0.string)!) + "/24"
+					} else {
+						String(bedrock_ip.AddressV6(subnetPrefix: 64)! & bedrock_ip.AddressV6($0.string)!) + "/64"
+					}
+				}
 				print("AllowedIPs = \(ipEntries.joined(separator: ", "))")
 				let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
 				print("AllowedIPs = \(dnsAllowedIPString)")
@@ -107,7 +114,13 @@ extension CLI {
 					print("Address = \(addresses)\n")
 
 					print("In the [Peer] section of this file, please replace the line containing the \"AllowedIPs\" lines with the following lines:\n")
-					let ipEntries = clientInfo.domains.values.map { "\($0.isV4 ? "\($0.string)/24" : "\($0.string)/64")" }
+					let ipEntries = clientInfo.domains.values.map { 
+						if $0.isV4 {
+							String(bedrock_ip.AddressV4(subnetPrefix: 24)! & bedrock_ip.AddressV4($0.string)!) + "/24"
+						} else {
+							String(bedrock_ip.AddressV6(subnetPrefix: 64)! & bedrock_ip.AddressV6($0.string)!) + "/64"
+						}
+					}
 					print("AllowedIPs = \(ipEntries.joined(separator: ", "))")
 					let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
 					print("AllowedIPs = \(dnsAllowedIPString)")
@@ -195,14 +208,19 @@ extension CLI {
 				if publicKey == nil {
 					buildKey += "PrivateKey = " + newKeys.privateKey + "\n"
 				}
-				let ipAddress = address.string + "\(address.isV4 ? "/32" : "/128")"
+				let ipAddress = address.string
 				buildKey += "Address = " + ipAddress + "\n"
 				buildKey += "DNS = \(wgPrimarySubnet.addressString)\n"
 				buildKey += "[Peer]\n"
 				buildKey += "PublicKey = \(pubKey.string)\n"
 				buildKey += "PresharedKey = \(newKeys.presharedKey)\n"
-				let ipAddressSubnet = address.string + "\(address.isV4 ? "/24" : "/64")"
-				buildKey += "AllowedIPs = \(ipAddressSubnet)\n"
+				if address.isV4 {
+					let ipAddressSubnet = String(bedrock_ip.AddressV4(subnetPrefix: 24)! & bedrock_ip.AddressV4(address.string)!) + "/24"
+					buildKey += "AllowedIPs = \(ipAddressSubnet)\n"
+				} else {
+					let ipAddressSubnet = String(bedrock_ip.AddressV6(subnetPrefix: 64)! & bedrock_ip.AddressV6(address.string)!) + "/64"
+					buildKey += "AllowedIPs = \(ipAddressSubnet)\n"
+				}
 				let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
 				buildKey += "AllowedIPs = \(dnsAllowedIPString)"
 				buildKey += "Endpoint = \(ipv4Public.string):\(wgPort.RAW_native())\n"

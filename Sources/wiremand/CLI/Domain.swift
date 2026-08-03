@@ -80,7 +80,13 @@ extension CLI {
 						let addresses = clientInfo.domains.values.map { $0.string }.joined(separator: ", ")
 						print("\t Change this client key's Address and AllowedIP fields")
 						print("\t - Address = \(addresses)")
-						let ipEntries = clientInfo.domains.values.map { "\($0.isV4 ? "\($0.string)/24" : "\($0.string)/64")" }
+						let ipEntries = clientInfo.domains.values.map { 
+							if $0.isV4 {
+								String(bedrock_ip.AddressV4(subnetPrefix: 24)! & bedrock_ip.AddressV4($0.string)!) + "/24"
+							} else {
+								String(bedrock_ip.AddressV6(subnetPrefix: 64)! & bedrock_ip.AddressV6($0.string)!) + "/64"
+							}
+						}
 						print("\t - AllowedIPs = \(ipEntries.joined(separator: ", "))")
 						let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
 						print("\t - AllowedIPs = \(dnsAllowedIPString)")

@@ -7,6 +7,7 @@ import Logging
 import QuickLMDB
 import ServiceLifecycle
 import wiremand_databases
+import bedrock_ip
 
 extension PublicHTTPWebServer {
 	/// the http server context used for the apiv2 web server
@@ -228,7 +229,7 @@ extension PublicHTTPWebServer {
 			
 			let (wgPort, wgPrimarySubnet, pubKey, interfaceName, publicV4, _) = try wgdb.getWireguardConfigMetas()
 			
-			var client: (address:Address?, publicKey:PublicKey?) = (nil, nil)
+			var client: (address:wiremand_databases.Address?, publicKey:PublicKey?) = (nil, nil)
 			do {
 				client.address = try wgdb.clientMake(name: EncodedString(keyName), publicKey: clientPublicKey, domain: host)
 				client.publicKey = nil
@@ -239,14 +240,19 @@ extension PublicHTTPWebServer {
 				client.address = try wgdb.clientMake(name: EncodedString(keyName), publicKey: clientPublicKey, domain: host)
 			}
 			
-			let ipAddress = client.address!.string + "\(client.address!.isV4 ? "/32" : "/128")"
+			let ipAddress = client.address!.string
 			var buildKey = "Address = " + ipAddress + "\n"
 			buildKey += "DNS = \(wgPrimarySubnet.addressString)\n"
 			buildKey += "[Peer]\n"
 			buildKey += "PublicKey = \(pubKey.string)\n"
 			buildKey += "PresharedKey = \(newKeys.presharedKey)\n"
-			let ipAddressSubnet = client.address!.string + "\(client.address!.isV4 ? "/24" : "/64")"
-			buildKey += "AllowedIPs = \(ipAddressSubnet)\n"
+			if client.address!.isV4 {
+				let ipAddressSubnet = String(bedrock_ip.AddressV4(subnetPrefix: 24)! & bedrock_ip.AddressV4(client.address!.string)!) + "/24"
+				buildKey += "AllowedIPs = \(ipAddressSubnet)\n"
+			} else {
+				let ipAddressSubnet = String(bedrock_ip.AddressV6(subnetPrefix: 64)! & bedrock_ip.AddressV6(client.address!.string)!) + "/64"
+				buildKey += "AllowedIPs = \(ipAddressSubnet)\n"
+			}
 			let dnsAllowedIPString = "\(wgPrimarySubnet.addressString)\(wgPrimarySubnet.isV4 ? "/32" : "/128")\n"
 			buildKey += "AllowedIPs = \(dnsAllowedIPString)"
 			buildKey += "Endpoint = \(publicV4.string):\(wgPort.RAW_native())\n"
