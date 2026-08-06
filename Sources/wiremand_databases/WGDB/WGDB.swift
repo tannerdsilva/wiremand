@@ -487,6 +487,14 @@ public struct WireguardDatabase: Sendable {
 		try newTrans.commit()
 	}
 
+	/// Installs new public ipv4 and ipv6 addresses to be used for the HTTP server.
+	public func installPublicIPAddresses(wg_resolvedServerPublicIPv4:AddressV4, wg_resolvedServerPublicIPv6:AddressV6) throws {
+		let newTrans = try Transaction(env: env, readOnly: false)
+		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPublicIPv4Address.rawValue), value: wg_resolvedServerPublicIPv4, flags: [], tx: newTrans)
+		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPublicIPv6Address.rawValue), value: wg_resolvedServerPublicIPv6, flags: [], tx: newTrans)
+		try newTrans.commit()
+	}
+
 	public func primaryInterfaceName() throws -> EncodedString {
 		let newTrans = try Transaction(env: env, readOnly: true)
 		return try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_primaryInterfaceName.rawValue), as: EncodedString.self, tx: newTrans)!

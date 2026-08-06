@@ -42,7 +42,6 @@ extension CLI {
 			shouldDisplay:false
 		)
 		
-//		@Option
 		var logLevel:Logging.Logger.Level = .info
 		
 		@Option

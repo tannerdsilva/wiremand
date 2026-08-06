@@ -73,6 +73,7 @@ Getting a key that has been created on the server: `curl -k "https://serverPubli
 | `wiremand run` | Launch daemon in foreground (debug/test) |
 | `wiremand ipstack set-api-key <API_KEY>` | Configure ipstack api key |
 | `wiremand ipstack get-api-key` | Get ipstack api key |
+| `wiremand reset-public-addresses` | Reset public addresses post installer |
 
 ## Daemon Architecture
 The daemon orchestrates three background services via Apple's Swift ServiceLifecycle:
