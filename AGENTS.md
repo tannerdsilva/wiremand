@@ -37,6 +37,7 @@ Sources/
       IPStack.swift            # ipstack get/set API key
       ArgumentExtensions.swift # Path:ExpressibleByArgument etc.
     Services/
+      FirewallService.swift       # renders + tears down the nftables ruleset (Service)
       HandshakeChecker.swift   # 10s poll of `wg show`; updates DB, revokes, resolves IPs
       IPStacker.swift          # 10m geolocation resolution loop
       Webserver.swift          # Hummingbird HTTPS provisioning API (wg_makekey / wg_getkey)
@@ -61,10 +62,11 @@ Tests/wiremandTests/           # Swift Testing (@Suite/@Test)
 
 ## Architecture
 
-The daemon (`wiremand run`) boots the firewall from a rules file + DB state, then runs three Swift ServiceLifecycle services under one `ServiceGroup` (graceful shutdown on SIGTERM/SIGINT):
+The daemon (`wiremand run`) runs four Swift ServiceLifecycle services under one `ServiceGroup` (graceful shutdown on SIGTERM/SIGINT). The firewall is itself a service (`FirewallService`): it renders the ruleset on start and deletes the `ip_filter`/`ip6_filter` tables it owns on graceful shutdown. It is declared *first* in the group so the `ServiceGroup` tears it down *last* (services shut down in reverse declaration order), after the traffic-serving services have stopped.
 
 | Service | Cadence | Responsibility |
 |---------|---------|----------------|
+| `FirewallService` | start + shutdown | Renders custom rules + managed tables/chains (whitelist, isolation, trace) on start; `delete table` teardown on graceful shutdown. |
 | `HandshakeChecker` | 10 s | Runs `sudo wg show <iface> latest-handshakes` and `endpoints`, parses tab-separated output, feeds `WireguardDatabase.processHandshakes`, enqueues IP resolutions, uninstalls revoked peers. |
 | `IPStacker` | 600 s | Pulls pending endpoint IPs from `IPDatabase`, calls ipstack.com, stores resolved geolocation or moves failures to a failed table. |
 | `PublicHTTPWebServer` | n/a | Hummingbird 2 TLS server bound to both public IPv4 and IPv6. Serves the self-service provisioning API. |
