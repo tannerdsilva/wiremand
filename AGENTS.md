@@ -46,6 +46,7 @@ Sources/
       NFTables/
         NFTablesExecutor.swift # in-process libnftables context wrapper
         FirewallExecute.swift  # builds nft tables/chains for whitelist + domain isolation
+        FirewallSync.swift     # incremental per-chain sync (mirror-based delta)
       DNSmasq.swift            # exports hosts-auto entries, reloads dnsmasq
       RTNetlink.swift          # Swift wrapper over Crtnetlink for addr/route/iface dumps
       SelfSignedCertExecutor.swift
@@ -115,7 +116,8 @@ There is currently **no unit coverage** for the LMDB state machine (`WGDB`), the
 - **`HandshakeChecker` uses tab (ASCII 9) splitting**, and `wg show ... endpoints` output formats IPv6 as `[addr]:port` while IPv4 is bare `addr:port`. The parser branches on `[`/`.` heuristics; keep that intact if you touch endpoint parsing.
 - **The firewall forward chain policy is `drop`.** Whitelist and domain-isolation chains must `accept`; a rule that ends in `drop` locks out the domain. Domain isolation only accepts traffic *within the same domain*, so inter-domain traffic is blocked by design.
 - **Two separate db "domains" exist** (same word, unrelated concepts): logical VPN *domains* (`WGDB`) vs. firewall *networks* (`FirewallDB`). Don't conflate them.
-- **Firewall tracing**: the `forward` chain jumps a `domain_trace` chain (before `whitelist`/`domain_isolation`) that sets `meta nftrace set 1` on same-domain `saddr`+`daddr` traffic, so inter-client traffic within a domain is visible via `nft monitor trace` with the full rule walk. `reloadDomainIsolation` flushes and rebuilds both `domain_isolation` and `domain_trace` from the live domain list.
+- **Firewall tracing**: the `forward` chain jumps a `domain_trace` chain (before `whitelist`/`domain_isolation`) that sets `meta nftrace set 1` on same-domain `saddr`+`daddr` traffic, so inter-client traffic within a domain is visible via `nft monitor trace` with the full rule walk.
+- **Incremental firewall sync**: the whitelist, domain_isolation, and domain_trace chains are reconciled incrementally (`FirewallSync.sync`) against a persisted per-chain rule mirror in `FirewallDatabase.chainRuleMirror`. Unchanged chains are no-ops; additions emit only `add rule` for the new rules; removals fall back to a scoped flush+re-render of just that chain. Handles are deliberately NOT cached (kernel-assigned, reassigned on flush, and `nft list` renders live counter counts that break text matching), so additions need no handle and removals re-render the chain. Boot (`FirewallService.render`) uses `force: true` to guarantee a clean slate.
 - The webserver binds with a **self-signed cert** at `/etc/wiremand/ssl/{fullchain,privkey}.pem`; clients use `-k`. Port 8080 for the HTTP API, 29300 default for WireGuard.
 - DB envs are created with `.noSubDir` and a map size of current-file-size + 16 GB. LMDB transactions must be explicitly committed; every mutation path opens `Transaction(env:, readOnly: false)`, does work, then `commit()`.
 
