@@ -66,7 +66,9 @@ extension CLI {
 				let removedClients = try wgdb.allClients(domain: EncodedString(domainName.lowercased()))
 				let (subnet, clientStatuses) = try wgdb.domainRemove(name:EncodedString(domainName.lowercased()))
 				try await WireguardExecutor.uninstallDomain(subnet: subnet, interfaceName: interfaceName)
-				try firewallDB.deleteDomainRules(domain: bedrock_ip.Network(subnet.cidrstring)!)
+				do {
+					try firewallDB.deleteDomainRules(domain: bedrock_ip.Network(subnet.cidrstring)!)
+				} catch LMDBError.notFound { /* no firewall rules to delete */ }
 				let allClients = try wgdb.allClients()
 				for client in removedClients {
 					if clientStatuses[client.publicKey] == true {
