@@ -210,7 +210,9 @@ extension CLI {
 				}
 				let ipAddress = address.string
 				buildKey += "Address = " + ipAddress + "\n"
-				buildKey += "DNS = \(wgPrimarySubnet.addressString)\n"
+				if noDNSService == false {
+					buildKey += "DNS = \(wgPrimarySubnet.addressString)\n"
+				}
 				buildKey += "[Peer]\n"
 				buildKey += "PublicKey = \(pubKey.string)\n"
 				buildKey += "PresharedKey = \(newKeys.presharedKey)\n"
