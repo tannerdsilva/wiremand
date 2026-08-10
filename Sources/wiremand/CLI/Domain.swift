@@ -44,7 +44,8 @@ extension CLI {
 				let domainHash = try DomainHash(domainName: EncodedString(domainName))
 				appLogger.info("domain created successfully.", metadata:["_sk":"\(newSK.string)", "_dk":"\(domainHash.string)", "domain":"\(ipScope!.cidrstring)"])
 
-				try FirewallExecutor.reloadDomainIsolation(wgdb: wgdb)
+				let firewallDB = try FirewallDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+				try FirewallExecutor.reloadDomainIsolation(wgdb: wgdb, firewallDB: firewallDB)
 			}
 		}
 		
@@ -99,7 +100,7 @@ extension CLI {
 				}
 				try await WireguardExecutor.saveConfiguration(interfaceName: interfaceName, logLevel: globals.logLevel)
 				try FirewallExecutor.reloadWhitelist(firewallDB: firewallDB)
-				try FirewallExecutor.reloadDomainIsolation(wgdb: wgdb)
+				try FirewallExecutor.reloadDomainIsolation(wgdb: wgdb, firewallDB: firewallDB)
 				try DNSmasqExecutor.exportAutomaticDNSEntries(db:wgdb)
 				try await DNSmasqExecutor.reload()
 			}

@@ -55,86 +55,108 @@ struct FirewallExecutor {
 		return commands
 	}
 
-	/// Creates the NFTable commands for domain isolation.
-	/// Domain isolation is updated automatically according to the servers domains.
-	/// - Parameters
-	/// 	- domains: The array of domains to isolate.
-	static func createDomainFirewall(domains: [WireguardDatabase.DomainInfo]) -> [String] {
-		var commands: [String] = []
-
-		// Set up the same-domain trace chain for both families. It is flushed and rebuilt
-		// on every reload (like the isolation chain) so it always reflects the live domain
-		// list and never accumulates stale rules for removed domains.
-		commands.append("add chain ip6 \(table6) \(domainTraceChain)")
-		commands.append("flush chain ip6 \(table6) \(domainTraceChain)")
-
-		commands.append("add chain ip \(table) \(domainTraceChain)")
-		commands.append("flush chain ip \(table) \(domainTraceChain)")
-
-		commands.append("add chain ip6 \(table6) \(domainIsolationChain)")
-		commands.append("flush chain ip6 \(table6) \(domainIsolationChain)")
-
-		commands.append("add chain ip \(table) \(domainIsolationChain)")
-		commands.append("flush chain ip \(table) \(domainIsolationChain)")
-		
-		for domain in domains {
-			if (domain.network.isV4) {
-				commands.append("add rule ip \(table) \(domainIsolationChain) ip saddr \(domain.network.cidrstring) ip daddr \(domain.network.cidrstring) counter log prefix \"DOMAIN_ACCEPT_V4: \" accept")
-				commands.append("add rule ip \(table) \(domainTraceChain) ip saddr \(domain.network.cidrstring) ip daddr \(domain.network.cidrstring) meta nftrace set 1 counter comment \"trace same-domain inter-client traffic (IPv4)\"")
-			} else {
-				commands.append("add rule ip6 \(table6) \(domainIsolationChain) ip6 saddr \(domain.network.cidrstring) ip6 daddr \(domain.network.cidrstring) counter log prefix \"DOMAIN_ACCEPT_V6: \" accept")
-				commands.append("add rule ip6 \(table6) \(domainTraceChain) ip6 saddr \(domain.network.cidrstring) ip6 daddr \(domain.network.cidrstring) meta nftrace set 1 counter comment \"trace same-domain inter-client traffic (IPv6)\"")
-			}
+	/// Builds the desired IPv4 whitelist rule set for the `whitelist` chain.
+	/// Each entry is a full rule expression (after the chain name) matching the
+	/// source address of a domain, e.g. `ip saddr 10.0.0.0/24 tcp dport 22 accept`.
+	static func desiredWhitelistIPv4Rules(_ rules: [NetworkV4:[EncodedString]]) -> [String] {
+		rules.flatMap { (network, ruleList) in
+			ruleList.map { "ip saddr \(network.cidrstring) \(String($0))" }
 		}
-		
-		return commands
 	}
 
-	/// Creates the NFTable commands for creating the domain whitelist.
-	/// - Parameters
-	/// 	- ipv4Rules: The dictionary of IPv4 domains to nft rules.
-	/// 	- ipv6Rules: The dictionary of IPv6 domains to nft rules.
-	static func createWhitelist(ipv4Rules:[String:[String]], ipv6Rules:[String:[String]]) -> [String] {
-		var commands: [String] = []
-
-		commands.append("add chain ip \(table) \(whitelistChain)")
-		commands.append("flush chain ip \(table) \(whitelistChain)")
-
-		for (domain, rules) in ipv4Rules {
-			for rule in rules {
-				commands.append("add rule ip \(table) \(whitelistChain) ip saddr \(domain) \(rule)")
-			}
+	/// Builds the desired IPv6 whitelist rule set for the `whitelist` chain.
+	static func desiredWhitelistIPv6Rules(_ rules: [NetworkV6:[EncodedString]]) -> [String] {
+		rules.flatMap { (network, ruleList) in
+			ruleList.map { "ip6 saddr \(network.cidrstring) \(String($0))" }
 		}
+	}
 
-		commands.append("add chain ip6 \(table6) \(whitelistChain)")
-		commands.append("flush chain ip6 \(table6) \(whitelistChain)")
-
-		for (domain, rules) in ipv6Rules {
-			for rule in rules {
-				commands.append("add rule ip6 \(table6) \(whitelistChain) ip6 saddr \(domain) \(rule)")
-			}
+	/// Builds the desired rule set for the `domain_isolation` chain (IPv4).
+	static func desiredDomainIsolationIPv4Rules(_ domains: [WireguardDatabase.DomainInfo]) -> [String] {
+		domains.compactMap { domain in
+			domain.network.isV4
+				? "ip saddr \(domain.network.cidrstring) ip daddr \(domain.network.cidrstring) counter log prefix \"DOMAIN_ACCEPT_V4: \" accept"
+				: nil
 		}
+	}
 
-		return commands
+	/// Builds the desired rule set for the `domain_isolation` chain (IPv6).
+	static func desiredDomainIsolationIPv6Rules(_ domains: [WireguardDatabase.DomainInfo]) -> [String] {
+		domains.compactMap { domain in
+			!domain.network.isV4
+				? "ip6 saddr \(domain.network.cidrstring) ip6 daddr \(domain.network.cidrstring) counter log prefix \"DOMAIN_ACCEPT_V6: \" accept"
+				: nil
+		}
+	}
+
+	/// Builds the desired rule set for the `domain_trace` chain (IPv4).
+	static func desiredDomainTraceIPv4Rules(_ domains: [WireguardDatabase.DomainInfo]) -> [String] {
+		domains.compactMap { domain in
+			domain.network.isV4
+				? "ip saddr \(domain.network.cidrstring) ip daddr \(domain.network.cidrstring) meta nftrace set 1 counter comment \"trace same-domain inter-client traffic (IPv4)\""
+				: nil
+		}
+	}
+
+	/// Builds the desired rule set for the `domain_trace` chain (IPv6).
+	static func desiredDomainTraceIPv6Rules(_ domains: [WireguardDatabase.DomainInfo]) -> [String] {
+		domains.compactMap { domain in
+			!domain.network.isV4
+				? "ip6 saddr \(domain.network.cidrstring) ip6 daddr \(domain.network.cidrstring) meta nftrace set 1 counter comment \"trace same-domain inter-client traffic (IPv6)\""
+				: nil
+		}
 	}
 
 	/// A function to reload the firewall (specifically for the whitelist section).
 	/// The function should be called whenever a new whitelist change is added to the firewall database.
+	/// Incrementally reconciles the `whitelist` chain: unchanged rules are left
+	/// untouched, newly added rules are appended, and only removals trigger a
+	/// scoped re-render of the chain.
 	static func reloadWhitelist(firewallDB: FirewallDatabase) throws {
+		var log = Logger(label: "firewall-whitelist")
 		let ipv4Rules = try firewallDB.getIPv4Rules()
-		let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Rules.map { ($0.key.cidrstring, $0.value.map { String($0) }) })
 		let ipv6Rules = try firewallDB.getIPv6Rules()
-		let ipv6Whitelist = Dictionary(uniqueKeysWithValues: ipv6Rules.map { ($0.key.cidrstring, $0.value.map { String($0) }) })
-		let whitelistCommands = FirewallExecutor.createWhitelist(ipv4Rules:ipv4Whitelist, ipv6Rules:ipv6Whitelist)
-		let nftableExecutor = try NFTables()
-		try nftableExecutor.run(commands: whitelistCommands)
+
+		let nft = try NFTables()
+		try FirewallSync.sync(
+			family: "ip", table: table, chain: whitelistChain,
+			desired: desiredWhitelistIPv4Rules(ipv4Rules), force: false,
+			runner: nft, store: firewallDB, logger: log
+		)
+		try FirewallSync.sync(
+			family: "ip6", table: table6, chain: whitelistChain,
+			desired: desiredWhitelistIPv6Rules(ipv6Rules), force: false,
+			runner: nft, store: firewallDB, logger: log
+		)
 	}
 
-	// A function to reload the firewall (specifically for the domain isolation section).
+	// A function to reload the firewall (specifically for the domain isolation and trace sections).
 	// The function should be called whenever a domain is created, a domain is destroyed, or a new server network is created.
-	static func reloadDomainIsolation(wgdb: WireguardDatabase) throws {
-		let domainIsolationCommands = FirewallExecutor.createDomainFirewall(domains: try wgdb.allDomains())
-		let nftableExecutor = try NFTables()
-		try nftableExecutor.run(commands: domainIsolationCommands)
+	// Incrementally reconciles the `domain_isolation` and `domain_trace` chains.
+	static func reloadDomainIsolation(wgdb: WireguardDatabase, firewallDB: FirewallDatabase) throws {
+		var log = Logger(label: "firewall-domain-isolation")
+		let domains = try wgdb.allDomains()
+
+		let nft = try NFTables()
+		try FirewallSync.sync(
+			family: "ip", table: table, chain: domainIsolationChain,
+			desired: desiredDomainIsolationIPv4Rules(domains), force: false,
+			runner: nft, store: firewallDB, logger: log
+		)
+		try FirewallSync.sync(
+			family: "ip6", table: table6, chain: domainIsolationChain,
+			desired: desiredDomainIsolationIPv6Rules(domains), force: false,
+			runner: nft, store: firewallDB, logger: log
+		)
+		try FirewallSync.sync(
+			family: "ip", table: table, chain: domainTraceChain,
+			desired: desiredDomainTraceIPv4Rules(domains), force: false,
+			runner: nft, store: firewallDB, logger: log
+		)
+		try FirewallSync.sync(
+			family: "ip6", table: table6, chain: domainTraceChain,
+			desired: desiredDomainTraceIPv6Rules(domains), force: false,
+			runner: nft, store: firewallDB, logger: log
+		)
 	}
 }

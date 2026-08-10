@@ -72,18 +72,25 @@ final class FirewallService: Service {
 			.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
 			.filter { !$0.isEmpty }
 
-		// Managed rules: base filter tables + chains, per-domain whitelist, and
-		// same-domain isolation/trace.
-		let domainIsolationCommands = FirewallExecutor.createDomainFirewall(domains: try self.wgdb.allDomains())
-		let ipv4Rules = try self.firewallDB.getIPv4Rules()
-		let ipv4Whitelist = Dictionary(uniqueKeysWithValues: ipv4Rules.map { ($0.key.cidrstring, $0.value.map { String($0) }) })
-		let ipv6Rules = try self.firewallDB.getIPv6Rules()
-		let ipv6Whitelist = Dictionary(uniqueKeysWithValues: ipv6Rules.map { ($0.key.cidrstring, $0.value.map { String($0) }) })
-		let whitelistCommands = FirewallExecutor.createWhitelist(ipv4Rules: ipv4Whitelist, ipv6Rules: ipv6Whitelist)
+		// Managed rules: base filter tables + chains (created by createIPFilters),
+		// then incrementally reconcile the whitelist, isolation, and trace chains.
+		// force=true so boot fully re-renders each chain and refreshes the mirror,
+		// guaranteeing a clean slate regardless of prior state.
 		let ipFilters = FirewallExecutor.createIPFilters()
+		let domains = try self.wgdb.allDomains()
+		let ipv4Rules = try self.firewallDB.getIPv4Rules()
+		let ipv6Rules = try self.firewallDB.getIPv6Rules()
 
-		let nftableExecutor = try NFTables()
-		try nftableExecutor.run(commands: bootFirewallCommands + ipFilters + whitelistCommands + domainIsolationCommands)
+		let nft = try NFTables()
+		try nft.run(commands: bootFirewallCommands + ipFilters)
+
+		let db = self.firewallDB
+		try FirewallSync.sync(family: "ip", table: FirewallExecutor.table, chain: FirewallExecutor.whitelistChain, desired: FirewallExecutor.desiredWhitelistIPv4Rules(ipv4Rules), force: true, runner: nft, store: db, logger: self.logger)
+		try FirewallSync.sync(family: "ip6", table: FirewallExecutor.table6, chain: FirewallExecutor.whitelistChain, desired: FirewallExecutor.desiredWhitelistIPv6Rules(ipv6Rules), force: true, runner: nft, store: db, logger: self.logger)
+		try FirewallSync.sync(family: "ip", table: FirewallExecutor.table, chain: FirewallExecutor.domainIsolationChain, desired: FirewallExecutor.desiredDomainIsolationIPv4Rules(domains), force: true, runner: nft, store: db, logger: self.logger)
+		try FirewallSync.sync(family: "ip6", table: FirewallExecutor.table6, chain: FirewallExecutor.domainIsolationChain, desired: FirewallExecutor.desiredDomainIsolationIPv6Rules(domains), force: true, runner: nft, store: db, logger: self.logger)
+		try FirewallSync.sync(family: "ip", table: FirewallExecutor.table, chain: FirewallExecutor.domainTraceChain, desired: FirewallExecutor.desiredDomainTraceIPv4Rules(domains), force: true, runner: nft, store: db, logger: self.logger)
+		try FirewallSync.sync(family: "ip6", table: FirewallExecutor.table6, chain: FirewallExecutor.domainTraceChain, desired: FirewallExecutor.desiredDomainTraceIPv6Rules(domains), force: true, runner: nft, store: db, logger: self.logger)
 		self.logger.info("firewall ruleset rendered")
 	}
 

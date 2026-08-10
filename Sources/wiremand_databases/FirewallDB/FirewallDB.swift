@@ -12,11 +12,17 @@ public struct FirewallDatabase: Sendable {
     enum Databases: String {
         case networkV4_firewallRule = "networkV4_firewallRule"
         case networkV6_firewallRule = "networkV6_firewallRule"
+        // A per-chain mirror of the last successfully applied rule set. Used by
+        // the incremental firewall sync to skip unchanged chains and to compute
+        // add/remove deltas without re-rendering a whole chain every time.
+        case chainRuleMirror = "chainRuleMirror"
     }
 
     let env: Environment
     let networkV4_firewallRule: Database.DupSort<NetworkV4, EncodedString>
     let networkV6_firewallRule: Database.DupSort<NetworkV6, EncodedString>
+    // key = chain id (family/table/chain), dup = a rule string that is live in the kernel
+    let chainRuleMirror: Database.DupSort<EncodedString, EncodedString>
     let log: Logger
 
     public init(base: Path, logLevel: Logger.Level) throws {
@@ -27,12 +33,13 @@ public struct FirewallDatabase: Sendable {
 
         let envPath = base.appendingPathComponent("firewall_db")
         let fileSize = envPath.getFileSize() + (16 * 1024 * 1024 * 1024) // current + 16GB
-        env = try Environment(path: envPath.path(), flags: [.noSubDir], mapSize: Int(fileSize), maxReaders: 32, maxDBs: 2, mode: [.ownerReadWriteExecute, .groupReadExecute, .otherReadExecute])
+        env = try Environment(path: envPath.path(), flags: [.noSubDir], mapSize: Int(fileSize), maxReaders: 32, maxDBs: 8, mode: [.ownerReadWriteExecute, .groupReadExecute, .otherReadExecute])
 
         let someTrans = try Transaction(env: env, readOnly: false)
 
         networkV4_firewallRule = try Database.DupSort<NetworkV4, EncodedString>(env: env, name: Databases.networkV4_firewallRule.rawValue, flags: [.create], tx: someTrans)
         networkV6_firewallRule = try Database.DupSort<NetworkV6, EncodedString>(env: env, name: Databases.networkV6_firewallRule.rawValue, flags: [.create], tx: someTrans)
+        chainRuleMirror = try Database.DupSort<EncodedString, EncodedString>(env: env, name: Databases.chainRuleMirror.rawValue, flags: [.create], tx: someTrans)
 
         log.trace("successfully created databases")
         try someTrans.commit()
@@ -42,6 +49,32 @@ public struct FirewallDatabase: Sendable {
     static public func deleteDB(base: Path) {
 		let envPath = base.appendingPathComponent("firewall_db")
 		try? FileManager.default.removeItem(at:URL(filePath: envPath.path()))
+	}
+
+	/// Returns the last successfully applied rule set for a chain, as a set of
+	/// rule strings. Empty when the chain has never been synced.
+	/// - Parameter chainID: The chain identifier (family/table/chain).
+	public func getChainRuleMirror(_ chainID: String) throws -> Set<String> {
+		let newTrans = try Transaction(env: env, readOnly: true)
+		var result = Set<String>()
+		try chainRuleMirror.cursor(tx: newTrans) { cursor in
+			for (_, rule) in cursor.makeDupIterator(key: EncodedString(chainID)) {
+				result.update(with: String(rule))
+			}
+		}
+		return result
+	}
+
+	/// Replaces the stored mirror for a chain with the given rule set.
+	/// - Parameter chainID: The chain identifier (family/table/chain).
+	/// - Parameter rules: The rule set currently live in the kernel.
+	public func setChainRuleMirror(_ chainID: String, rules: Set<String>) throws {
+		let newTrans = try Transaction(env: env, readOnly: false)
+		try chainRuleMirror.deleteEntry(key: EncodedString(chainID), tx: newTrans)
+		for rule in rules {
+			try chainRuleMirror.setEntry(key: EncodedString(chainID), value: EncodedString(rule), flags: [], tx: newTrans)
+		}
+		try newTrans.commit()
 	}
 
 	/// Adds a domain rule for IPv4 on the NFTable Firewall.
