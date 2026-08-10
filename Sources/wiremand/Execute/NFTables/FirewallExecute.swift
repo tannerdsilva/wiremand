@@ -9,6 +9,7 @@ struct FirewallExecutor {
 
 	static let whitelistChain = "whitelist"
 	static let domainIsolationChain = "domain_isolation"
+	static let domainTraceChain = "domain_trace"
 
 	/// Creates the NFTable commands for creating the firewall's filter tables.
 	/// These tables need to be created before running any other NFTable commands
@@ -22,10 +23,15 @@ struct FirewallExecutor {
 
 		commands.append("add chain ip \(table) \(whitelistChain)")
 		commands.append("add chain ip \(table) \(domainIsolationChain)")
+		commands.append("add chain ip \(table) \(domainTraceChain)")
 
 		commands.append("add chain ip \(table) forward { type filter hook forward priority filter; policy drop; }")
 		commands.append("add rule ip \(table) forward iif \"lo\" counter accept")
 		commands.append("add rule ip \(table) forward ct state established,related counter accept")
+		// Jump the same-domain trace chain before the whitelist/isolation chains so that
+		// inter-client traffic within a domain has its nftrace flag set at the top of the
+		// forward path. This makes the full rule walk visible via `nft monitor trace`.
+		commands.append("add rule ip \(table) forward jump \(domainTraceChain)")
 		commands.append("add rule ip \(table) forward jump \(whitelistChain)")
 		commands.append("add rule ip \(table) forward jump \(domainIsolationChain)")
 
@@ -35,10 +41,14 @@ struct FirewallExecutor {
 
 		commands.append("add chain ip6 \(table6) \(whitelistChain)")
 		commands.append("add chain ip6 \(table6) \(domainIsolationChain)")
+		commands.append("add chain ip6 \(table6) \(domainTraceChain)")
 
 		commands.append("add chain ip6 \(table6) forward { type filter hook forward priority filter; policy drop; }")
 		commands.append("add rule ip6 \(table6) forward iif \"lo\" counter accept")
 		commands.append("add rule ip6 \(table6) forward ct state established,related counter accept")
+		// See the IPv4 comment above: same-domain traffic is traced before the
+		// whitelist/isolation chains are evaluated.
+		commands.append("add rule ip6 \(table6) forward jump \(domainTraceChain)")
 		commands.append("add rule ip6 \(table6) forward jump \(whitelistChain)")
 		commands.append("add rule ip6 \(table6) forward jump \(domainIsolationChain)")
 
@@ -52,6 +62,15 @@ struct FirewallExecutor {
 	static func createDomainFirewall(domains: [WireguardDatabase.DomainInfo]) -> [String] {
 		var commands: [String] = []
 
+		// Set up the same-domain trace chain for both families. It is flushed and rebuilt
+		// on every reload (like the isolation chain) so it always reflects the live domain
+		// list and never accumulates stale rules for removed domains.
+		commands.append("add chain ip6 \(table6) \(domainTraceChain)")
+		commands.append("flush chain ip6 \(table6) \(domainTraceChain)")
+
+		commands.append("add chain ip \(table) \(domainTraceChain)")
+		commands.append("flush chain ip \(table) \(domainTraceChain)")
+
 		commands.append("add chain ip6 \(table6) \(domainIsolationChain)")
 		commands.append("flush chain ip6 \(table6) \(domainIsolationChain)")
 
@@ -61,8 +80,10 @@ struct FirewallExecutor {
 		for domain in domains {
 			if (domain.network.isV4) {
 				commands.append("add rule ip \(table) \(domainIsolationChain) ip saddr \(domain.network.cidrstring) ip daddr \(domain.network.cidrstring) counter log prefix \"DOMAIN_ACCEPT_V4: \" accept")
+				commands.append("add rule ip \(table) \(domainTraceChain) ip saddr \(domain.network.cidrstring) ip daddr \(domain.network.cidrstring) meta nftrace set 1 counter comment \"trace same-domain inter-client traffic (IPv4)\"")
 			} else {
 				commands.append("add rule ip6 \(table6) \(domainIsolationChain) ip6 saddr \(domain.network.cidrstring) ip6 daddr \(domain.network.cidrstring) counter log prefix \"DOMAIN_ACCEPT_V6: \" accept")
+				commands.append("add rule ip6 \(table6) \(domainTraceChain) ip6 saddr \(domain.network.cidrstring) ip6 daddr \(domain.network.cidrstring) meta nftrace set 1 counter comment \"trace same-domain inter-client traffic (IPv6)\"")
 			}
 		}
 		
