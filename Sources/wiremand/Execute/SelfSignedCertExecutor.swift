@@ -22,7 +22,7 @@ struct SelfSignedCertExecutor {
 		// Generate a self-signed certificate valid for 10 years
 		// -x509: self-signed, -nodes: no passphrase, -days 3650: 10 years
 		let certCmd = try await Command(sh:
-			"sudo openssl req -x509 -nodes -days 3650 -newkey rsa:2048 " +
+			"openssl req -x509 -nodes -days 3650 -newkey rsa:2048 " +
 			"-keyout '\(privkeyPath)' -out '\(fullchainPath)' " +
 			"-subj \"/CN=\(interfaceName)\" -addext \"subjectAltName=DNS:\(interfaceName)\"",
 			environment: CurrentEnvironment.environmentVariables()
@@ -34,7 +34,7 @@ struct SelfSignedCertExecutor {
 			throw Error.unableToGenerateCert
 		}
 		
-		let _ = try await Command(sh: "sudo chmod 644 '\(fullchainPath)' '\(privkeyPath)'", environment: CurrentEnvironment.environmentVariables()).runSync()
+		let _ = try await Command(sh: "chmod 644 '\(fullchainPath)' '\(privkeyPath)'", environment: CurrentEnvironment.environmentVariables()).runSync()
 		
 		log.info("self-signed certificate generated")
 	}

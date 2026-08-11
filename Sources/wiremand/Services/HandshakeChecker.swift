@@ -47,7 +47,7 @@ final class HandshakeChecker: Service {
 			try await scheduler.runSchedule(name: taskName, interval: .seconds(10)) {
 				do {
 					// run the shell command to check for the handshakes associated with the various public keys
-					let checkHandshakes = try await Command(sh: "sudo wg show \(String(self.interfaceName)) latest-handshakes", environment: CurrentEnvironment.environmentVariables()).runSync()
+					let checkHandshakes = try await Command(sh: "wg show \(String(self.interfaceName)) latest-handshakes", environment: CurrentEnvironment.environmentVariables()).runSync()
 					guard checkHandshakes.succeeded == true else {
 						throw Error.handshakeCheckError
 					}
@@ -82,7 +82,7 @@ final class HandshakeChecker: Service {
 					
 					// run the shell command to check for the endpoints of each client
 					var endpoints = [PublicKey:bedrock_ip.Address]()
-					let checkEndpoints = try await Command(sh: "sudo wg show \(String(self.interfaceName)) endpoints", environment: CurrentEnvironment.environmentVariables()).runSync()
+					let checkEndpoints = try await Command(sh: "wg show \(String(self.interfaceName)) endpoints", environment: CurrentEnvironment.environmentVariables()).runSync()
 					guard checkEndpoints.succeeded == true else {
 						self.logger.error("was not able to check wireguard client endpoints")
 						throw Error.endpointCheckError

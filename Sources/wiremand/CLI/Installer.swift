@@ -389,14 +389,13 @@ extension CLI {
 			
 			appLogger.info("installing sudoers modifications for `\(installUserName)` user...")
 			
-			// add the sudoers modifications for this user (created via temp+rename,
-			// then validated with visudo before it can take effect)
-			var sudoAddition = "\(installUserName) ALL = NOPASSWD: \(whichWg)\n"
-			sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichWgQuick)\n"
-			sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichCertbot)\n"
-			sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichSystemcCTL) reload *\n"
-			sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichNft)\n"
-			sudoAddition += "%wiremand ALL=(wiremand:wiremand) NOPASSWD: /opt/wiremand\n"
+			// CLI access is gated by membership in the `wiremand` group: only a
+			// group member may invoke the CLI as the wiremand user. This is the
+			// single privileged entry point. The daemon itself does not use sudo
+			// (it runs as wiremand with ambient CAP_NET_ADMIN from the unit); it
+			// needs no per-command allowlist. Written via temp+rename, then
+			// validated with visudo before it can take effect.
+			var sudoAddition = "%wiremand ALL=(wiremand:wiremand) NOPASSWD: /opt/wiremand\n"
 			try writeConfigAtomically(sudoAddition, to:"/etc/sudoers.d/\(installUserName)", permissions: [.ownerRead, .groupRead])
 			
 			// Validate the sudoers fragment before trusting it; a malformed sudoers
@@ -414,13 +413,19 @@ extension CLI {
 			// install the executable in the system
 			let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
 			let exeData = try Data(contentsOf:exePath)
-			let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
+			let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute])
 			try exeFD.writeAll(exeData)
 			try exeFD.close()
-			appLogger.info("applying effective CAP_KILL capabilities to executable.")
-			let setCapResult = try await runShell("setcap CAP_KILL+ep '/opt/wiremand'")
-			guard setCapResult.succeeded else {
-				appLogger.critical("unable to set effective CAP_KILL capabilities to executable")
+			// The binary is owned by root:wiremand and executable only by owner +
+			// the wiremand group, so CLI access requires group membership. It
+			// carries a CAP_NET_ADMIN file capability: executing it grants netadmin
+			// (the CLI's wg/ip/wg-quick calls run as the invoking wiremand-group
+			// member without sudo). Under the systemd unit this file capability is
+			// inert because NoNewPrivileges=yes drops file caps; the daemon relies
+			// on the unit's ambient CAP_NET_ADMIN instead.
+			appLogger.info("restricting executable to the `wiremand` group and granting CAP_NET_ADMIN.")
+			guard try await runShell("chown root:wiremand /opt/wiremand && chmod 0750 /opt/wiremand && setcap cap_net_admin=ep '/opt/wiremand'").succeeded else {
+				appLogger.critical("unable to set ownership/capabilities on /opt/wiremand")
 				throw Error.capApplyError
 			}
 			
@@ -433,6 +438,13 @@ extension CLI {
 			appLogger.info("installing systemd service for wiremand...")
 			
 			// install the systemd service for the daemon (atomically)
+			// The daemon runs as the dedicated non-root `wiremand` user and is
+			// granted only the ambient capabilities it needs to manage the
+			// WireGuard interface, routes, and nftables (all netlink-based, so
+			// CAP_NET_ADMIN suffices). No sudo is required: every privileged
+			// helper (`wg`, `ip`, `wg-quick`, in-process nft) works off the
+			// ambient capability. NoNewPrivileges hardens against setuid/setcap
+			// escalation, which is compatible with ambient (not file) caps.
 			var systemdConfig = "[Unit]\n"
 			systemdConfig += "Description=wireguard management daemon\n"
 			systemdConfig += "After=network-online.target wg-quick@\(interfaceName).service\n"
@@ -442,6 +454,10 @@ extension CLI {
 			systemdConfig += "User=\(installUserName)\n"
 			systemdConfig += "Group=\(installUserName)\n"
 			systemdConfig += "Type=exec\n"
+			systemdConfig += "AmbientCapabilities=CAP_NET_ADMIN\n"
+			systemdConfig += "CapabilityBoundingSet=CAP_NET_ADMIN\n"
+			systemdConfig += "NoNewPrivileges=yes\n"
+			systemdConfig += "PrivateTmp=yes\n"
 			systemdConfig += "ExecStart=/opt/wiremand run\n"
 			systemdConfig += "Restart=always\n\n"
 			systemdConfig += "[Install]\n"
@@ -486,7 +502,7 @@ extension CLI {
 			let _ = try IPDatabase(base: Path(homeDir.path), logLevel: logLevel, apiKey: ipStackKey)
 			appLogger.trace("ip database created...")
 			
-			let ownIt = try await runShell("chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/")
+			let ownIt = try await runShell("chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/ && chown \(installUserName):\(installUserName) /etc/wireguard/\(interfaceName).conf && chmod 775 /etc/wireguard")
 			guard ownIt.succeeded else {
 				appLogger.critical("unable to change ownership of /var/lib/\(installUserName)/ directory")
 				throw Error.chownError
@@ -566,18 +582,22 @@ extension CLI {
 				throw Error.unableToStopService
 			}
 			appLogger.info("installing executable into /opt")
-			// install the executable in the system
+			// install the executable in the system (root-run; no sudo needed)
 			let exeData = try Data(contentsOf:exePath)
-			let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute])
+			let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute])
 			try exeFD.writeAll(exeData)
 			try exeFD.close()
 			
-			let setCapResult = try await Command("sudo setcap CAP_KILL+ep '/opt/wiremand'").runSync()
+			// Re-apply the group-gated CLI posture: root:wiremand, 0750, and the
+			// CAP_NET_ADMIN file capability. The daemon ignores this file cap
+			// (NoNewPrivileges in its unit); the CLI (invoked by a wiremand-group
+			// member) uses it to run wg/ip/wg-quick without sudo.
+			let setCapResult = try await Command("chown root:wiremand /opt/wiremand && chmod 0750 /opt/wiremand && setcap cap_net_admin=ep '/opt/wiremand'").runSync()
 			guard setCapResult.succeeded == true else {
-				appLogger.critical("unable to set effective CAP_KILL capabilities to executable")
+				appLogger.critical("unable to set ownership/capabilities on /opt/wiremand")
 				throw Error.capApplyError
 			}
-			appLogger.info("applying effective CAP_KILL capabilities to executable.")
+			appLogger.info("applied wiremand-group ownership and CAP_NET_ADMIN to executable.")
 			
 			if (noRestart == false) {
 				appLogger.info("starting wiremand service")
