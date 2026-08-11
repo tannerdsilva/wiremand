@@ -17,7 +17,7 @@ let package = Package(
 		// .package(url:"https://github.com/tannerdsilva/QuickLMDB.git", "14.0.0"..<"15.0.0"),
 		.package(url:"https://github.com/tannerdsilva/QuickLMDB.git", branch:"master"),
 		// .package(url:"https://github.com/tannerdsilva/bedrock.git", "7.0.1"..<"8.0.0"),
-		.package(path:"../bedrock"),
+		.package(url:"https://github.com/tannerdsilva/bedrock.git", branch:"compare_amend"),
 		.package(url:"https://github.com/hummingbird-project/hummingbird.git", "2.9.0"..<"3.0.0"),
 		.package(url:"https://github.com/tannerdsilva/rawdog.git", "20.0.0"..<"21.0.0"),
 		.package(url:"https://github.com/swift-server/async-http-client.git", "1.26.1"..<"2.0.0"),
