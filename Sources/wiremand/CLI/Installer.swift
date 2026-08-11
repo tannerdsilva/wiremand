@@ -91,10 +91,10 @@ extension CLI {
 		
 		/// A small convenience for capturing a subprocess exit + stdout, replacing
 		/// the many ad-hoc `runSync()` calls with a single call site.
-		private func run(_ command:String, arguments:[String] = []) async throws -> (succeeded:Bool, stdout:String, exitCode:Int) {
+		private func run(_ command:String, arguments:[String] = []) async throws -> (succeeded:Bool, stdout:String, exitCode:Int32) {
 			let result = try await Command(command, arguments: arguments).runSync()
 			let out = result.stdout.compactMap { String(data:Data($0), encoding:.utf8) }.joined(separator:"\n")
-			let code:Int
+			let code:Int32
 			switch result.exit {
 				case .code(let c): code = c
 				default: code = -1
@@ -103,10 +103,10 @@ extension CLI {
 		}
 		
 		/// Same as `run` but shells out through a shell so redirection/`&&` work.
-		private func runShell(_ shellCommand:String) async throws -> (succeeded:Bool, stdout:String, exitCode:Int) {
+		private func runShell(_ shellCommand:String) async throws -> (succeeded:Bool, stdout:String, exitCode:Int32) {
 			let result = try await Command(sh: shellCommand, environment: CurrentEnvironment.environmentVariables()).runSync()
 			let out = result.stdout.compactMap { String(data:Data($0), encoding:.utf8) }.joined(separator:"\n")
-			let code:Int
+			let code:Int32
 			switch result.exit {
 				case .code(let c): code = c
 				default: code = -1
