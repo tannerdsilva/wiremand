@@ -285,19 +285,13 @@ extension CLI {
 			
 			// Resolve the full tool set AFTER package installation: some (nft,
 			// certbot, setcap) are provided by the packages we just installed.
-			var toolPaths:[String:String] = [:]
+			// This validates that every required tool is present.
 			for tool in requiredTools {
-				guard let path = try await which(tool) else {
+				guard try await which(tool) != nil else {
 					appLogger.critical("required tool `\(tool)` was not found after package installation.")
 					throw Error.unableToResolveTool(tool)
 				}
-				toolPaths[tool] = path
 			}
-			let whichWg = toolPaths["wg"]!
-			let whichWgQuick = toolPaths["wg-quick"]!
-			let whichSystemcCTL = toolPaths["systemctl"]!
-			let whichCertbot = toolPaths["certbot"]!
-			let whichNft = toolPaths["nft"]!
 			
 			appLogger.info("disabling systemd service 'dnsmasq'")
 			
@@ -395,7 +389,7 @@ extension CLI {
 			// (it runs as wiremand with ambient CAP_NET_ADMIN from the unit); it
 			// needs no per-command allowlist. Written via temp+rename, then
 			// validated with visudo before it can take effect.
-			var sudoAddition = "%wiremand ALL=(wiremand:wiremand) NOPASSWD: /opt/wiremand\n"
+			let sudoAddition = "%wiremand ALL=(wiremand:wiremand) NOPASSWD: /opt/wiremand\n"
 			try writeConfigAtomically(sudoAddition, to:"/etc/sudoers.d/\(installUserName)", permissions: [.ownerRead, .groupRead])
 			
 			// Validate the sudoers fragment before trusting it; a malformed sudoers
