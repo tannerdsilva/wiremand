@@ -18,6 +18,9 @@ extension CLI {
 	struct Installer:AsyncParsableCommand {
 		enum Error:Swift.Error {
 			case mustBeRoot
+			case unsupportedDistribution
+			case missingPrerequisite(String)
+			case packageManagerUnavailable(String)
 			case ipv4HostnameUnresolved
 			case ipv6HostnameUnresolved
 			case unableToInstallDependencies
@@ -35,6 +38,11 @@ extension CLI {
 			case unableToGenerateBashCompletions
 			case ipv4DefaultRouteUnknown
 			case unableToGenerateDirectory
+			case noPublicIPv4
+			case unableToResolveTool(String)
+			case unableToWriteConfig(String)
+			case invalidNetwork(String)
+			case invalidSudoers
 		}
 		public static let configuration = CommandConfiguration(
 			commandName:"install",
@@ -52,7 +60,106 @@ extension CLI {
 		
 		@Option
 		var publicHTTPPort:UInt16 = 8080
-				
+		
+		/// Returns a trimmed list of the tool names wiremand needs present after
+		/// package installation (and, where applicable, managed via sudo).
+		private var requiredTools: [String] {
+			["wg", "wg-quick", "systemctl", "certbot", "openssl", "nft", "ip", "visudo", "setcap", "mkdir"]
+		}
+		
+		/// A small convenience for capturing a subprocess exit + stdout, replacing
+		/// the many ad-hoc `runSync()` calls with a single call site.
+		private func run(_ command:String, arguments:[String] = []) async throws -> (succeeded:Bool, stdout:String, exitCode:Int) {
+			let result = try await Command(command, arguments: arguments).runSync()
+			let out = result.stdout.compactMap { String(data:Data($0), encoding:.utf8) }.joined(separator:"\n")
+			let code:Int
+			switch result.exit {
+				case .code(let c): code = c
+				default: code = -1
+			}
+			return (result.succeeded == true, out, code)
+		}
+		
+		/// Same as `run` but shells out through a shell so redirection/`&&` work.
+		private func runShell(_ shellCommand:String) async throws -> (succeeded:Bool, stdout:String, exitCode:Int) {
+			let result = try await Command(sh: shellCommand, environment: CurrentEnvironment.environmentVariables()).runSync()
+			let out = result.stdout.compactMap { String(data:Data($0), encoding:.utf8) }.joined(separator:"\n")
+			let code:Int
+			switch result.exit {
+				case .code(let c): code = c
+				default: code = -1
+			}
+			return (result.succeeded == true, out, code)
+		}
+		
+		/// Resolves a tool's absolute path via `which`. Returns nil (no throw) when
+		/// the tool is not found so callers can produce a precise error.
+		private func which(_ tool:String) async throws -> String? {
+			let result = try await run("which", arguments: [tool])
+			guard result.succeeded else { return nil }
+			let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+			return trimmed.isEmpty ? nil : trimmed
+		}
+		
+		/// Detects the Linux distribution from `/etc/os-release` and returns a
+		/// package-manager enum used to choose the install command.
+		private enum Distribution {
+			case debianLike(pkgManager:String)
+			case redhatLike(pkgManager:String)
+			case archLike(pkgManager:String)
+			case suseLike(pkgManager:String)
+			case unknown
+		}
+		
+		private func detectDistribution() async throws -> Distribution {
+			let result = try await run("cat", arguments: ["/etc/os-release"])
+			guard result.succeeded else { return .unknown }
+			let content = result.stdout.lowercased()
+			if content.contains("debian") || content.contains("ubuntu") { return .debianLike(pkgManager:"apt-get") }
+			if content.contains("fedora") || content.contains("rhel") || content.contains("centos") { return .redhatLike(pkgManager:"dnf") }
+			if content.contains("arch") || content.contains("manjaro") { return .archLike(pkgManager:"pacman") }
+			if content.contains("suse") || content.contains("opensuse") { return .suseLike(pkgManager:"zypper") }
+			return .unknown
+		}
+		
+		/// Builds the package-install command for the detected distribution,
+		/// always including nftables (the firewall depends on it).
+		private func installCommand(for distro:Distribution) -> String {
+			let packages: [String]
+			switch distro {
+				case .debianLike:
+					packages = ["wireguard", "resolvconf", "dnsmasq", "stubby", "certbot", "nftables", "libnftables-dev"]
+					return "apt-get update && apt-get install -y \(packages.joined(separator:" "))"
+				case .redhatLike(let pm):
+					packages = ["wireguard-tools", "dnsmasq", "stubby", "certbot", "nftables"]
+					return "\(pm) install -y \(packages.joined(separator:" "))"
+				case .archLike(let pm):
+					packages = ["wireguard-tools", "dnsmasq", "stubby", "certbot", "nftables"]
+					return "\(pm) -S --noconfirm \(packages.joined(separator:" "))"
+				case .suseLike(let pm):
+					packages = ["wireguard-tools", "dnsmasq", "stubby", "certbot", "nftables"]
+					return "\(pm) install -y \(packages.joined(separator:" "))"
+				case .unknown:
+					return "apt-get update && apt-get install -y wireguard resolvconf dnsmasq stubby certbot nftables libnftables-dev"
+			}
+		}
+		
+		/// Atomically writes `content` to `path` (temp file + rename) so a crash
+		/// mid-write can never leave a partially-written config on disk.
+		private func writeConfigAtomically(_ content:String, to path:String, permissions:FilePermissions) throws {
+			// Unique temp name: avoid getpid() (not available on all platforms);
+			// a UUID suffix is enough to avoid collisions between concurrent installs.
+			let tempPath = path + ".tmp-\(UUID().uuidString)"
+			let fd = try FileDescriptor.open(tempPath, .writeOnly, options:[.create, .truncate], permissions: permissions)
+			defer { try? fd.close() }
+			try fd.writeAll(Data(content.utf8))
+			try fd.close()
+			// rename() is atomic on POSIX: the old file is replaced in one step.
+			guard rename(tempPath, path) == 0 else {
+				throw Error.unableToWriteConfig(path)
+			}
+		}
+		
 		mutating func run() async throws {
 			let installUserName = "wiremand"
 			var appLogger = Logger(label:"wiremand")
@@ -61,34 +168,52 @@ extension CLI {
 				appLogger.critical("You need to be root to install wiremand.")
 				throw Error.mustBeRoot
 			}
-
+			
+			// --- Prerequisite checks before mutating anything ---
+			let distro = try await detectDistribution()
+			if case .unknown = distro {
+				appLogger.warning("could not detect the Linux distribution; defaulting to apt-get")
+			} else {
+				appLogger.info("detected distribution: \(String(describing:distro))")
+			}
+			
+			// Tools that must already exist before package installation can even
+			// begin (they are not provided by the packages we install).
+			let preInstallTools = ["systemctl", "openssl", "ip", "visudo", "mkdir", "which"]
+			var preInstallPaths:[String:String] = [:]
+			for tool in preInstallTools {
+				guard let path = try await which(tool) else {
+					appLogger.critical("required tool `\(tool)` was not found on this system.")
+					throw Error.unableToResolveTool(tool)
+				}
+				preInstallPaths[tool] = path
+			}
+			
+			// Public IPv4: derive from the default route. No force-unwrap.
 			let routesV4 = try RTNetlink.getRoutesV4()
-    		let filteredRoutesV4 = routesV4.filter { $0.destination_length == 0 }
-			guard !filteredRoutesV4.isEmpty else {
+			let filteredRoutesV4 = routesV4.filter { $0.destination_length == 0 }
+			guard let defaultRoute = filteredRoutesV4.first else {
 				appLogger.error("there is no default IPv4 route")
 				throw Error.ipv4DefaultRouteUnknown
 			}
-
+			
 			let addressV4 = try RTNetlink.getAddressesV4()
-      		let filteredV4 = addressV4.filter { $0.interfaceName == filteredRoutesV4.first!.outputInterfaceName && $0.scope == 0 } 
-
-			guard let defaultV4Address = filteredV4.first!.address else {
-				appLogger.error("no defaultV4 source address")
-				throw Error.ipv4DefaultRouteUnknown
+			let filteredV4 = addressV4.filter { $0.interfaceName == defaultRoute.outputInterfaceName && $0.scope == 0 }
+			guard let defaultV4Address = filteredV4.first?.address else {
+				appLogger.error("no public IPv4 address found on the default-route interface")
+				throw Error.noPublicIPv4
 			}
-
 			let resExtV4 = AddressV4(defaultV4Address)
-
+			
+			// Public IPv6: optional, fall back to [::].
+			var resExtV6:AddressV6? = nil
 			let addressV6 = try RTNetlink.getAddressesV6()
-      		let filteredV6 = addressV6.filter { $0.interfaceName == filteredRoutesV4.first!.outputInterfaceName && $0.scope == 0 && !$0.flags.isTemporary }
-
-			let resExtV6:AddressV6?
-
-			if filteredV6.isEmpty {
+			let filteredV6 = addressV6.filter { $0.interfaceName == defaultRoute.outputInterfaceName && $0.scope == 0 && !$0.flags.isTemporary }
+			if let firstV6 = filteredV6.first, let v6Address = firstV6.address, let parsedV6 = AddressV6(v6Address) {
+				resExtV6 = parsedV6
+			} else {
 				appLogger.warning("there is no valid default IPv6 route, will bind to [::] instead")
 				resExtV6 = AddressV6("::")
-			} else {
-				resExtV6 = AddressV6(filteredV6.first!.address!)
 			}
 			
 			// ask for the client ip scope
@@ -119,21 +244,37 @@ extension CLI {
 			
 			appLogger.info("installing software...")
 			
-			// install software
-			let installCommand = try await Command(sh: "apt-get update && apt-get install wireguard resolvconf dnsmasq stubby certbot -y", environment: CurrentEnvironment.environmentVariables()).runSync()
-			guard installCommand.succeeded == true else {
-				appLogger.critical("unable to install dnsmasq and wireguard")
+			// install software (distribution-aware)
+			let installCommand = try await runShell(installCommand(for: distro))
+			guard installCommand.succeeded else {
+				appLogger.critical("unable to install required software packages")
 				throw Error.unableToInstallDependencies
 			}
-
+			
+			// Resolve the full tool set AFTER package installation: some (nft,
+			// certbot, setcap) are provided by the packages we just installed.
+			var toolPaths:[String:String] = [:]
+			for tool in requiredTools {
+				guard let path = try await which(tool) else {
+					appLogger.critical("required tool `\(tool)` was not found after package installation.")
+					throw Error.unableToResolveTool(tool)
+				}
+				toolPaths[tool] = path
+			}
+			let whichWg = toolPaths["wg"]!
+			let whichWgQuick = toolPaths["wg-quick"]!
+			let whichSystemcCTL = toolPaths["systemctl"]!
+			let whichCertbot = toolPaths["certbot"]!
+			let whichNft = toolPaths["nft"]!
+			
 			appLogger.info("disabling systemd service 'dnsmasq'")
 			
-			let dnsMasqDisable = try await Command(sh: "systemctl disable dnsmasq && systemctl stop dnsmasq", environment: CurrentEnvironment.environmentVariables()).runSync()
-			guard dnsMasqDisable.succeeded == true else {
+			let dnsMasqDisable = try await runShell("systemctl disable dnsmasq && systemctl stop dnsmasq")
+			guard dnsMasqDisable.succeeded else {
 				appLogger.critical("unable to disable dnsmasq service")
 				throw Error.unableToStopDnsmasq
 			}
-
+			
 			appLogger.info("generating wireguard keys...")
 			
 			// set up the wireguard interface
@@ -141,78 +282,65 @@ extension CLI {
 			
 			appLogger.info("writing wireguard configuration...")
 			
-			let wgConfigFile = try FileDescriptor.open("/etc/wireguard/\(interfaceName).conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite])
-			try wgConfigFile.closeAfter({
-				var buildConfig = "[Interface]\n"
-				buildConfig += "ListenPort = \(wireguardPort)\n"
-				buildConfig += "Address = \(ipScope!.cidrstring)\n"
-				buildConfig += "PrivateKey = \(newKeys.privateKey)\n"
-				try wgConfigFile.writeAll(buildConfig.utf8)
-			})
+			// write the wg config atomically
+			var buildConfig = "[Interface]\n"
+			buildConfig += "ListenPort = \(wireguardPort)\n"
+			buildConfig += "Address = \(ipScope!.cidrstring)\n"
+			buildConfig += "PrivateKey = \(newKeys.privateKey)\n"
+			try writeConfigAtomically(buildConfig, to:"/etc/wireguard/\(interfaceName).conf", permissions:[.ownerReadWrite])
 			
 			appLogger.info("configuring dnsmasq...")
 			
-			// set up the dnsmasq daemon
-			let dnsMasqConfFile = try FileDescriptor.open("/etc/dnsmasq.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
-			try dnsMasqConfFile.closeAfter({
-				var buildConfig = "listen-address=\(ipScope!.addressString)\n"
-				buildConfig += "listen-address=::1\nlisten-address=127.0.0.1\n"
-				buildConfig += "server=::1#5353\n"
-				buildConfig += "server=127.0.0.1#5353\n"
-				buildConfig += "user=\(installUserName)\n"
-				buildConfig += "group=\(installUserName)\n"
-				buildConfig += "no-hosts\n"
-				buildConfig += "addn-hosts=/var/lib/\(installUserName)/hosts-auto\n"
-				buildConfig += "addn-hosts=/var/lib/\(installUserName)/hosts-manual\n"
-				try dnsMasqConfFile.writeAll(buildConfig.utf8)
-			})
+			// set up the dnsmasq daemon atomically
+			var dnsmasqConfig = "listen-address=\(ipScope!.addressString)\n"
+			dnsmasqConfig += "listen-address=::1\nlisten-address=127.0.0.1\n"
+			dnsmasqConfig += "server=::1#5353\n"
+			dnsmasqConfig += "server=127.0.0.1#5353\n"
+			dnsmasqConfig += "user=\(installUserName)\n"
+			dnsmasqConfig += "group=\(installUserName)\n"
+			dnsmasqConfig += "no-hosts\n"
+			dnsmasqConfig += "addn-hosts=/var/lib/\(installUserName)/hosts-auto\n"
+			dnsmasqConfig += "addn-hosts=/var/lib/\(installUserName)/hosts-manual\n"
+			try writeConfigAtomically(dnsmasqConfig, to:"/etc/dnsmasq.conf", permissions:[.ownerReadWrite, .groupRead, .otherRead])
 			
 			appLogger.info("determining tool paths...")
 			
-			// find wireguard and wg-quick
-			let whichCertbot = try await Command("which", arguments: ["certbot"]).runSync().stdout.compactMap { String(data:Data($0), encoding:.utf8) }.first!
-			let whichWg = try await Command("which", arguments: ["wg"]).runSync().stdout.compactMap { String(data:Data($0), encoding:.utf8) }.first!
-			let whichWgQuick = try await Command("which", arguments:["wg-quick"]).runSync().stdout.compactMap { String(data:Data($0), encoding:.utf8) }.first!
-			let whichSystemcCTL = try await Command("which", arguments:["systemctl"]).runSync().stdout.compactMap { String(data:Data($0), encoding:.utf8) }.first!
-
+			// find wireguard and wg-quick (already resolved above)
 			appLogger.info("enabling wg-quick@\(interfaceName).service...")
-
-			guard try await Command(sh: "systemctl enable wg-quick@\(interfaceName).service", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
+			
+			guard try await runShell("systemctl enable wg-quick@\(interfaceName).service").succeeded else {
 				appLogger.critical("unable to enable wg-quick@\(interfaceName).service")
 				throw Error.unableToEnableWireguardInterface
 			}
 			
 			appLogger.info("enabling dnsmasq.service...")
-
-			guard try await Command(sh: "systemctl enable dnsmasq.service", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
+			
+			guard try await runShell("systemctl enable dnsmasq.service").succeeded else {
 				print("unable to enable dnsmasq.service")
 				throw Error.unableToEnableDnsmasq
 			}
-							
+			
 			appLogger.info("reconfiguring systemd-resolved...")
 			let fp:FilePermissions = [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute]
 			mkdir("/etc/systemd/resolved.conf.d", fp.rawValue)
-			let dnsmasqOverride = try FileDescriptor.open("/etc/systemd/resolved.conf.d/disableStub.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
-			try dnsmasqOverride.closeAfter {
-				var buildConfig = "[Resolve]\n"
-				buildConfig += "DNSStubListener=no\n"
-				try dnsmasqOverride.writeAll(buildConfig.utf8)
-			}
-
+			let resolvedConfig = "[Resolve]\nDNSStubListener=no\n"
+			try writeConfigAtomically(resolvedConfig, to:"/etc/systemd/resolved.conf.d/disableStub.conf", permissions:[.ownerReadWrite, .groupRead, .otherRead])
+			
 			appLogger.info("making user `wiremand`...")
 			
 			// make the user if doesn't exist
-			let idUser = try await Command(sh: "id \(installUserName)", environment: CurrentEnvironment.environmentVariables()).runSync()
-			switch idUser.exit {
-				case .code(let exitCode):
-					if exitCode == 1 {
-						let makeUser = try await Command(sh: "useradd -md /var/lib/\(installUserName) \(installUserName)", environment: CurrentEnvironment.environmentVariables()).runSync()
-						guard makeUser.succeeded == true else {
-							appLogger.critical("unable to create `wiremand` user on the system")
-							throw Error.unableToAddUser
-						}
+			let idUser = try await runShell("id \(installUserName)")
+			switch idUser.exitCode {
+				case 1:
+					let makeUser = try await runShell("useradd -md /var/lib/\(installUserName) \(installUserName)")
+					guard makeUser.succeeded else {
+						appLogger.critical("unable to create `wiremand` user on the system")
+						throw Error.unableToAddUser
 					}
+				case 0:
+					appLogger.info("user `\(installUserName)` already exists; reusing it")
 				default:
+					appLogger.critical("could not determine whether user `\(installUserName)` exists (id exit code \(idUser.exitCode))")
 					throw Error.unableToAddUser
 			}
 			
@@ -221,28 +349,33 @@ extension CLI {
 				appLogger.critical("unable to get uid and gid for wiremand")
 				throw Error.unableToGetUsername
 			}
-			appLogger.info("wiremand user & group created", metadata:["uid": "\(getUsername.pointee.pw_uid)", "gid":"\(getUsername.pointee.pw_gid)"])
+			appLogger.info("wiremand user & group present", metadata:["uid": "\(getUsername.pointee.pw_uid)", "gid":"\(getUsername.pointee.pw_gid)"])
 			
 			// enable ipv6 forwarding on this system
-			let sysctlFwdFD = try FileDescriptor.open("/etc/sysctl.d/10-ip-forward.conf", .writeOnly, options:[.create, .truncate], permissions:[.ownerReadWrite, .groupRead, .otherRead])
-			try sysctlFwdFD.closeAfter({
-				let makeLine = "net.ipv6.conf.all.forwarding=1\nnet.ipv4.ip_forward = 1\n"
-				try sysctlFwdFD.writeAll(makeLine.utf8)
-			})
+			let sysctlConfig = "net.ipv6.conf.all.forwarding=1\nnet.ipv4.ip_forward = 1\n"
+			try writeConfigAtomically(sysctlConfig, to:"/etc/sysctl.d/10-ip-forward.conf", permissions:[.ownerReadWrite, .groupRead, .otherRead])
 			
-
-			appLogger.info("installing soduers modifications for `\(installUserName)` user...")
+			appLogger.info("installing sudoers modifications for `\(installUserName)` user...")
 			
-			// add the sudoers modifications for this user
-			let sudoersFD = try FileDescriptor.open("/etc/sudoers.d/\(installUserName)", .writeOnly, options:[.create, .truncate], permissions: [.ownerRead, .groupRead])
-			try sudoersFD.closeAfter({
-				var sudoAddition = "\(installUserName) ALL = NOPASSWD: \(whichWg)\n"
-				sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichWgQuick)\n"
-				sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichCertbot)\n"
-				sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichSystemcCTL) reload *\n"
-				sudoAddition += "%wiremand ALL=(wiremand:wiremand) NOPASSWD: /opt/wiremand\n"
-				try sudoersFD.writeAll(sudoAddition.utf8)
-			})
+			// add the sudoers modifications for this user (created via temp+rename,
+			// then validated with visudo before it can take effect)
+			var sudoAddition = "\(installUserName) ALL = NOPASSWD: \(whichWg)\n"
+			sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichWgQuick)\n"
+			sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichCertbot)\n"
+			sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichSystemcCTL) reload *\n"
+			sudoAddition += "\(installUserName) ALL = NOPASSWD: \(whichNft)\n"
+			sudoAddition += "%wiremand ALL=(wiremand:wiremand) NOPASSWD: /opt/wiremand\n"
+			try writeConfigAtomically(sudoAddition, to:"/etc/sudoers.d/\(installUserName)", permissions: [.ownerRead, .groupRead])
+			
+			// Validate the sudoers fragment before trusting it; a malformed sudoers
+			// file can lock root out of sudo entirely.
+			let visudoCheck = try await runShell("visudo -cf /etc/sudoers.d/\(installUserName)")
+			guard visudoCheck.succeeded else {
+				appLogger.critical("sudoers fragment failed validation; NOT leaving it in place")
+				try? FileManager.default.removeItem(atPath:"/etc/sudoers.d/\(installUserName)")
+				throw Error.invalidSudoers
+			}
+			appLogger.info("sudoers fragment validated")
 			
 			appLogger.info("installing executable into /opt...")
 			
@@ -253,42 +386,39 @@ extension CLI {
 			try exeFD.writeAll(exeData)
 			try exeFD.close()
 			appLogger.info("applying effective CAP_KILL capabilities to executable.")
-			let setCapResult = try await Command(sh: "sudo setcap CAP_KILL+ep '/opt/wiremand'", environment: CurrentEnvironment.environmentVariables()).runSync()
-			guard setCapResult.succeeded == true else {
+			let setCapResult = try await runShell("setcap CAP_KILL+ep '/opt/wiremand'")
+			guard setCapResult.succeeded else {
 				appLogger.critical("unable to set effective CAP_KILL capabilities to executable")
 				throw Error.capApplyError
 			}
 			
 			appLogger.info("copying bash completions to /opt...")
-			guard try await Command(sh: "/opt/wiremand --generate-completion-script bash > /opt/wiremand.bash", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
+			guard try await runShell("/opt/wiremand --generate-completion-script bash > /opt/wiremand.bash").succeeded else {
 				appLogger.critical("unable to generate bash completion scripts")
 				throw Error.unableToGenerateBashCompletions
 			}
 			
 			appLogger.info("installing systemd service for wiremand...")
 			
-			// install the systemd service for the daemon
-			let systemdFD = try FileDescriptor.open("/etc/systemd/system/wiremand.service", .writeOnly, options:[.create, .truncate], permissions:[.ownerRead, .ownerWrite, .groupRead, .otherRead])
-			try systemdFD.closeAfter({
-				var buildConfig = "[Unit]\n"
-				buildConfig += "Description=wireguard management daemon\n"
-				buildConfig += "After=network-online.target wg-quick@\(interfaceName).service\n"
-				buildConfig += "Wants=network-online.target\n"
-				buildConfig += "Requires=wg-quick@\(interfaceName).service\n"
-				buildConfig += "[Service]\n"
-				buildConfig += "User=\(installUserName)\n"
-				buildConfig += "Group=\(installUserName)\n"
-				buildConfig += "Type=exec\n"
-				buildConfig += "ExecStart=/opt/wiremand run\n"
-				buildConfig += "Restart=always\n\n"
-				buildConfig += "[Install]\n"
-				buildConfig += "WantedBy=multi-user.target\n"
-				try systemdFD.writeAll(buildConfig.utf8)
-			})
+			// install the systemd service for the daemon (atomically)
+			var systemdConfig = "[Unit]\n"
+			systemdConfig += "Description=wireguard management daemon\n"
+			systemdConfig += "After=network-online.target wg-quick@\(interfaceName).service\n"
+			systemdConfig += "Wants=network-online.target\n"
+			systemdConfig += "Requires=wg-quick@\(interfaceName).service\n"
+			systemdConfig += "[Service]\n"
+			systemdConfig += "User=\(installUserName)\n"
+			systemdConfig += "Group=\(installUserName)\n"
+			systemdConfig += "Type=exec\n"
+			systemdConfig += "ExecStart=/opt/wiremand run\n"
+			systemdConfig += "Restart=always\n\n"
+			systemdConfig += "[Install]\n"
+			systemdConfig += "WantedBy=multi-user.target\n"
+			try writeConfigAtomically(systemdConfig, to:"/etc/systemd/system/wiremand.service", permissions:[.ownerRead, .ownerWrite, .groupRead, .otherRead])
 			
 			appLogger.info("enabling wiremand.service...")
-
-			guard try await Command(sh: "systemctl enable wiremand.service", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
+			
+			guard try await runShell("systemctl enable wiremand.service").succeeded else {
 				appLogger.critical("unable to enable wiremand.service")
 				throw Error.unableToEnableService
 			}
@@ -303,16 +433,16 @@ extension CLI {
 			}
 			
 			appLogger.info("installing databases...")
-
-			let makeDirectory = try await Command(sh: "mkdir -p /var/lib/\(installUserName)", environment: CurrentEnvironment.environmentVariables()).runSync()
-			guard makeDirectory.succeeded == true else {
+			
+			let makeDirectory = try await runShell("mkdir -p /var/lib/\(installUserName)")
+			guard makeDirectory.succeeded else {
 				appLogger.critical("unable to create the /var/lib/\(installUserName)/ directory")
 				throw Error.unableToGenerateDirectory
 			}
 			let homeDir = URL(fileURLWithPath:"/var/lib/\(installUserName)/")
 			let _ = try Scheduler(base: homeDir, log: appLogger)
 			appLogger.trace("scheduler created...")
-
+			
 			FirewallDatabase.deleteDB(base: Path(homeDir.path))
 			
 			WireguardDatabase.deleteDB(base: Path(homeDir.path))
@@ -324,40 +454,40 @@ extension CLI {
 			let _ = try IPDatabase(base: Path(homeDir.path), logLevel: logLevel, apiKey: ipStackKey)
 			appLogger.trace("ip database created...")
 			
-			let ownIt = try await Command(sh: "chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/", environment: CurrentEnvironment.environmentVariables()).runSync()
-			guard ownIt.succeeded == true else {
+			let ownIt = try await runShell("chown -R \(installUserName):\(installUserName) /var/lib/\(installUserName)/")
+			guard ownIt.succeeded else {
 				appLogger.critical("unable to change ownership of /var/lib/\(installUserName)/ directory")
 				throw Error.chownError
 			}
-			let modIt = try await Command(sh: "chmod 775 /var/lib/wiremand", environment: CurrentEnvironment.environmentVariables()).runSync()
-			guard modIt.succeeded == true else {
+			let modIt = try await runShell("chmod 775 /var/lib/wiremand")
+			guard modIt.succeeded else {
 				appLogger.critical("unable to modify access bits (chmod) /var/lib/wiremand/ directory")
 				throw Error.chmodError
 			}
-
+			
 			appLogger.info("acquiring self-signed SSL certificates", metadata:["endpoint":"\(String(ipScopeString!))"])
-
-			let makeSSLDirectory = try await Command(sh: "mkdir -p /etc/wiremand/ssl", environment: CurrentEnvironment.environmentVariables()).runSync()
-			guard makeSSLDirectory.succeeded == true else {
+			
+			let makeSSLDirectory = try await runShell("mkdir -p /etc/wiremand/ssl")
+			guard makeSSLDirectory.succeeded else {
 				appLogger.critical("unable to create the /etc/wiremand/ssl directory")
 				throw Error.unableToGenerateDirectory
 			}
 			
 			try await SelfSignedCertExecutor.generateCert(interfaceName: interfaceName, logLevel: logLevel)
 			
-			guard try await Command(sh: "systemctl daemon-reload", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
+			guard try await runShell("systemctl daemon-reload").succeeded else {
 				appLogger.critical("unable to reload the systemctl daemon")
 				throw Error.daemonReloadError
 			}
-
+			
 			appLogger.info("Configuring dnsmasq host files")
-
-			guard try await Command(sh: "sudo touch /var/lib/\(installUserName)/hosts-auto && sudo touch /var/lib/\(installUserName)/hosts-manual", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
+			
+			guard try await runShell("touch /var/lib/\(installUserName)/hosts-auto && touch /var/lib/\(installUserName)/hosts-manual").succeeded else {
 				appLogger.critical("unable to create the hosts-auto and hosts-manual files")
 				throw Error.daemonReloadError
 			}
-
-			guard try await Command(sh: "sudo chmod 644 /var/lib/\(installUserName)/hosts-auto && sudo chmod 644 /var/lib/\(installUserName)/hosts-manual", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
+			
+			guard try await runShell("chmod 644 /var/lib/\(installUserName)/hosts-auto && chmod 644 /var/lib/\(installUserName)/hosts-manual").succeeded else {
 				appLogger.critical("unable to change permissions on the hosts-auto and hosts-manual files")
 				throw Error.daemonReloadError
 			}
