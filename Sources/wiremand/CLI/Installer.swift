@@ -67,6 +67,28 @@ extension CLI {
 			["wg", "wg-quick", "systemctl", "certbot", "openssl", "nft", "ip", "visudo", "setcap", "mkdir"]
 		}
 		
+		/// Generates a random IPv6 subnet within the private `fd00::/8` (ULA)
+		/// range, rendered as a `/64` CIDR. Uses RFC 4193 style: the first byte
+		/// is `0xfd`, the next 40 bits form a randomly chosen global ID, and the
+		/// following 16 bits form a randomly chosen subnet ID. The result is a
+		/// canonical compressed string like `fd1a:2b3c:4d5e:6f78::/64`.
+		private func randomULAIPv6Subnet() -> String {
+			// 8 bytes: 1 (0xfd) + 5 (global ID) + 2 (subnet ID) fills the first
+			// 64 bits of the address (the /64 network); the remaining 64 bits of
+			// the 128-bit address are implicit zeros (`::`).
+			var bytes = [UInt8](repeating: 0, count: 8)
+			for i in 1..<8 {
+				bytes[i] = UInt8.random(in: 0...255)
+			}
+			bytes[0] = 0xfd
+			
+			let hextet0 = String(format: "%02x%02x", bytes[0], bytes[1])
+			let hextet1 = String(format: "%02x%02x", bytes[2], bytes[3])
+			let hextet2 = String(format: "%02x%02x", bytes[4], bytes[5])
+			let hextet3 = String(format: "%02x%02x", bytes[6], bytes[7])
+			return "\(hextet0):\(hextet1):\(hextet2):\(hextet3)::/64"
+		}
+		
 		/// A small convenience for capturing a subprocess exit + stdout, replacing
 		/// the many ad-hoc `runSync()` calls with a single call site.
 		private func run(_ command:String, arguments:[String] = []) async throws -> (succeeded:Bool, stdout:String, exitCode:Int) {
@@ -216,12 +238,22 @@ extension CLI {
 				resExtV6 = AddressV6("::")
 			}
 			
-			// ask for the client ip scope
+			// ask for the client ip scope. if the user provides no input, fall
+			// back to a randomly generated private IPv6 subnet within fd00::/8.
 			var ipScope:wiremand_databases.Network? = nil
+			let defaultIPv6Subnet = randomULAIPv6Subnet()
 			repeat {
-				print(" -> [PROMPT](required) vpn internal ip block (cidr where address is servers primary internal address): ", terminator:"")
-				if let asString = readLine(), let asNetwork = wiremand_databases.Network(asString) {
-					ipScope = asNetwork
+				print(" -> [PROMPT](required) vpn internal ip block (cidr where address is servers primary internal address) [default: \(defaultIPv6Subnet)]: ", terminator:"")
+				if let asString = readLine() {
+					let resolvedInput = asString.trimmingCharacters(in: .whitespacesAndNewlines)
+					if resolvedInput.isEmpty {
+						// no input: use the suggested default
+						if let asNetwork = wiremand_databases.Network(defaultIPv6Subnet) {
+							ipScope = asNetwork
+						}
+					} else if let asNetwork = wiremand_databases.Network(resolvedInput) {
+						ipScope = asNetwork
+					}
 				}
 			} while ipScope == nil
 			
