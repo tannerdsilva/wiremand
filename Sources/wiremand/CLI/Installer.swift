@@ -736,13 +736,13 @@ extension CLI {
 			case unableToStopService
 			case unableToStartService
 			case unableToGenerateBashCompletions
+			case unableToCopyBinary
 		}
 		
 		static let configuration = CommandConfiguration(
 			commandName:"update",
 			abstract:"update the wiremand binary on this system.",
-			discussion:"must be executed as root user.",
-			shouldDisplay:false
+			discussion:"must be executed as root user. Stops the running daemon, replaces /opt/wiremand with the running binary, re-applies ownership/capabilities, and restarts the service."
 		)
 		
 		@Flag(help:"do not start the wiremand process after it has been updated on this system.")
@@ -760,43 +760,62 @@ extension CLI {
 			}
 			let exePath = URL(fileURLWithPath:CommandLine.arguments[0])
 			appLogger.info("initiating system update of wiremand process.", metadata:["oldPath":"/opt/wiremand", "updateWith":"\(exePath.path)"])
+			
+			// stop the service
 			appLogger.info("stopping wiremand service")
-			let stopResult = try await Command("systemctl stop wiremand.service").runSync()
+			let stopResult = try await Command(absolutePath: "/usr/bin/systemctl", arguments: ["stop", "wiremand.service"], environment: CurrentEnvironment.environmentVariables()).runSync()
 			guard stopResult.succeeded == true else {
 				appLogger.critical("unable to stop wiremand.service")
 				throw Error.unableToStopService
 			}
+			
+			// copy the binary
 			appLogger.info("installing executable into /opt")
-			// install the executable in the system (root-run; no sudo needed)
 			let exeData = try Data(contentsOf:exePath)
 			let exeFD = try FileDescriptor.open("/opt/wiremand", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute, .groupRead, .groupExecute])
 			try exeFD.writeAll(exeData)
 			try exeFD.close()
 			
-			// Re-apply the group-gated CLI posture: root:wiremand, 0750, and the
-			// CAP_NET_ADMIN file capability. The daemon ignores this file cap
-			// (NoNewPrivileges in its unit); the CLI (invoked by a wiremand-group
-			// member) uses it to run wg/ip/wg-quick without sudo.
-			let setCapResult = try await Command("chown root:wiremand /opt/wiremand && chmod 0750 /opt/wiremand && setcap cap_net_admin=ep '/opt/wiremand'").runSync()
-			guard setCapResult.succeeded == true else {
-				appLogger.critical("unable to set ownership/capabilities on /opt/wiremand")
+			// re-apply ownership, group mode, and CAP_NET_ADMIN
+			let capResult = try await Command(absolutePath: "/usr/bin/chown", arguments: ["root:wiremand", "/opt/wiremand"], environment: CurrentEnvironment.environmentVariables()).runSync()
+			guard capResult.succeeded == true else {
+				appLogger.critical("unable to set ownership on /opt/wiremand")
+				throw Error.capApplyError
+			}
+			let modeResult = try await Command(absolutePath: "/bin/chmod", arguments: ["0750", "/opt/wiremand"], environment: CurrentEnvironment.environmentVariables()).runSync()
+			guard modeResult.succeeded == true else {
+				appLogger.critical("unable to set mode on /opt/wiremand")
+				throw Error.capApplyError
+			}
+			let setcapResult = try await Command(absolutePath: "/usr/sbin/setcap", arguments: ["cap_net_admin=ep", "/opt/wiremand"], environment: CurrentEnvironment.environmentVariables()).runSync()
+			guard setcapResult.succeeded == true else {
+				appLogger.critical("unable to set capabilities on /opt/wiremand")
 				throw Error.capApplyError
 			}
 			appLogger.info("applied wiremand-group ownership and CAP_NET_ADMIN to executable.")
 			
-			if (noRestart == false) {
+			// start the service (unless --no-restart)
+			if noRestart == false {
 				appLogger.info("starting wiremand service")
-				let startResult = try await Command("systemctl start wiremand.service").runSync()
+				let startResult = try await Command(absolutePath: "/usr/bin/systemctl", arguments: ["start", "wiremand.service"], environment: CurrentEnvironment.environmentVariables()).runSync()
 				guard startResult.succeeded == true else {
 					appLogger.critical("unable to start wiremand.service")
 					throw Error.unableToStartService
 				}
 			}
+			
+			// generate bash completions
 			appLogger.info("copying bash completions to /opt...")
-			guard try await Command("/opt/wiremand --generate-completion-script bash > /opt/wiremand.bash").runSync().succeeded == true else {
+			let compResult = try await Command(absolutePath: "/opt/wiremand", arguments: ["--generate-completion-script", "bash"], environment: CurrentEnvironment.environmentVariables()).runSync()
+			guard compResult.succeeded == true else {
 				appLogger.critical("unable to generate bash completion scripts")
 				throw Error.unableToGenerateBashCompletions
 			}
+			let compData = compResult.stdout.flatMap { $0 }
+			let compFD = try FileDescriptor.open("/opt/wiremand.bash", .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWrite, .groupRead, .otherRead])
+			try compFD.writeAll(Data(compData))
+			try compFD.close()
+			
 			appLogger.info("wiremand successfully updated.")
 		}
 	}

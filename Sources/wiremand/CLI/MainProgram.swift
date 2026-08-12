@@ -23,6 +23,7 @@ struct CLI:AsyncParsableCommand {
 		abstract: "A command-line tool for managing WireGuard configurations.",
 		subcommands: [
 			Installer.self,
+			Updater.self,
 			ResetPublicAddresses.self,
 			Domain.self,
 			Client.self,
