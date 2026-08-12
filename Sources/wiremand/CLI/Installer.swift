@@ -7,6 +7,95 @@ import RAW
 import bedrock
 import wiremand_databases
 
+/// Minimal ELF64 dynamic-section reader used to recover the Swift runtime path
+/// from a binary's DT_RUNPATH without depending on `readelf`/`binutils`.
+/// Only the fields we need are decoded: the program headers, the PT_DYNAMIC
+/// segment, and the DT_STRTAB/DT_RUNPATH dynamic entries.
+enum ELF {
+	// Dynamic tag values (from linux/elf.h).
+	static let DT_NULL: UInt64 = 0
+	static let DT_STRTAB: UInt64 = 5
+	static let DT_RUNPATH: UInt64 = 29
+
+	/// Reads the null-terminated string referenced by the dynamic entry with
+	/// tag `tag` (as an offset into DT_STRTAB) from the ELF file at `path`.
+	/// Returns nil if the file is not a 64-bit little-endian ELF, if the tag
+	/// is absent, or on any malformed layout.
+	static func dynamicStringEntry(in path:String, tag:UInt64) -> String? {
+		guard let data = try? Data(contentsOf:URL(fileURLWithPath:path)), data.count >= 64 else {
+			return nil
+		}
+		let b = [UInt8](data)
+
+		// ELF identification: magic + EI_CLASS(64-bit=2) + EI_DATA(LE=1).
+		guard b[0] == 0x7F, b[1] == 0x45, b[2] == 0x4C, b[3] == 0x46,
+			  b[4] == 2, b[5] == 1 else {
+			return nil
+		}
+
+		func u16(_ off:Int) -> UInt16 {
+			return UInt16(b[off]) | (UInt16(b[off+1]) << 8)
+		}
+		func u32(_ off:Int) -> UInt32 {
+			return UInt32(b[off]) | (UInt32(b[off+1]) << 8) | (UInt32(b[off+2]) << 16) | (UInt32(b[off+3]) << 24)
+		}
+		func u64(_ off:Int) -> UInt64 {
+			var v:UInt64 = 0
+			for i in 0..<8 { v |= UInt64(b[off+i]) << (8*i) }
+			return v
+		}
+
+		// ELF64 header: e_phoff@0x20, e_phentsize@0x36, e_phnum@0x38.
+		let phoff = Int(u64(0x20))
+		let phentsize = Int(u16(0x36))
+		let phnum = Int(u16(0x38))
+		guard phnum > 0, phentsize >= 56, phoff + phnum*phentsize <= b.count else {
+			return nil
+		}
+
+		// Locate PT_DYNAMIC (type 2). ELF64 program header: p_type@0, p_offset@8, p_filesz@32.
+		var dynOff:Int? = nil
+		var dynSize:Int = 0
+		for i in 0..<phnum {
+			let h = phoff + i*phentsize
+			if u32(h) == 2 { // PT_DYNAMIC
+				dynOff = Int(u64(h+8))
+				dynSize = Int(u64(h+32))
+				break
+			}
+		}
+		guard let dynOff, dynSize >= 16, dynOff + dynSize <= b.count else {
+			return nil
+		}
+
+		// Walk the dynamic entries: Elf64_Dyn = { d_tag i64, d_val u64 } (16 bytes).
+		var strtabOff:Int? = nil
+		var targetOff:Int? = nil
+		var idx = dynOff
+		while idx + 16 <= dynOff + dynSize {
+			let d_tag = Int64(bitPattern:u64(idx))
+			let d_val = u64(idx+8)
+			if d_tag == Int64(DT_NULL) { break }
+			if d_tag == Int64(DT_STRTAB) { strtabOff = Int(d_val) }
+			if UInt64(bitPattern:d_tag) == tag { targetOff = Int(d_val) }
+			idx += 16
+		}
+		guard let strtabOff, let targetOff, strtabOff + targetOff < b.count else {
+			return nil
+		}
+
+		// The DT_RUNPATH value is a byte offset into the string table; read the
+		// null-terminated string at that position.
+		var out:[UInt8] = []
+		var p = strtabOff + targetOff
+		while p < b.count, b[p] != 0 {
+			out.append(b[p])
+			p += 1
+		}
+		return out.isEmpty ? nil : String(decoding:out, as:UTF8.self)
+	}
+}
+
 extension CLI {
 	/// Performs one-time system provisioning for a new WireGuard server.
 	/// - Gets the default routes IPv4 and IPv6 address to use as a `public`, permanent endpoint.
@@ -173,31 +262,33 @@ extension CLI {
 		/// in the system loader path by default: they live inside the Swift
 		/// toolchain. When a compiled Swift binary is installed to `/opt` and
 		/// run by a non-root service user, the loader cannot reach them.
-		/// SwiftPM bakes the build toolchain's path into the binary's RUNPATH,
+		/// SwiftPM bakes the build toolchain's path into the binary's DT_RUNPATH,
 		/// so we read it back out of the binary we just installed and use it as
 		/// the authoritative source for the runtime libs.
-		private func embeddedSwiftRuntimePath() async -> String? {
-			// `readelf -d` prints the DYNAMIC section; we look for the RUNPATH
-			// entry, whose value is a colon-separated list starting with the
-			// toolchain's `usr/lib/swift/linux`.
-			guard let probe = try? await which("readelf") else {
-				return nil
+		///
+		/// Detection is tool-free: the ELF dynamic section is parsed directly
+		/// (no dependency on `readelf`/`binutils`, which may not be installed
+		/// on a fresh target). Known toolchain locations are checked as a
+		/// fallback.
+		private func embeddedSwiftRuntimePath() -> String? {
+			// 1) Parse DT_RUNPATH straight out of the ELF file.
+			if let fromELF = ELF.dynamicStringEntry(in: "/opt/wiremand", tag: ELF.DT_RUNPATH) {
+				let candidates = fromELF.split(separator:":").map(String.init)
+				for c in candidates where c.hasPrefix("/") && FileManager.default.fileExists(atPath:c + "/libswiftCore.so") {
+					return c
+				}
 			}
-			let result = try? await run(probe, arguments: ["-d", "/opt/wiremand"])
-			guard let out = result?.stdout,
-				  let runpathLine = out.split(separator:"\n").first(where: { $0.contains("RUNPATH") }),
-				  let open = runpathLine.firstIndex(of:"["),
-				  let close = runpathLine.lastIndex(of:"]") else {
-				return nil
+			// 2) Fallback: common toolchain install locations.
+			let fallbacks = [
+				"/root/.local/share/swiftly/toolchains/6.3.3/usr/lib/swift/linux",
+				"/opt/swift/usr/lib/swift/linux",
+				"/usr/local/swift/usr/lib/swift/linux",
+				"/usr/lib/swift/linux",
+			]
+			for dir in fallbacks where FileManager.default.fileExists(atPath:dir + "/libswiftCore.so") {
+				return dir
 			}
-			let value = String(runpathLine[runpathLine.index(after:open)..<close])
-			// Take the first component (the toolchain path, before any $ORIGIN).
-			let first = value.split(separator:":").first.map(String.init) ?? ""
-			// It must actually hold libswiftCore.so to be useful.
-			guard FileManager.default.fileExists(atPath:first + "/libswiftCore.so") else {
-				return nil
-			}
-			return first
+			return nil
 		}
 
 		/// Makes the Swift runtime shared libraries discoverable system-wide so
@@ -213,7 +304,7 @@ extension CLI {
 		/// Swift runtime `.so` files (Apple's public runtime, not the compiler),
 		/// and does not install a Swift toolchain for other users.
 		private func installSwiftRuntime(using logger: Logger) async throws {
-			guard let sourceDir = await embeddedSwiftRuntimePath() else {
+			guard let sourceDir = embeddedSwiftRuntimePath() else {
 				logger.error("could not locate the Swift runtime libraries")
 				throw Error.unableToLocateSwiftRuntime
 			}
@@ -494,7 +585,6 @@ extension CLI {
 			// Make the Swift runtime reachable via the system library cache so
 			// the non-root `wiremand` user can actually exec the binary.
 			try await installSwiftRuntime(using: appLogger)
-			
 			appLogger.info("copying bash completions to /opt...")
 			guard try await runShell("/opt/wiremand --generate-completion-script bash > /opt/wiremand.bash").succeeded else {
 				appLogger.critical("unable to generate bash completion scripts")
