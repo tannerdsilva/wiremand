@@ -46,8 +46,11 @@ final class HandshakeChecker: Service {
 		do {
 			try await scheduler.runSchedule(name: taskName, interval: .seconds(10)) {
 				do {
-					// run the shell command to check for the handshakes associated with the various public keys
-					let checkHandshakes = try await Command(sh: "wg show \(String(self.interfaceName)) latest-handshakes", environment: CurrentEnvironment.environmentVariables()).runSync()
+					let interfaceNameStr = String(self.interfaceName)
+					let env = CurrentEnvironment.environmentVariables()
+					
+					// run the command to check for the handshakes associated with the various public keys
+					let checkHandshakes = try await Command(absolutePath: "/usr/bin/wg", arguments: ["show", interfaceNameStr, "latest-handshakes"], environment: env).runSync()
 					guard checkHandshakes.succeeded == true else {
 						throw Error.handshakeCheckError
 					}
@@ -80,9 +83,9 @@ final class HandshakeChecker: Service {
 						}
 					}
 					
-					// run the shell command to check for the endpoints of each client
+					// run the command to check for the endpoints of each client
 					var endpoints = [PublicKey:bedrock_ip.Address]()
-					let checkEndpoints = try await Command(sh: "wg show \(String(self.interfaceName)) endpoints", environment: CurrentEnvironment.environmentVariables()).runSync()
+					let checkEndpoints = try await Command(absolutePath: "/usr/bin/wg", arguments: ["show", interfaceNameStr, "endpoints"], environment: env).runSync()
 					guard checkEndpoints.succeeded == true else {
 						self.logger.error("was not able to check wireguard client endpoints")
 						throw Error.endpointCheckError
@@ -90,7 +93,7 @@ final class HandshakeChecker: Service {
 					
 					for curEndpointLine in checkEndpoints.stdout {
 						do {
-							guard let lineString = String(bytes:curEndpointLine, encoding:.utf8), let tabSepIndex = lineString.firstIndex(of:"\t"), lineString.endIndex > tabSepIndex else {
+							guard let lineString = String(bytes:curEndpointLine, encoding:.utf8), let tabSepIndex = lineString.firstIndex(of: "\u{09}"), lineString.endIndex > tabSepIndex else {
 								self.logger.error("invalid line data - no tab break found")
 								throw Error.endpointCheckError
 							}
