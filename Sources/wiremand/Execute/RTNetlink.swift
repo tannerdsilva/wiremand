@@ -55,7 +55,7 @@ extension RTNetlink {
 
 			// address
 			var addr:UnsafeMutablePointer<CChar>? = nil
-			get_attribute_data_ifla(r.pointee.ifi_family, tb, Int32(IFLA_ADDRESS), &addr)
+			get_attribute_data_ifla(tb, Int32(IFLA_ADDRESS), &addr)
 			if addr != nil {
 				self.address = String(cString:addr!)
 				free(addr)
@@ -64,7 +64,7 @@ extension RTNetlink {
 			}
 		
 			var bcst:UnsafeMutablePointer<CChar>? = nil
-			get_attribute_data_ifla(r.pointee.ifi_family, tb, Int32(IFLA_BROADCAST), &bcst)
+			get_attribute_data_ifla(tb, Int32(IFLA_BROADCAST), &bcst)
 			if bcst != nil {
 				self.broadcast = String(cString:bcst!)
 				free(bcst)

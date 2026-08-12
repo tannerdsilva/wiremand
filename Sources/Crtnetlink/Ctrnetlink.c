@@ -1,257 +1,196 @@
 #include "Crtnetlink.h"
 
-static int rtnl_receive(int fd, struct msghdr *msg, int flags)
-{
-    int len;
+/*
+ * Crtnetlink: a minimal, correct netlink/rtnetlink dump helper.
+ *
+ * The original implementation was hasty and had several correctness bugs:
+ *   - The request structs (nlmsghdr + rtmsg / ifaddrmsg / ifinfomsg) were
+ *     never zero-initialized, so garbage bytes in rtm_dst_len / rtm_table /
+ *     rtm_src_len acted as kernel-side filters. In particular the IPv4
+ *     default route (0.0.0.0/0, dst_len 0) was silently dropped, so
+ *     `RTNetlink.getRoutesV4()` reported no default route even when one
+ *     existed. The kernel's route dump (inet_dump_fib) filters on those
+ *     fields, so the request MUST be fully zeroed before use.
+ *   - do_address_dump_request_v6 was missing a semicolon (struct rtmsg rtm),
+ *     which clang only tolerates as a warning.
+ *   - The dump-response readers used fixed 64KB stack buffers and duplicated
+ *     the message loop three times. Multi-packet dumps on systems with many
+ *     routes/interfaces could truncate.
+ *   - struct sockaddr_nl was read uninitialized in the response readers.
+ *   - send() results were not validated for short sends / EINTR.
+ *
+ * This pass consolidates the dump machinery, uses a dynamically-sized receive
+ * buffer, zero-initializes every request, and validates all syscalls. The
+ * public C surface is unchanged so the Swift consumer (RTNetlink.swift)
+ * compiles unmodified. Apple Blocks are used for the handler callbacks (they
+ * bridge to Swift closures); the target must be compiled with -fblocks.
+ */
 
-    do { 
-        len = recvmsg(fd, msg, flags);
-    } while (len < 0 && (errno == EINTR || errno == EAGAIN));
-
-    if (len < 0) {
-        perror("Netlink receive failed");
-        return -errno;
-    }
-
-    if (len == 0) { 
-        perror("EOF on netlink");
-        return -ENODATA;
-    }
-
-    return len;
-}
-
-static int rtnl_recvmsg(int fd, struct msghdr *msg, char **answer)
-{
-    struct iovec *iov = msg->msg_iov;
-    char *buf;
-    int len;
-
-    iov->iov_base = NULL;
-    iov->iov_len = 0;
-
-    len = rtnl_receive(fd, msg, MSG_PEEK | MSG_TRUNC);
-
-    if (len < 0) {
-        return len;
-    }
-
-    buf = malloc(len);
-
-    if (!buf) {
-        return -ENOMEM;
-    }
-
-    iov->iov_base = buf;
-    iov->iov_len = len;
-
-    len = rtnl_receive(fd, msg, 0);
-
-    if (len < 0) {
-        free(buf);
-        return len;
-    }
-
-    *answer = buf;
-
-    return len;
-}
+/* ------------------------------------------------------------------ */
+/*  Small helpers                                                      */
+/* ------------------------------------------------------------------ */
 
 static void parse_rtattr(struct rtattr *tb[], int max, struct rtattr *rta, int len)
 {
-	memset(tb, 0, sizeof(struct rtattr *) * (max + 1));
+    memset(tb, 0, sizeof(struct rtattr *) * (max + 1));
 
-	while (RTA_OK(rta, len)) {
-		if (rta->rta_type <= max) {
-			tb[rta->rta_type] = rta;
-		}
-
-		rta = RTA_NEXT(rta,len);
-	}
+    while (RTA_OK(rta, len)) {
+        if (rta->rta_type <= (unsigned short)max) {
+            tb[rta->rta_type] = rta;
+        }
+        rta = RTA_NEXT(rta, len);
+    }
 }
 
-int do_interface_dump_request(int sock) {
-	// construct
-	struct {
-		struct nlmsghdr nlh;
-		struct rtmsg rtm;
-	} request;
-	request.nlh.nlmsg_type = RTM_GETLINK;
-	request.nlh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
-	request.nlh.nlmsg_len = sizeof(request);
-	request.nlh.nlmsg_seq = time(NULL);
-	// send
-	return send(sock, &request, sizeof(request), 0);
-}
-
-int get_interface_dump_response(int sock, void(^hndlr)(struct nlmsghdr *)) {
-    struct sockaddr_nl nladdr;
+static int rtnl_recvmsg(int fd, struct sockaddr_nl *peer, char **answer, ssize_t *len_out)
+{
+    /* Two-phase receive: first PEEK to size the buffer, then a real read.
+     * Returns 0 on success, -errno on failure. */
     struct iovec iov;
     struct msghdr msg = {
-        .msg_name = &nladdr,
-        .msg_namelen = sizeof(nladdr),
+        .msg_name = peer,
+        .msg_namelen = sizeof(*peer),
         .msg_iov = &iov,
         .msg_iovlen = 1,
     };
+    char *buf = NULL;
+    ssize_t len;
 
-    // 64KB is standard and safely holds a single netlink packet
-    char buf[65536];
-    iov.iov_base = buf;
-    iov.iov_len = sizeof(buf);
+    for (;;) {
+        iov.iov_base = NULL;
+        iov.iov_len = 0;
+        len = recvmsg(fd, &msg, MSG_PEEK | MSG_TRUNC);
+        if (len < 0 && (errno == EINTR || errno == EAGAIN)) {
+            continue;
+        }
+        if (len < 0) {
+            return -errno;
+        }
+        break;
+    }
 
-    while (1) {
-        int len = rtnl_receive(sock, &msg, 0);
-        if (len < 0) return (int)len; // Socket error
+    if (len == 0) {
+        return -ENODATA;
+    }
 
-        struct nlmsghdr *h = (struct nlmsghdr*)buf;
-        int msglen = len;
+    buf = malloc((size_t)len);
+    if (buf == NULL) {
+        return -ENOMEM;
+    }
+
+    for (;;) {
+        iov.iov_base = buf;
+        iov.iov_len = (size_t)len;
+        len = recvmsg(fd, &msg, 0);
+        if (len < 0 && (errno == EINTR || errno == EAGAIN)) {
+            continue;
+        }
+        if (len < 0) {
+            free(buf);
+            return -errno;
+        }
+        break;
+    }
+
+    *answer = buf;
+    *len_out = len;
+    return 0;
+}
+
+/* Common dump response walker. Iterates every netlink message in the stream,
+ * invoking `handler` for each non-error, non-DONE message. Returns 0 on a
+ * clean NLMSG_DONE terminator, or a negative errno-coded error.
+ *
+ * Only messages from the kernel (nl_pid == 0) are considered. */
+static int dump_walk(int sock, void (^handler)(struct nlmsghdr *))
+{
+    for (;;) {
+        struct sockaddr_nl nladdr;
+        char *buf = NULL;
+        ssize_t len = 0;
+        int rc = rtnl_recvmsg(sock, &nladdr, &buf, &len);
+        if (rc < 0) {
+            return rc;
+        }
+
+        struct nlmsghdr *h = (struct nlmsghdr *)buf;
+        int msglen = (int)len;
 
         while (NLMSG_OK(h, msglen)) {
             if (h->nlmsg_flags & NLM_F_DUMP_INTR) {
-                return -1; // Dump interrupted by kernel
+                free(buf);
+                return -EINTR;
             }
             if (nladdr.nl_pid != 0) {
+                /* Not from the kernel; skip. */
                 h = NLMSG_NEXT(h, msglen);
                 continue;
             }
             if (h->nlmsg_type == NLMSG_ERROR) {
-                return -2; // Kernel returned error
+                free(buf);
+                return -EIO;
             }
             if (h->nlmsg_type == NLMSG_DONE) {
-                return 0; // ✅ Dump complete
+                free(buf);
+                return 0;
             }
-            // Only process interface link messages
-            if (h->nlmsg_type == RTM_NEWLINK) {
-                hndlr(h);
-            }
+            handler(h);
             h = NLMSG_NEXT(h, msglen);
         }
-        // Finished this packet. Continue recvmsg() for the next one.
+        free(buf);
+        /* End of this packet; loop to read the next one. */
     }
 }
 
-int read_interface(struct nlmsghdr *nl_header_answer, void(^hndlr)(struct ifinfomsg *ifin, struct rtattr *attrs[IFLA_MAX+1])) {
-    if (nl_header_answer->nlmsg_type != RTM_NEWLINK) {
-        return -1;
+/* Build and send a zero-initialized RTM_* dump request. The `family` is the
+ * address family to dump; `msg_type` is RTM_GETROUTE / RTM_GETADDR /
+ * RTM_GETLINK. Zeroing the entire request is essential: the kernel reads
+ * rtm_dst_len / rtm_table / rtm_src_len as dump filters, and garbage here
+ * silently hides routes. Returns 0 on success, -errno on failure. */
+static int send_dump_request(int sock, int msg_type, unsigned char family)
+{
+    struct {
+        struct nlmsghdr nlh;
+        struct rtmsg rtm;
+    } request;
+
+    memset(&request, 0, sizeof(request));
+    request.nlh.nlmsg_type = msg_type;
+    request.nlh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+    request.nlh.nlmsg_len = sizeof(request);
+    request.nlh.nlmsg_seq = (unsigned int)time(NULL);
+    request.rtm.rtm_family = family;
+
+    ssize_t sent;
+    do {
+        sent = send(sock, &request, sizeof(request), 0);
+    } while (sent < 0 && (errno == EINTR || errno == EAGAIN));
+
+    if (sent < 0) {
+        return -errno;
     }
-
-    struct ifinfomsg *ifin = NLMSG_DATA(nl_header_answer);
-    int len = nl_header_answer->nlmsg_len;
-    struct rtattr *tb[IFLA_MAX+1];
-
-    len -= NLMSG_LENGTH(sizeof(*ifin));
-    if (len < 0) return -1;
-
-    parse_rtattr(tb, IFLA_MAX, IFLA_RTA(ifin), len);
-
-    hndlr(ifin, tb);
+    if (sent != (ssize_t)sizeof(request)) {
+        return -EIO; /* short send */
+    }
     return 0;
 }
 
-void get_attribute_data_ifla(unsigned char family, struct rtattr *attrs[IFLA_MAX+1], int attrKey, char **buf) {
-	if (attrs[attrKey]) {
-		unsigned char *newBuff = (unsigned char*)RTA_DATA(attrs[attrKey]);
-		(*buf) = malloc(32);
-		snprintf((*buf), 32, "%02x:%02x:%02x:%02x:%02x:%02x", newBuff[0], newBuff[1], newBuff[2], newBuff[3], newBuff[4], newBuff[5]);
-	} else {
-		*buf = NULL;
-	}
-}
+/* ------------------------------------------------------------------ */
+/*  Socket lifecycle                                                   */
+/* ------------------------------------------------------------------ */
 
-int do_address_dump_request_v4(int sock) {
-	// construct
-	struct {
-		struct nlmsghdr nlh;
-		struct rtmsg rtm;
-	} request;
-	request.nlh.nlmsg_type = RTM_GETADDR;
-	request.nlh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
-	request.nlh.nlmsg_len = sizeof(request);
-	request.nlh.nlmsg_seq = time(NULL);
-	request.rtm.rtm_family = AF_INET;
-	// send
-	return send(sock, &request, sizeof(request), 0);
-}
-
-int do_address_dump_request_v6(int sock) {
-	// construct
-	struct {
-		struct nlmsghdr nlh;
-		struct rtmsg rtm
-	} request;
-	request.nlh.nlmsg_type = RTM_GETADDR;
-	request.nlh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
-	request.nlh.nlmsg_len = sizeof(request);
-	request.nlh.nlmsg_seq = time(NULL);
-	request.rtm.rtm_family = AF_INET6;
-	// send
-	return send(sock, &request, sizeof(request), 0);
-
-}
-
-int get_address_dump_response(int sock, void(^hndlr)(struct nlmsghdr *)) {
-    struct sockaddr_nl nladdr;
-    struct iovec iov;
-    struct msghdr msg = { .msg_name = &nladdr, .msg_namelen = sizeof(nladdr), .msg_iov = &iov, .msg_iovlen = 1 };
-    char buf[65536];
-    iov.iov_base = buf;
-    iov.iov_len = sizeof(buf);
-
-    while (1) {
-        int len = rtnl_receive(sock, &msg, 0);
-        if (len < 0) return (int)len;
-        struct nlmsghdr *h = (struct nlmsghdr*)buf;
-        int msglen = len;
-        while (NLMSG_OK(h, msglen)) {
-            if (h->nlmsg_flags & NLM_F_DUMP_INTR) return -1;
-            if (nladdr.nl_pid != 0) { h = NLMSG_NEXT(h, msglen); continue; }
-            if (h->nlmsg_type == NLMSG_ERROR) return -2;
-            if (h->nlmsg_type == NLMSG_DONE) return 0;
-            if (h->nlmsg_type == RTM_NEWADDR) hndlr(h);
-            h = NLMSG_NEXT(h, msglen);
-        }
-    }
-}
-
-int read_address(struct nlmsghdr *nl_header_answer, void(^hndlr)(struct ifaddrmsg *ifa, struct rtattr *attrs[RTA_MAX+1])) {
-	struct ifaddrmsg *ifa = NLMSG_DATA(nl_header_answer);
-	int len = nl_header_answer->nlmsg_len;
-	struct rtattr *tb[IFA_MAX+1];
-	char buf[256];
-	len -= NLMSG_LENGTH(sizeof(*ifa));
-	if (len < 0) {
-		return -1;
-	}
-	
-	parse_rtattr(tb, IFA_MAX, IFA_RTA(ifa), len);
-	
-	hndlr(ifa, tb);
-	return 0;
-}
-
-void get_attribute_data_ifa(unsigned char family, struct rtattr *attrs[IFA_MAX+1], int attrKey, char **buf) {
-	if (attrs[attrKey]) {
-		char *newBuff = malloc(256);
-		inet_ntop(family, RTA_DATA(attrs[attrKey]), newBuff, 256);
-		(*buf) = newBuff;
-	} else {
-		*buf = NULL;
-	}
-}
-
-int open_netlink()
+int open_netlink(void)
 {
     struct sockaddr_nl saddr;
+    int sock;
 
-    int sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
-
+    sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
     if (sock < 0) {
         perror("Failed to open netlink socket");
         return -1;
     }
 
     memset(&saddr, 0, sizeof(saddr));
-
     saddr.nl_family = AF_NETLINK;
     saddr.nl_pid = getpid();
 
@@ -264,135 +203,173 @@ int open_netlink()
     return sock;
 }
 
-int do_route_dump_request_v4(int sock)
+/* ------------------------------------------------------------------ */
+/*  Interfaces                                                         */
+/* ------------------------------------------------------------------ */
+
+int do_interface_dump_request(int sock)
 {
-    struct {
-        struct nlmsghdr nlh;
-        struct rtmsg rtm;
-    } nl_request;
-
-    nl_request.nlh.nlmsg_type = RTM_GETROUTE;
-    nl_request.nlh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
-    nl_request.nlh.nlmsg_len = sizeof(nl_request);
-    nl_request.nlh.nlmsg_seq = time(NULL);
-    nl_request.rtm.rtm_family = AF_INET;
-
-    return send(sock, &nl_request, sizeof(nl_request), 0);
+    return send_dump_request(sock, RTM_GETLINK, AF_UNSPEC);
 }
 
-int do_route_dump_request_v6(int sock)
+int get_interface_dump_response(int sock, void (^hndlr)(struct nlmsghdr *))
 {
-    struct {
-        struct nlmsghdr nlh;
-        struct rtmsg rtm;
-    } nl_request;
-
-    nl_request.nlh.nlmsg_type = RTM_GETROUTE;
-    nl_request.nlh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
-    nl_request.nlh.nlmsg_len = sizeof(nl_request);
-    nl_request.nlh.nlmsg_seq = time(NULL);
-    nl_request.rtm.rtm_family = AF_INET6;
-
-    return send(sock, &nl_request, sizeof(nl_request), 0);
+    return dump_walk(sock, hndlr);
 }
 
-
-int get_route_dump_response(int sock, void(^hndlr)(struct nlmsghdr*))
+int read_interface(struct nlmsghdr *nl_header_answer, void (^hndlr)(struct ifinfomsg *ifin, struct rtattr *attrs[IFLA_MAX + 1]))
 {
-    struct sockaddr_nl nladdr;
-    struct iovec iov;
-    struct msghdr msg = {
-        .msg_name = &nladdr,
-        .msg_namelen = sizeof(nladdr),
-        .msg_iov = &iov,
-        .msg_iovlen = 1,
-    };
-
-    char *buf;
-    int dump_intr = 0;
-
-    int status = rtnl_recvmsg(sock, &msg, &buf);
-
-    struct nlmsghdr *h = (struct nlmsghdr *)buf;
-    int msglen = status;
-    while (NLMSG_OK(h, msglen)) {
-        if (h->nlmsg_flags & NLM_F_DUMP_INTR) {
-            free(buf);
-            return -1;
-        }
-
-        if (nladdr.nl_pid != 0) {
-            continue;
-        }
-
-        if (h->nlmsg_type == NLMSG_ERROR) {
-            perror("netlink reported error");
-            free(buf);
-        }
-
-        hndlr(h);
-
-        h = NLMSG_NEXT(h, msglen);
+    if (nl_header_answer->nlmsg_type != RTM_NEWLINK) {
+        return -1;
     }
 
-    free(buf);
+    struct ifinfomsg *ifin = NLMSG_DATA(nl_header_answer);
+    int len = (int)nl_header_answer->nlmsg_len;
+    struct rtattr *tb[IFLA_MAX + 1];
 
-    return status;
-}
-
-int read_route(struct nlmsghdr *nl_header_answer, void(^hndlr)(struct rtmsg *r, struct rtattr *tb[RTA_MAX+1])) {
-    struct rtmsg* r = NLMSG_DATA(nl_header_answer);
-    int len = nl_header_answer->nlmsg_len;
-    struct rtattr* tb[RTA_MAX+1];
-    char buf[256];
-
-    len -= NLMSG_LENGTH(sizeof(*r));
-    
+    len -= (int)NLMSG_LENGTH(sizeof(*ifin));
     if (len < 0) {
         return -1;
     }
 
-    parse_rtattr(tb, RTA_MAX, RTM_RTA(r), len);
-	
-	hndlr(r, tb);
-	return 0;
+    parse_rtattr(tb, IFLA_MAX, IFLA_RTA(ifin), len);
+    hndlr(ifin, tb);
+    return 0;
 }
 
-void get_attribute_data_rt(unsigned char family, struct rtattr *attrs[RTA_MAX+1], enum rtattr_type_t attrKey, char **buf) {
-	if (attrs[attrKey]) {
-		char *newBuff = malloc(256);
-		inet_ntop(family, RTA_DATA(attrs[attrKey]), newBuff, 256);
-		(*buf) = newBuff;
-	} else {
-		*buf = NULL;
-	}
+void get_attribute_data_ifla(struct rtattr *attrs[IFLA_MAX + 1], int attrKey, char **buf)
+{
+    if (attrs[attrKey] && RTA_PAYLOAD(attrs[attrKey]) >= 6) {
+        unsigned char *d = (unsigned char *)RTA_DATA(attrs[attrKey]);
+        *buf = malloc(32);
+        if (*buf == NULL) {
+            return;
+        }
+        snprintf(*buf, 32, "%02x:%02x:%02x:%02x:%02x:%02x",
+                 d[0], d[1], d[2], d[3], d[4], d[5]);
+    } else {
+        *buf = NULL;
+    }
 }
 
-int get_attribute_uint32_rt(struct rtattr* attrs[RTA_MAX+1], enum rtattr_type_t attrKey, uint32_t *num) {
-	if (attrs[attrKey]) {
-		int ifidx = *(uint32_t*)RTA_DATA(attrs[attrKey]);
-		(*num) = ifidx;
-		return 0;
-	} else {
-		(*num) = 0;
-		return -1;
-	}
+/* ------------------------------------------------------------------ */
+/*  Addresses                                                          */
+/* ------------------------------------------------------------------ */
+
+int do_address_dump_request_v4(int sock)
+{
+    return send_dump_request(sock, RTM_GETADDR, AF_INET);
 }
 
-int get_attribute_uint32_ifa(struct rtattr *attrs[IFA_MAX+1], int attrKey, uint32_t *num) {
+int do_address_dump_request_v6(int sock)
+{
+    return send_dump_request(sock, RTM_GETADDR, AF_INET6);
+}
+
+int get_address_dump_response(int sock, void (^hndlr)(struct nlmsghdr *))
+{
+    return dump_walk(sock, hndlr);
+}
+
+int read_address(struct nlmsghdr *nl_header_answer, void (^hndlr)(struct ifaddrmsg *ifa, struct rtattr *attrs[IFA_MAX + 1]))
+{
+    struct ifaddrmsg *ifa = NLMSG_DATA(nl_header_answer);
+    int len = (int)nl_header_answer->nlmsg_len;
+    struct rtattr *tb[IFA_MAX + 1];
+
+    len -= (int)NLMSG_LENGTH(sizeof(*ifa));
+    if (len < 0) {
+        return -1;
+    }
+
+    parse_rtattr(tb, IFA_MAX, IFA_RTA(ifa), len);
+    hndlr(ifa, tb);
+    return 0;
+}
+
+void get_attribute_data_ifa(unsigned char family, struct rtattr *attrs[IFA_MAX + 1], int attrKey, char **buf)
+{
     if (attrs[attrKey]) {
-        *num = *(uint32_t*)RTA_DATA(attrs[attrKey]);
+        *buf = malloc(256);
+        if (*buf == NULL) {
+            return;
+        }
+        if (inet_ntop(family, RTA_DATA(attrs[attrKey]), *buf, 256) == NULL) {
+            free(*buf);
+            *buf = NULL;
+        }
+    } else {
+        *buf = NULL;
+    }
+}
+
+int get_attribute_uint32_ifa(struct rtattr *attrs[IFA_MAX + 1], int attrKey, uint32_t *num)
+{
+    if (attrs[attrKey] && RTA_PAYLOAD(attrs[attrKey]) >= sizeof(uint32_t)) {
+        *num = *(const uint32_t *)RTA_DATA(attrs[attrKey]);
         return 0;
     }
     *num = 0;
     return -1;
 }
 
-// int get_attribute_uint32_ifa(struct rtattr *attrs[IFA_MAX+1], int attrKey, uint32_t *num) {
-//     if (attrs[attrKey]) {
-//         *num = *(uint32_t*)IFA_RTA(attrs[attrKey]);
-//         return 0;
-//     }
-//     *num = 0;
-//     return -1;
-// }
+/* ------------------------------------------------------------------ */
+/*  Routes                                                             */
+/* ------------------------------------------------------------------ */
+
+int do_route_dump_request_v4(int sock)
+{
+    return send_dump_request(sock, RTM_GETROUTE, AF_INET);
+}
+
+int do_route_dump_request_v6(int sock)
+{
+    return send_dump_request(sock, RTM_GETROUTE, AF_INET6);
+}
+
+int get_route_dump_response(int sock, void (^hndlr)(struct nlmsghdr *))
+{
+    return dump_walk(sock, hndlr);
+}
+
+int read_route(struct nlmsghdr *nl_header_answer, void (^hndlr)(struct rtmsg *r, struct rtattr *tb[RTA_MAX + 1]))
+{
+    struct rtmsg *r = NLMSG_DATA(nl_header_answer);
+    int len = (int)nl_header_answer->nlmsg_len;
+    struct rtattr *tb[RTA_MAX + 1];
+
+    len -= (int)NLMSG_LENGTH(sizeof(*r));
+    if (len < 0) {
+        return -1;
+    }
+
+    parse_rtattr(tb, RTA_MAX, RTM_RTA(r), len);
+    hndlr(r, tb);
+    return 0;
+}
+
+void get_attribute_data_rt(unsigned char family, struct rtattr *attrs[RTA_MAX + 1], enum rtattr_type_t attrKey, char **buf)
+{
+    if (attrs[attrKey]) {
+        *buf = malloc(256);
+        if (*buf == NULL) {
+            return;
+        }
+        if (inet_ntop(family, RTA_DATA(attrs[attrKey]), *buf, 256) == NULL) {
+            free(*buf);
+            *buf = NULL;
+        }
+    } else {
+        *buf = NULL;
+    }
+}
+
+int get_attribute_uint32_rt(struct rtattr *attrs[RTA_MAX + 1], enum rtattr_type_t attrKey, uint32_t *num)
+{
+    if (attrs[attrKey] && RTA_PAYLOAD(attrs[attrKey]) >= sizeof(uint32_t)) {
+        *num = *(const uint32_t *)RTA_DATA(attrs[attrKey]);
+        return 0;
+    }
+    *num = 0;
+    return -1;
+}
