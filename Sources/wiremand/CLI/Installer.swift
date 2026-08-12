@@ -450,6 +450,18 @@ extension CLI {
 				}
 			}
 			
+			// Grant CAP_NET_ADMIN to the wg binary so the wiremand user (and
+			// child processes spawned by the daemon) can query WireGuard state
+			// without ambient capability inheritance (unsupported on some kernels).
+			if let wgPath = try await which("wg") {
+				let wgCapResult = try await runShell("setcap cap_net_admin=ep '\(wgPath)'")
+				if wgCapResult.succeeded {
+					appLogger.info("granted CAP_NET_ADMIN to wg binary.")
+				} else {
+					appLogger.warning("unable to set CAP_NET_ADMIN on wg binary; handshake checks may fail.")
+				}
+			}
+			
 			appLogger.info("disabling systemd service 'dnsmasq'")
 			
 			let dnsMasqDisable = try await runShell("systemctl disable dnsmasq && systemctl stop dnsmasq")
