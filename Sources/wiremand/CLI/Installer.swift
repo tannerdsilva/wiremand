@@ -686,15 +686,45 @@ extension CLI {
 			
 			appLogger.info("Configuring dnsmasq host files")
 			
-			guard try await runShell("touch /var/lib/\(installUserName)/hosts-auto && touch /var/lib/\(installUserName)/hosts-manual && touch /var/lib/\(installUserName)/firewallCommands.txt").succeeded else {
-				appLogger.critical("unable to create the hosts-auto, hosts-manual, or firewallCommands.txt files")
+			guard try await runShell("touch /var/lib/\(installUserName)/hosts-auto && touch /var/lib/\(installUserName)/hosts-manual").succeeded else {
+				appLogger.critical("unable to create the hosts-auto and hosts-manual files")
 				throw Error.daemonReloadError
 			}
 			
-			guard try await runShell("chmod 644 /var/lib/\(installUserName)/hosts-auto && chmod 644 /var/lib/\(installUserName)/hosts-manual && chmod 644 /var/lib/\(installUserName)/firewallCommands.txt").succeeded else {
-				appLogger.critical("unable to change permissions on the hosts-auto, hosts-manual, and firewallCommands.txt files")
+			guard try await runShell("chmod 644 /var/lib/\(installUserName)/hosts-auto && chmod 644 /var/lib/\(installUserName)/hosts-manual").succeeded else {
+				appLogger.critical("unable to change permissions on the hosts-auto and hosts-manual files")
 				throw Error.daemonReloadError
 			}
+			
+			// Write a starter firewall template.  The custom commands in this file
+			// are applied *before* the managed ip_filter / ip6_filter tables are
+			// flushed and recreated, so any rules targeting those tables would be
+			// wiped.  Use this file for supplementary rules in OTHER tables (e.g.
+			// the kernel's default inet filter for INPUT/OUTPUT, or custom logging
+			// / NAT tables).
+			let firewallTemplate = """
+			# wiremand custom nftables commands
+			#
+			# These raw nft commands are applied at daemon start, before the managed
+			# ip_filter (IPv4) and ip6_filter (IPv6) tables are flushed and rebuilt.
+			# Rules targeting those managed tables will be overwritten.  Use this
+			# file for supplementary rules in other tables.
+			#
+			# Managed tables (do not add rules targeting these — they are flushed):
+			#   ip  ip_filter   (forward hook, policy drop)
+			#   ip6 ip6_filter  (forward hook, policy drop)
+			#
+			# The managed forward chain already accepts:
+			#   - localhost traffic        (iif "lo" accept)
+			#   - established/related      (ct state established,related accept)
+			#
+			# Example — accept SSH from a management subnet (supplementary table):
+			#   add table inet mgmt
+			#   add chain inet mgmt input { type filter hook input priority 0; policy accept; }
+			#   add rule inet mgmt input ip saddr 10.0.0.0/8 tcp dport 22 accept
+			#
+			"""
+			try writeConfigAtomically(firewallTemplate, to:"/var/lib/\(installUserName)/firewallCommands.txt", permissions:[.ownerReadWrite, .groupRead, .otherRead])
 			
 			appLogger.info("Installation complete. Please restart this machine.")
 		}
