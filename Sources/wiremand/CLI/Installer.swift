@@ -686,13 +686,13 @@ extension CLI {
 			
 			appLogger.info("Configuring dnsmasq host files")
 			
-			guard try await runShell("touch /var/lib/\(installUserName)/hosts-auto && touch /var/lib/\(installUserName)/hosts-manual").succeeded else {
-				appLogger.critical("unable to create the hosts-auto and hosts-manual files")
+			guard try await runShell("touch /var/lib/\(installUserName)/hosts-auto && touch /var/lib/\(installUserName)/hosts-manual && touch /var/lib/\(installUserName)/firewallCommands.txt").succeeded else {
+				appLogger.critical("unable to create the hosts-auto, hosts-manual, or firewallCommands.txt files")
 				throw Error.daemonReloadError
 			}
 			
-			guard try await runShell("chmod 644 /var/lib/\(installUserName)/hosts-auto && chmod 644 /var/lib/\(installUserName)/hosts-manual").succeeded else {
-				appLogger.critical("unable to change permissions on the hosts-auto and hosts-manual files")
+			guard try await runShell("chmod 644 /var/lib/\(installUserName)/hosts-auto && chmod 644 /var/lib/\(installUserName)/hosts-manual && chmod 644 /var/lib/\(installUserName)/firewallCommands.txt").succeeded else {
+				appLogger.critical("unable to change permissions on the hosts-auto, hosts-manual, and firewallCommands.txt files")
 				throw Error.daemonReloadError
 			}
 			
