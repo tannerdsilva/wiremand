@@ -43,6 +43,8 @@ extension CLI {
 			case unableToWriteConfig(String)
 			case invalidNetwork(String)
 			case invalidSudoers
+			case unableToLocateSwiftRuntime
+			case unableToInstallSwiftRuntime
 		}
 		public static let configuration = CommandConfiguration(
 			commandName:"install",
@@ -166,6 +168,70 @@ extension CLI {
 			}
 		}
 		
+		/// The directory (on the build system) that holds the Swift runtime
+		/// shared libraries (`libswiftCore.so` et al). On Linux these are NOT
+		/// in the system loader path by default: they live inside the Swift
+		/// toolchain. When a compiled Swift binary is installed to `/opt` and
+		/// run by a non-root service user, the loader cannot reach them.
+		/// SwiftPM bakes the build toolchain's path into the binary's RUNPATH,
+		/// so we read it back out of the binary we just installed and use it as
+		/// the authoritative source for the runtime libs.
+		private func embeddedSwiftRuntimePath() async -> String? {
+			// `readelf -d` prints the DYNAMIC section; we look for the RUNPATH
+			// entry, whose value is a colon-separated list starting with the
+			// toolchain's `usr/lib/swift/linux`.
+			guard let probe = try? await which("readelf") else {
+				return nil
+			}
+			let result = try? await run(probe, arguments: ["-d", "/opt/wiremand"])
+			guard let out = result?.stdout,
+				  let runpathLine = out.split(separator:"\n").first(where: { $0.contains("RUNPATH") }),
+				  let open = runpathLine.firstIndex(of:"["),
+				  let close = runpathLine.lastIndex(of:"]") else {
+				return nil
+			}
+			let value = String(runpathLine[runpathLine.index(after:open)..<close])
+			// Take the first component (the toolchain path, before any $ORIGIN).
+			let first = value.split(separator:":").first.map(String.init) ?? ""
+			// It must actually hold libswiftCore.so to be useful.
+			guard FileManager.default.fileExists(atPath:first + "/libswiftCore.so") else {
+				return nil
+			}
+			return first
+		}
+
+		/// Makes the Swift runtime shared libraries discoverable system-wide so
+		/// the daemon (and any other local user) can run the installed binary.
+		///
+		/// Rationale: `/opt/wiremand` carries a `cap_net_admin` file capability
+		/// (so a `wiremand`-group member can run the CLI without sudo). A binary
+		/// with a file capability runs in secure-execution mode, under which the
+		/// dynamic loader IGNORES `LD_LIBRARY_PATH` and the embedded RUNPATH. The
+		/// only mechanism that still works is the system library cache
+		/// (`/etc/ld.so.cache`, populated by `ldconfig`). So we copy the runtime
+		/// libs to a stable system path and register it. This exposes only the
+		/// Swift runtime `.so` files (Apple's public runtime, not the compiler),
+		/// and does not install a Swift toolchain for other users.
+		private func installSwiftRuntime(using logger: Logger) async throws {
+			guard let sourceDir = await embeddedSwiftRuntimePath() else {
+				logger.error("could not locate the Swift runtime libraries")
+				throw Error.unableToLocateSwiftRuntime
+			}
+			let destDir = "/usr/local/lib/swift/linux"
+			logger.info("installing Swift runtime libraries", metadata:["source":"\(sourceDir)"])
+			guard try await runShell("mkdir -p \(destDir) && cp -a \(sourceDir)/lib*.so \(destDir)/ && chmod 755 \(destDir)/lib*.so").succeeded else {
+				logger.critical("unable to copy Swift runtime libraries")
+				throw Error.unableToInstallSwiftRuntime
+			}
+			// Register the directory with the dynamic loader and refresh the cache.
+			try writeConfigAtomically("\(destDir)\n", to:"/etc/ld.so.conf.d/swift.conf", permissions:[.ownerReadWrite, .groupRead, .otherRead])
+			guard try await runShell("ldconfig").succeeded else {
+				logger.critical("unable to refresh the dynamic linker cache")
+				throw Error.unableToInstallSwiftRuntime
+			}
+			logger.info("Swift runtime libraries installed and registered")
+		}
+
 		/// Atomically writes `content` to `path` (temp file + rename) so a crash
 		/// mid-write can never leave a partially-written config on disk.
 		private func writeConfigAtomically(_ content:String, to path:String, permissions:FilePermissions) throws {
@@ -422,6 +488,12 @@ extension CLI {
 				appLogger.critical("unable to set ownership/capabilities on /opt/wiremand")
 				throw Error.capApplyError
 			}
+			
+			// The setcap'd binary runs in secure-execution mode, where the
+			// dynamic loader ignores LD_LIBRARY_PATH and the embedded RUNPATH.
+			// Make the Swift runtime reachable via the system library cache so
+			// the non-root `wiremand` user can actually exec the binary.
+			try await installSwiftRuntime(using: appLogger)
 			
 			appLogger.info("copying bash completions to /opt...")
 			guard try await runShell("/opt/wiremand --generate-completion-script bash > /opt/wiremand.bash").succeeded else {
