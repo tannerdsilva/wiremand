@@ -13,7 +13,7 @@ let package = Package(
         // .package(url: /* package url */, from: "1.0.0"),
         .package(url:"https://github.com/apple/swift-argument-parser.git", "1.5.1"..<"2.0.0"),
 		//.package(path: "../SwiftSlash"),
-		.package(url:"https://github.com/tannerdsilva/SwiftSlash.git", "4.0.0"..<"5.0.0"),
+		.package(url:"https://github.com/tannerdsilva/SwiftSlash.git", "4.0.5"..<"5.0.0"),
 		// .package(url:"https://github.com/tannerdsilva/QuickLMDB.git", "14.0.0"..<"15.0.0"),
 		.package(url:"https://github.com/tannerdsilva/QuickLMDB.git", branch:"master"),
 		// .package(url:"https://github.com/tannerdsilva/bedrock.git", "7.0.1"..<"8.0.0"),
