@@ -44,6 +44,16 @@ extension CLI {
 			var appLogger = Logger(label:"wiremand")
 			appLogger.logLevel = globals.logLevel
 
+			// Ensure the working directory is accessible by the wiremand user.
+			// When launched via systemd the CWD is / (world-readable). When run
+			// manually with sudo -u wiremand the CWD is inherited from the caller
+			// and may be a root-only directory (e.g. /root), which causes
+			// SwiftSlash's precheckDirectory to fail on every child-process spawn.
+			guard FileManager.default.changeCurrentDirectoryPath("/") else {
+				appLogger.critical("unable to change working directory to /")
+				throw Error.invalidUser
+			}
+
 			let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 			let ipdb = try IPDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 			let firewallDB = try FirewallDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)

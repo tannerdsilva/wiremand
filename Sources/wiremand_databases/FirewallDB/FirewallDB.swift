@@ -70,7 +70,7 @@ public struct FirewallDatabase: Sendable {
 	/// - Parameter rules: The rule set currently live in the kernel.
 	public func setChainRuleMirror(_ chainID: String, rules: Set<String>) throws {
 		let newTrans = try Transaction(env: env, readOnly: false)
-		try chainRuleMirror.deleteEntry(key: EncodedString(chainID), tx: newTrans)
+		try? chainRuleMirror.deleteEntry(key: EncodedString(chainID), tx: newTrans)
 		for rule in rules {
 			try chainRuleMirror.setEntry(key: EncodedString(chainID), value: EncodedString(rule), flags: [], tx: newTrans)
 		}
