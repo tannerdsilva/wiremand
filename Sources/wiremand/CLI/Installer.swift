@@ -612,7 +612,6 @@ extension CLI {
 			systemdConfig += "Type=exec\n"
 			systemdConfig += "AmbientCapabilities=CAP_NET_ADMIN\n"
 			systemdConfig += "CapabilityBoundingSet=CAP_NET_ADMIN\n"
-			systemdConfig += "NoNewPrivileges=yes\n"
 			systemdConfig += "PrivateTmp=yes\n"
 			systemdConfig += "ExecStart=/opt/wiremand run\n"
 			systemdConfig += "Restart=always\n\n"

@@ -15,6 +15,8 @@
 #include <arpa/inet.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+#include <sys/prctl.h>
+#include <linux/capability.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,6 +51,9 @@ int get_route_dump_response(int sock, void (^hndlr)(struct nlmsghdr *));
 int read_route(struct nlmsghdr *, void (^hndlr)(struct rtmsg *r, struct rtattr *tb[RTA_MAX + 1]));
 void get_attribute_data_rt(unsigned char family, struct rtattr *attrs[RTA_MAX + 1], enum rtattr_type_t attrKey, char **buf);
 int get_attribute_uint32_rt(struct rtattr *attrs[RTA_MAX + 1], enum rtattr_type_t attrKey, uint32_t *num);
+
+/* Raise CAP_NET_ADMIN into the ambient set so child processes inherit it. */
+int raise_ambient_cap_net_admin(void);
 
 #ifdef __cplusplus
 }

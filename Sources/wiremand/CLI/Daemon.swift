@@ -5,6 +5,7 @@ import Logging
 import Foundation
 import SwiftSlash
 import bedrock
+import Crtnetlink
 import ServiceLifecycle
 import NIO
 //import SignalStack
@@ -52,6 +53,15 @@ extension CLI {
 			guard FileManager.default.changeCurrentDirectoryPath("/") else {
 				appLogger.critical("unable to change working directory to /")
 				throw Error.invalidUser
+			}
+
+			// Raise CAP_NET_ADMIN into the ambient set so that child
+			// processes (wg, ip, nft) inherit it. Systemd's
+			// AmbientCapabilities= should do this, but on some
+			// configurations it does not take effect.
+			let capResult = raise_ambient_cap_net_admin()
+			if capResult != 0 {
+				appLogger.warning("unable to raise ambient CAP_NET_ADMIN (errno \(capResult)); child processes may lack netlink privileges")
 			}
 
 			let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)

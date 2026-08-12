@@ -373,3 +373,23 @@ int get_attribute_uint32_rt(struct rtattr *attrs[RTA_MAX + 1], enum rtattr_type_
     *num = 0;
     return -1;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Ambient capability raising                                         */
+/*                                                                      *
+ * The daemon needs CAP_NET_ADMIN in its ambient set so that child      *
+ * processes (wg, ip, etc.) spawned via posix_spawn inherit the         *
+ * capability. Systemd's AmbientCapabilities= directive should set      *
+ * this, but on some configurations it does not take effect. This       *
+ * fallback raises it from the process's own Permitted+Inheritable      *
+ * sets, which are already granted by the systemd unit or file cap.     */
+/* ------------------------------------------------------------------ */
+
+int raise_ambient_cap_net_admin(void)
+{
+    int rc = prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, CAP_NET_ADMIN, CAP_NET_ADMIN, 0);
+    if (rc < 0) {
+        return -errno;
+    }
+    return 0;
+}
