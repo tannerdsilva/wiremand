@@ -22,8 +22,48 @@
 ║    3. Copies the provided .conf into the managed configurations directory    ║
 ║       at %ProgramFiles%\WireGuard\Data\Configurations\.                      ║
 ║    4. The Manager Service automatically encrypts the config to .conf.dpapi   ║
-║       and locks it so only SYSTEM can read it.                               ║
-║    5. Optionally sets HKLM\Software\WireGuard\LimitedOperatorUI.             ║
+║       (CryptProtectData, Local System scope) and locks it so only SYSTEM     ║
+║       can read it. This is what prevents users from removing or editing      ║
+║       the config -- there is no separate "DisableRemove" registry key.       ║
+║    5. Optionally sets HKLM\Software\WireGuard\LimitedOperatorUI to enable    ║
+║       a restricted system-tray UI for non-admin users (see REGISTRY KEY      ║
+║       section below for full scope analysis).                                ║
+║                                                                              ║
+║  REGISTRY KEY: LimitedOperatorUI (CRITICAL ANALYSIS)                         ║
+║  ────────────────────────────────────────────                                ║
+║  Path:   HKLM\Software\WireGuard\LimitedOperatorUI                          ║
+║  Type:   REG_DWORD (1 = enabled)                                            ║
+║  Scope:  Machine-wide (HKLM). Affects ALL tunnels for ALL qualifying        ║
+║          users on this machine. There is no per-tunnel or per-user variant.  ║
+║                                                                              ║
+║  What it does:                                                               ║
+║    When enabled, the WireGuard Manager Service will launch a RESTRICTED      ║
+║    system-tray UI for users who belong to the builtin "Network               ║
+║    Configuration Operators" group (S-1-5-32-556). The restricted UI:         ║
+║      - Strips all keys from displayed configs (public, private, preshared)   ║
+║      - Forbids adding, removing, editing, importing, or exporting configs    ║
+║      - Forbids quitting the manager                                          ║
+║      - Suppresses update notifications                                       ║
+║      - Still allows starting and stopping tunnels                            ║
+║                                                                              ║
+║  Who it affects:                                                             ║
+║    - Administrators: NO EFFECT. Admins always get the full UI regardless.    ║
+║    - Network Configuration Operators: Gets the restricted UI described above.║
+║    - Regular users (neither group): No UI at all, with or without this key.  ║
+║                                                                              ║
+║  Prerequisite -- Network Configuration Operators group:                      ║
+║    This key ONLY has an effect if the target user is a member of the         ║
+║    builtin "Network Configuration Operators" group. This group exists        ║
+║    on every Windows machine (no Domain Controller required) but is empty     ║
+║    by default. You must add users to this group for the key to matter.       ║
+║    Use -AddToNetConfigOperators to do this automatically.                    ║
+║                                                                              ║
+║  Caching caveat (important):                                                 ║
+║    The WireGuard Manager Service reads this key ONCE at process start and    ║
+║    caches the handle via sync.Once (see conf/admin_windows.go in the         ║
+║    WireGuard source). Setting the key while the service is running has NO    ║
+║    immediate effect. This script handles this by restarting the Manager      ║
+║    Service after setting the key, so the change takes effect right away.     ║
 ║                                                                              ║
 ║  DRY RUN                                                                     ║
 ║    Pass -DryRun to see a complete structured breakdown of every action       ║
@@ -31,14 +71,16 @@
 ║    designed for consumption by low-parameter-count models.                   ║
 ║                                                                              ║
 ║  PARAMETERS                                                                  ║
-║    -ConfigContent      Inline WireGuard config string                        ║
-║    -ConfigPath         Path to a .conf file to deploy                       ║
-║    -TunnelName         Name for the tunnel (derived from filename if omitted)║
-║    -LimitedOperatorUI  Enable non-admin start/stop via system tray           ║
-║    -NoStart            Do not start the tunnel after deployment              ║
-║    -Remove             Remove a previously deployed managed config           ║
-║    -Force              When removing, stop the tunnel service first          ║
-║    -DryRun             Preview all actions without executing them            ║
+║    -ConfigContent              Inline WireGuard config string                ║
+║    -ConfigPath                 Path to a .conf file to deploy               ║
+║    -TunnelName                 Name for the tunnel (derived from filename)   ║
+║    -LimitedOperatorUI          Enable restricted system-tray UI for non-admins║
+║    -AddToNetConfigOperators    Add a user to Network Configuration Operators ║
+║                                (defaults to current user; pass DOMAIN\User)  ║
+║    -NoStart                    Do not start the tunnel after deployment      ║
+║    -Remove                     Remove a previously deployed managed config   ║
+║    -Force                      When removing, stop the tunnel service first  ║
+║    -DryRun                     Preview all actions without executing them    ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 #>
@@ -55,6 +97,9 @@ param(
 
     [Parameter(Mandatory = $false)]
     [switch]$LimitedOperatorUI,
+
+    [Parameter(Mandatory = $false)]
+    [string]$AddToNetConfigOperators = "",
 
     [Parameter(Mandatory = $false)]
     [switch]$NoStart,
@@ -95,13 +140,14 @@ function EmitDryRunReport {
     if (-not $DryRun) { return }
     Write-Host "[DRY-RUN] Script: Install-WireGuardManagedClient.ps1"
     Write-Host "[DRY-RUN] Parameters:"
-    Write-Host "[DRY-RUN]   ConfigContent     = $(if ($ConfigContent) { '(provided, N chars)' } else { '(not provided)' })"
-    Write-Host "[DRY-RUN]   ConfigPath        = $ConfigPath"
-    Write-Host "[DRY-RUN]   TunnelName        = $TunnelName"
-    Write-Host "[DRY-RUN]   LimitedOperatorUI = $LimitedOperatorUI"
-    Write-Host "[DRY-RUN]   NoStart           = $NoStart"
-    Write-Host "[DRY-RUN]   Remove            = $Remove"
-    Write-Host "[DRY-RUN]   Force             = $Force"
+    Write-Host "[DRY-RUN]   ConfigContent           = $(if ($ConfigContent) { '(provided)' } else { '(not provided)' })"
+    Write-Host "[DRY-RUN]   ConfigPath              = $ConfigPath"
+    Write-Host "[DRY-RUN]   TunnelName              = $TunnelName"
+    Write-Host "[DRY-RUN]   LimitedOperatorUI       = $LimitedOperatorUI"
+    Write-Host "[DRY-RUN]   AddToNetConfigOperators = $(if ($AddToNetConfigOperators) { $AddToNetConfigOperators } else { '(not specified)' })"
+    Write-Host "[DRY-RUN]   NoStart                 = $NoStart"
+    Write-Host "[DRY-RUN]   Remove                  = $Remove"
+    Write-Host "[DRY-RUN]   Force                   = $Force"
     Write-Host "[DRY-RUN]"
     Write-Host "[DRY-RUN] === PLAN ==="
     if ($Remove) {
@@ -114,8 +160,10 @@ function EmitDryRunReport {
         Write-Host "[DRY-RUN] Step 1: Install WireGuard product (if missing)"
         Write-Host "[DRY-RUN] Step 2: Install Manager Service (if missing)"
         Write-Host "[DRY-RUN] Step 3: Deploy config to managed directory"
-        Write-Host "[DRY-RUN] Step 4: Set LimitedOperatorUI registry key (if requested)"
-        Write-Host "[DRY-RUN] Step 5: Start tunnel (unless -NoStart)"
+        Write-Host "[DRY-RUN] Step 4: Add user to Network Configuration Operators group (if requested)"
+        Write-Host "[DRY-RUN] Step 5: Set LimitedOperatorUI registry key (if requested)"
+        Write-Host "[DRY-RUN] Step 6: Restart Manager Service (if registry key was changed)"
+        Write-Host "[DRY-RUN] Step 7: Start tunnel (unless -NoStart)"
     }
     Write-Host "[DRY-RUN]"
 
@@ -342,15 +390,101 @@ Files to remove:
     }
 }
 
+# ---- LimitedOperatorUI: full analysis and application ----
+
+<#
+  LimitedOperatorUI -- SCOPE ANALYSIS
+
+  Source: WireGuard for Windows, conf/admin_windows.go
+  https://github.com/WireGuard/wireguard-windows/blob/master/conf/admin_windows.go
+
+  The Go code reads this key once per process lifetime:
+    func openAdminKey() (registry.Key, error) {
+        adminKeyOnce.Do(func() {
+            adminKey, adminKeyErr = registry.OpenKey(
+                registry.LOCAL_MACHINE,
+                `Software\WireGuard`,
+                registry.QUERY_VALUE|registry.WOW64_64KEY,
+            )
+        })
+        return adminKey, adminKeyErr
+    }
+
+  func AdminBool(name string) bool {
+        key, err := openAdminKey()
+        if err != nil { return false }
+        val, _, err := key.GetIntegerValue(name)
+        if err != nil { return false }
+        return val != 0
+    }
+
+  KEY FINDINGS:
+  1. Path: HKLM\Software\WireGuard\LimitedOperatorUI (REG_DWORD)
+  2. Scope: HKLM = machine-wide. Affects ALL tunnels for ALL qualifying users.
+  3. Caching: sync.Once means the key is read ONCE when the Manager Service starts.
+     Subsequent changes require a service restart to take effect.
+  4. WOW64: The key is opened with WOW64_64KEY, so it reads the 64-bit view even
+     from a 32-bit process. Our script writes to the 64-bit view by default
+     (PowerShell on 64-bit Windows writes to the 64-bit view).
+  5. Default: If the key doesn't exist or can't be read, AdminBool returns false.
+  6. No other keys: There is no "DisableRemove" or per-tunnel registry key.
+     The "can't remove" behavior comes from the DPAPI encryption + ACL that the
+     Manager Service applies automatically to .conf.dpapi files.
+
+  WHO IT AFFECTS:
+  - Administrators: NO EFFECT (full UI regardless)
+  - Network Configuration Operators: Gets restricted UI (start/stop only)
+  - Regular users: No UI at all (with or without this key)
+
+  PREREQUISITE:
+  The target user MUST be a member of the builtin "Network Configuration Operators"
+  group (S-1-5-32-556). This group exists on every Windows machine (no DC needed)
+  but is empty by default.
+#>
+
+function Add-UserToNetConfigOperators {
+    param([string]$UserName)
+
+    if (-not $UserName) {
+        $UserName = "$env:USERDOMAIN\$env:USERNAME"
+    }
+
+    DryTrace -Section "Step 4: Group Membership" -Action "Add user to Network Configuration Operators" -Detail @"
+User: $UserName
+Group: BUILTIN\Network Configuration Operators (S-1-5-32-556)
+Method: net localgroup
+Note: This group exists on every Windows machine. No Domain Controller required.
+"@
+
+    if (-not $DryRun) {
+        Write-Log "Adding user '$UserName' to Network Configuration Operators group..."
+        $result = net localgroup "Network Configuration Operators" $UserName /add 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Log "User '$UserName' added to Network Configuration Operators group."
+            Write-Log "The change takes effect on next logon."
+        } else {
+            Write-Log "Failed to add user to group: $result" -Level "WARN"
+            Write-Log "You may need to add the user manually via 'net localgroup' or 'lusrmgr.msc'." -Level "WARN"
+        }
+    }
+}
+
 function Set-LimitedOperatorUIRegistry {
-    DryTrace -Section "Step 4: Registry" -Action "Set LimitedOperatorUI registry key" -Detail @"
-Path: HKLM:\Software\WireGuard
-Name: LimitedOperatorUI
-Type: REG_DWORD
-Value: 1
-Effect: Network Configuration Operators can start/stop tunnels via system tray
-         without full admin rights. They CANNOT add, remove, edit, import, or
-         export configurations.
+    DryTrace -Section "Step 5: Registry" -Action "Set LimitedOperatorUI registry key" -Detail @"
+Path:   HKLM:\Software\WireGuard
+Name:   LimitedOperatorUI
+Type:   REG_DWORD
+Value:  1
+Scope:  Machine-wide (all tunnels, all qualifying users)
+
+CRITICAL NOTES:
+1. This key ONLY affects users in the Network Configuration Operators group.
+   Regular users and Administrators are unaffected.
+2. The WireGuard Manager Service caches this key at process start (sync.Once).
+   The service MUST be restarted for the change to take effect.
+3. There is no per-tunnel or per-user variant of this key.
+4. There is no "DisableRemove" key. Config removal is prevented by the
+   Manager Service's DPAPI encryption mechanism, not by registry settings.
 "@
 
     if (-not $DryRun) {
@@ -360,7 +494,38 @@ Effect: Network Configuration Operators can start/stop tunnels via system tray
             New-Item -Path $regPath -Force | Out-Null
         }
         Set-ItemProperty -Path $regPath -Name "LimitedOperatorUI" -Value 1 -Type DWord -Force
-        Write-Log "LimitedOperatorUI enabled. Network Configuration Operators can now start/stop tunnels via the system tray."
+        Write-Log "LimitedOperatorUI = 1 written to HKLM\Software\WireGuard."
+        Write-Log ""
+        Write-Log "SCOPE: Machine-wide. Affects ALL tunnels for ALL users in the"
+        Write-Log "       Network Configuration Operators group on this machine."
+        Write-Log ""
+        Write-Log "PREREQUISITE: The target user must be a member of the builtin"
+        Write-Log "       'Network Configuration Operators' group. Use"
+        Write-Log "       -AddToNetConfigOperators to add them automatically."
+        Write-Log ""
+        Write-Log "NOTE: The Manager Service caches this key at startup. The service"
+        Write-Log "       will be restarted to apply the change."
+    }
+}
+
+function Restart-ManagerService {
+    DryTrace -Section "Step 6: Service Restart" -Action "Restart WireGuard Manager Service" -Detail @"
+Reason: The Manager Service caches registry keys at process start (sync.Once).
+Without a restart, the LimitedOperatorUI change will not take effect until the
+next time the service starts (e.g., on reboot).
+"@ -Condition "LimitedOperatorUI was enabled"
+
+    if (-not $DryRun) {
+        Write-Log "Restarting WireGuard Manager Service to apply registry change..."
+        Stop-Service -Name "WireGuardManager" -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Start-Service -Name "WireGuardManager" -ErrorAction SilentlyContinue
+        $svc = Get-Service "WireGuardManager" -ErrorAction SilentlyContinue
+        if ($svc -and $svc.Status -eq "Running") {
+            Write-Log "WireGuard Manager Service restarted successfully."
+        } else {
+            Write-Log "WireGuard Manager Service could not be restarted." -Level "WARN"
+        }
     }
 }
 
@@ -421,20 +586,39 @@ Config length: $($resolvedContent.Length) chars
     # 4. Deploy config to managed directory
     $finalTunnelName = Deploy-ManagedConfig -ConfigContent $resolvedContent -TunnelName $TunnelName
 
-    # 5. Optionally enable LimitedOperatorUI
-    if ($LimitedOperatorUI) {
-        Set-LimitedOperatorUIRegistry
+    # 5. Optionally add user to Network Configuration Operators group
+    if ($AddToNetConfigOperators -or $LimitedOperatorUI) {
+        $targetUser = if ($AddToNetConfigOperators) { $AddToNetConfigOperators } else { "" }
+        Add-UserToNetConfigOperators -UserName $targetUser
     } else {
-        DryTrace -Section "Step 4: Registry" -Action "Skip LimitedOperatorUI" -Condition "-LimitedOperatorUI not specified"
+        DryTrace -Section "Step 4: Group Membership" -Action "Skip group membership change" `
+            -Condition "-AddToNetConfigOperators not specified and -LimitedOperatorUI not specified"
     }
 
-    # 6. Optionally start the tunnel
+    # 6. Optionally enable LimitedOperatorUI
+    $registryWasChanged = $false
+    if ($LimitedOperatorUI) {
+        Set-LimitedOperatorUIRegistry
+        $registryWasChanged = $true
+    } else {
+        DryTrace -Section "Step 5: Registry" -Action "Skip LimitedOperatorUI" -Condition "-LimitedOperatorUI not specified"
+    }
+
+    # 7. Restart Manager Service if registry was changed (sync.Once caching)
+    if ($registryWasChanged) {
+        Restart-ManagerService
+    } else {
+        DryTrace -Section "Step 6: Service Restart" -Action "Skip Manager Service restart" `
+            -Condition "LimitedOperatorUI was not enabled"
+    }
+
+    # 8. Optionally start the tunnel
     if (-not $NoStart) {
         $serviceName = "WireGuardTunnel`$$finalTunnelName"
-        DryTrace -Section "Step 5: Start Tunnel" -Action "Wait for Manager Service to process config" `
+        DryTrace -Section "Step 7: Start Tunnel" -Action "Wait for Manager Service to process config" `
             -Detail "Sleep 5 seconds, then check for service: $serviceName" `
             -Condition "-NoStart not specified"
-        DryTrace -Section "Step 5: Start Tunnel" -Action "Start tunnel service (if created)" `
+        DryTrace -Section "Step 7: Start Tunnel" -Action "Start tunnel service (if created)" `
             -Detail "Command: Start-Service -Name $serviceName" `
             -Condition "Service exists after Manager Service processing"
 
@@ -451,18 +635,19 @@ Config length: $($resolvedContent.Length) chars
             }
         }
     } else {
-        DryTrace -Section "Step 5: Start Tunnel" -Action "Skip tunnel start" -Condition "-NoStart specified"
+        DryTrace -Section "Step 7: Start Tunnel" -Action "Skip tunnel start" -Condition "-NoStart specified"
     }
 
     # ---- Emit dry-run report and exit if dry run ----
     EmitDryRunReport
 
-    # 7. Summary
+    # 9. Summary
     Write-Log "=== Deployment Summary ==="
-    Write-Log "Tunnel Name       : $finalTunnelName"
-    Write-Log "Config Location   : $script:managedConfigDir\$finalTunnelName.conf"
-    Write-Log "Manager Service   : Installed and running"
-    Write-Log "LimitedOperatorUI : $(if ($LimitedOperatorUI) { 'Enabled' } else { 'Not enabled' })"
+    Write-Log "Tunnel Name            : $finalTunnelName"
+    Write-Log "Config Location        : $script:managedConfigDir\$finalTunnelName.conf"
+    Write-Log "Manager Service        : Installed and running"
+    Write-Log "LimitedOperatorUI      : $(if ($LimitedOperatorUI) { 'Enabled (machine-wide)' } else { 'Not enabled' })"
+    Write-Log "Net Config Operators   : $(if ($AddToNetConfigOperators -or $LimitedOperatorUI) { "User added to group (if not already member)" } else { 'Not modified' })"
     Write-Log ""
     Write-Log "The user can now start/stop their VPN tunnel from the WireGuard system tray icon."
     Write-Log "The configuration is encrypted and locked - it cannot be removed or edited via the GUI."
