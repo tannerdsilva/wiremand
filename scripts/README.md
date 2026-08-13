@@ -33,7 +33,7 @@ Key parameters:
 | `-GenerateClientConfigs` | Emit a ready-to-deploy `.conf` per peer |
 | `-Endpoint` | Public address for generated client configs |
 | `-Force` | Remove and re-create an existing tunnel service |
-| `-DryRun` | Preview all actions without modifying the system |
+| `-NoDry` | Execute changes for real (default is dry-run) |
 
 Example:
 ```powershell
@@ -69,7 +69,7 @@ Key parameters:
 | `-AddToNetConfigOperators` | Add a user to the Network Configuration Operators group (defaults to current user when `-LimitedOperatorUI` is passed) |
 | `-Remove` | Remove a previously deployed managed config |
 | `-Force` | When removing, stop the tunnel service first |
-| `-DryRun` | Preview all actions without modifying the system |
+| `-NoDry` | Execute changes for real (default is dry-run) |
 
 Example:
 ```powershell
@@ -120,7 +120,7 @@ Key parameters:
 | Parameter | Purpose |
 |-----------|---------|
 | `-Force` | Skip confirmation prompts |
-| `-DryRun` | Preview all actions without modifying the system |
+| `-NoDry` | Execute changes for real (default is dry-run) |
 | `-ScanOnly` | Only scan and report findings, do not remove anything |
 | `-PreserveConfigs` | Do not delete configuration/data directories |
 
@@ -139,11 +139,11 @@ The script scans `C:\` to depth 3 using two tiers of pattern matching:
 
 Example:
 ```powershell
-# Preview what would be removed
-.\Invoke-WireGuardEnvironmentReset.ps1 -DryRun
+# Preview what would be removed (default, no flag needed)
+.\Invoke-WireGuardEnvironmentReset.ps1
 
 # Full reset without prompts
-.\Invoke-WireGuardEnvironmentReset.ps1 -Force
+.\Invoke-WireGuardEnvironmentReset.ps1 -Force -NoDry
 
 # Just scan and report
 .\Invoke-WireGuardEnvironmentReset.ps1 -ScanOnly
@@ -151,18 +151,17 @@ Example:
 
 ---
 
-## Dry-run mode (all three scripts)
+## Dry-run mode (default, all three scripts)
 
-Every script supports `-DryRun`. When enabled, the script produces a
-structured `[DRY-RUN]`-prefixed output showing:
+By default, every script runs in **dry-run mode**: it produces a structured
+`[DRY-RUN]`-prefixed output showing all parameters, the full execution plan,
+every action with its condition, and detailed information about each action.
+No system modifications are made.
 
-- All parameters and their values
-- The full execution plan (every step in order)
-- Every action with its condition (why it will or won't run)
-- Detailed information about each action (file paths, commands, registry keys)
+Pass `-NoDry` to execute changes for real.
 
-No system modifications are made. The output is designed to be parsable by
-low-parameter-count models and readable by humans.
+The output is designed to be parsable by low-parameter-count models and
+readable by humans.
 
 ---
 
@@ -172,7 +171,7 @@ For a typical enterprise deployment across a fleet of standalone machines:
 
 1. **Reset** each machine to a known state:
    ```powershell
-   .\Invoke-WireGuardEnvironmentReset.ps1 -Force
+   .\Invoke-WireGuardEnvironmentReset.ps1 -Force -NoDry
    ```
 
 2. **Deploy the server/infrastructure tunnel** on gateway machines:

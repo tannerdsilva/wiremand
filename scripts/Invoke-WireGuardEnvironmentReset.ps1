@@ -28,23 +28,24 @@
 ║      STRATEGY above for rationale)                                           ║
 ║    - WireGuard Windows Firewall rules                                        ║
 ║                                                                              ║
-║  DRY RUN                                                                     ║
-║    Pass -DryRun to see a complete structured breakdown of every action       ║
-║    the script would take, without modifying the system. The output is        ║
-║    designed for consumption by low-parameter-count models.                   ║
+║  DRY-RUN MODE (DEFAULT)                                                        ║
+║    By default the script runs in dry-run mode: it produces a structured         ║
+║    breakdown of every action it would take without modifying the system.        ║
+║    Pass -NoDry to execute changes for real. The output is designed for          ║
+║    consumption by low-parameter-count models.                                   ║
 ║                                                                              ║
 ║  PARAMETERS                                                                  ║
-║    -DryRun          Preview all actions without executing them               ║
+║    -NoDry           Execute changes for real (default is dry-run)            ║
 ║    -Force           Skip confirmation prompts                                ║
 ║    -ScanOnly        Only scan and report findings, do not remove anything    ║
 ║    -PreserveConfigs Do not delete configuration/data directories             ║
 ║                                                                              ║
 ║  EXAMPLES                                                                    ║
-║    # Preview what would be removed                                           ║
-║    .\Invoke-WireGuardEnvironmentReset.ps1 -DryRun                            ║
+║    # Preview what would be removed (default, no flag needed)                 ║
+║    .\Invoke-WireGuardEnvironmentReset.ps1                                    ║
 ║                                                                              ║
 ║    # Full reset without prompts                                              ║
-║    .\Invoke-WireGuardEnvironmentReset.ps1 -Force                             ║
+║    .\Invoke-WireGuardEnvironmentReset.ps1 -Force -NoDry                      ║
 ║                                                                              ║
 ║    # Just scan and report                                                    ║
 ║    .\Invoke-WireGuardEnvironmentReset.ps1 -ScanOnly                          ║
@@ -54,7 +55,7 @@
 
 param(
     [Parameter(Mandatory = $false)]
-    [switch]$DryRun,
+    [switch]$NoDry,
 
     [Parameter(Mandatory = $false)]
     [switch]$Force,
@@ -78,7 +79,7 @@ $script:dryRunActions = @()
 
 function DryTrace {
     param([string]$Section, [string]$Action, [string]$Detail = "", [string]$Condition = "")
-    if (-not $DryRun) { return }
+    if ($NoDry) { return }
     $script:dryRunActions += [PSCustomObject]@{
         Section   = $Section
         Action    = $Action
@@ -88,10 +89,10 @@ function DryTrace {
 }
 
 function EmitDryRunReport {
-    if (-not $DryRun) { return }
+    if ($NoDry) { return }
     Write-Host "[DRY-RUN] Script: Invoke-WireGuardEnvironmentReset.ps1"
     Write-Host "[DRY-RUN] Parameters:"
-    Write-Host "[DRY-RUN]   DryRun          = $DryRun"
+    Write-Host "[DRY-RUN]   NoDry           = $NoDry"
     Write-Host "[DRY-RUN]   Force           = $Force"
     Write-Host "[DRY-RUN]   ScanOnly        = $ScanOnly"
     Write-Host "[DRY-RUN]   PreserveConfigs = $PreserveConfigs"
@@ -124,7 +125,7 @@ function EmitDryRunReport {
 
     Write-Host "[DRY-RUN]"
     Write-Host "[DRY-RUN] === DRY-RUN COMPLETE ==="
-    Write-Host "[DRY-RUN] No changes were made to the system."
+    Write-Host "[DRY-RUN] No changes were made to the system. Pass -NoDry to execute."
     exit 0
 }
 
@@ -357,7 +358,7 @@ function Stop-WireGuardServices {
     param([array]$Services)
     foreach ($s in $Services) {
         if ($s.Status -eq "Running") {
-            if (-not $DryRun) {
+            if ($NoDry) {
                 Write-Log "Stopping service: $($s.Name)"
                 Stop-Service -Name $s.Name -Force -ErrorAction SilentlyContinue
                 Start-Sleep -Seconds 2
@@ -368,7 +369,7 @@ function Stop-WireGuardServices {
 
 function Uninstall-WireGuardTunnelService {
     param([string]$TunnelName)
-    if (-not $DryRun) {
+    if ($NoDry) {
         $proc = Start-Process -FilePath $script:wgExe -ArgumentList @("/uninstalltunnelservice", $TunnelName) -Wait -PassThru -NoNewWindow
         if ($proc.ExitCode -ne 0) {
             Write-Log "Uninstall tunnel '$TunnelName' returned $($proc.ExitCode); continuing..." -Level "WARN"
@@ -377,7 +378,7 @@ function Uninstall-WireGuardTunnelService {
 }
 
 function Uninstall-WireGuardManagerService {
-    if (-not $DryRun) {
+    if ($NoDry) {
         $proc = Start-Process -FilePath $script:wgExe -ArgumentList "/uninstallmanagerservice" -Wait -PassThru -NoNewWindow
         if ($proc.ExitCode -ne 0) {
             Write-Log "Uninstall manager service returned $($proc.ExitCode); continuing..." -Level "WARN"
@@ -386,7 +387,7 @@ function Uninstall-WireGuardManagerService {
 }
 
 function Uninstall-WireGuardDriver {
-    if (-not $DryRun) {
+    if ($NoDry) {
         $proc = Start-Process -FilePath $script:wgExe -ArgumentList "/removedriver" -Wait -PassThru -NoNewWindow
         if ($proc.ExitCode -ne 0) {
             Write-Log "Driver removal returned $($proc.ExitCode); continuing..." -Level "WARN"
@@ -398,7 +399,7 @@ function Uninstall-WireGuardMsi {
     param([array]$Products)
     foreach ($p in $Products) {
         if ($p.ProductCode) {
-            if (-not $DryRun) {
+            if ($NoDry) {
                 Write-Log "Uninstalling MSI: $($p.Name) ($($p.ProductCode))"
                 $proc = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/x $($p.ProductCode) /qn /norestart"
                 if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010 -and $proc.ExitCode -ne 1605) {
@@ -412,7 +413,7 @@ function Uninstall-WireGuardMsi {
 function Remove-WireGuardRegistryKeys {
     param([array]$Keys)
     foreach ($k in $Keys) {
-        if (-not $DryRun) {
+        if ($NoDry) {
             Write-Log "Removing registry key: $k"
             Remove-Item -Path $k -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -422,7 +423,7 @@ function Remove-WireGuardRegistryKeys {
 function Remove-WireGuardFirewallRules {
     param([array]$Rules)
     foreach ($r in $Rules) {
-        if (-not $DryRun) {
+        if ($NoDry) {
             Write-Log "Removing firewall rule: $($r.DisplayName)"
             Remove-NetFirewallRule -DisplayName $r.DisplayName -ErrorAction SilentlyContinue
         }
@@ -439,7 +440,7 @@ function Remove-WireGuardFileArtifacts {
 
     foreach ($p in $allPaths) {
         if (Test-Path $p) {
-            if (-not $DryRun) {
+            if ($NoDry) {
                 Write-Log "Removing: $p"
                 if ((Get-Item $p).PSIsContainer) {
                     Remove-Item -Path $p -Recurse -Force -ErrorAction SilentlyContinue
@@ -592,7 +593,7 @@ function Main {
             Uninstall-WireGuardManagerService
         } else {
             Write-Log "wireguard.exe not available; using sc.exe fallback..." -Level "WARN"
-            if (-not $DryRun) {
+            if ($NoDry) {
                 $proc = Start-Process sc.exe -Wait -PassThru -NoNewWindow -ArgumentList "delete", "WireGuardManager"
                 if ($proc.ExitCode -ne 0) {
                     Write-Log "sc.exe delete returned $($proc.ExitCode); continuing..." -Level "WARN"

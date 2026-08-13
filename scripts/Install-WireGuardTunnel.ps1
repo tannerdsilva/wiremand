@@ -28,10 +28,11 @@
 ║    6. Enables IP forwarding (registry, requires reboot).                     ║
 ║    7. Optionally generates ready-to-deploy client .conf files for each peer. ║
 ║                                                                              ║
-║  DRY RUN                                                                     ║
-║    Pass -DryRun to see a complete structured breakdown of every action       ║
-║    the script would take, without modifying the system. The output is        ║
-║    designed for consumption by low-parameter-count models.                   ║
+║  DRY-RUN MODE (DEFAULT)                                                        ║
+║    By default the script runs in dry-run mode: it produces a structured         ║
+║    breakdown of every action it would take without modifying the system.        ║
+║    Pass -NoDry to execute changes for real. The output is designed for          ║
+║    consumption by low-parameter-count models.                                   ║
 ║                                                                              ║
 ║  PARAMETERS                                                                  ║
 ║    -InterfaceName       Name for the tunnel (default: "wg0")                 ║
@@ -45,7 +46,7 @@
 ║    -GenerateClientConfigs  Emit a ready-to-use .conf per peer                ║
 ║    -Endpoint            Public address for client configs                    ║
 ║    -Force               Remove and re-create an existing tunnel service      ║
-║    -DryRun              Preview all actions without executing them           ║
+║    -NoDry               Execute changes for real (default is dry-run)        ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 #>
@@ -85,7 +86,7 @@ param(
     [switch]$Force,
 
     [Parameter(Mandatory = $false)]
-    [switch]$DryRun
+    [switch]$NoDry
 )
 
 #Requires -RunAsAdministrator
@@ -100,7 +101,7 @@ $script:dryRunActions = @()
 
 function DryTrace {
     param([string]$Section, [string]$Action, [string]$Detail = "", [string]$Condition = "")
-    if (-not $DryRun) { return }
+    if ($NoDry) { return }
     $script:dryRunActions += [PSCustomObject]@{
         Section   = $Section
         Action    = $Action
@@ -110,7 +111,7 @@ function DryTrace {
 }
 
 function EmitDryRunReport {
-    if (-not $DryRun) { return }
+    if ($NoDry) { return }
     Write-Host "[DRY-RUN] Script: Install-WireGuardTunnel.ps1"
     Write-Host "[DRY-RUN] Parameters:"
     Write-Host "[DRY-RUN]   InterfaceName       = $InterfaceName"
@@ -156,7 +157,7 @@ function EmitDryRunReport {
 
     Write-Host "[DRY-RUN]"
     Write-Host "[DRY-RUN] === DRY-RUN COMPLETE ==="
-    Write-Host "[DRY-RUN] No changes were made to the system."
+    Write-Host "[DRY-RUN] No changes were made to the system. Pass -NoDry to execute."
     exit 0
 }
 
@@ -191,7 +192,7 @@ function Install-WireGuardProduct {
         -Detail "msiexec /i `"$msi`" /qn DO_NOT_LAUNCH=1 /norestart" `
         -Condition "After download"
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             (New-Object System.Net.WebClient).DownloadFile($url, $msi)
@@ -215,7 +216,7 @@ function New-WireGuardKeyPair {
     DryTrace -Section "Step 2: Generate Keys" -Action "Generate private key" -Detail "Run: wg genkey"
     DryTrace -Section "Step 2: Generate Keys" -Action "Derive public key" -Detail "Run: wg pubkey (stdin pipe)"
 
-    if ($DryRun) {
+    if (-not $NoDry) {
         return @{ PrivateKey = "(would-generate)"; PublicKey = "(would-derive)" }
     }
 
@@ -244,7 +245,7 @@ Registry paths:
   HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters\IPEnableRouter = 1
 Note: Requires reboot to take effect.
 "@
-    if (-not $DryRun) {
+    if ($NoDry) {
         Write-Log "Enabling IP forwarding..."
         $paths = @(
             "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
@@ -263,7 +264,7 @@ function Add-WireGuardFirewallRule {
     DryTrace -Section "Step 5: Firewall" -Action "Create firewall rule" `
         -Detail "Name: $ruleName`nDirection: Inbound`nProtocol: UDP`nLocalPort: $Port`nAction: Allow`nProfile: Any"
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
         if ($existing) {
             Write-Log "Firewall rule '$ruleName' already exists."
@@ -284,7 +285,7 @@ function Remove-ExistingTunnelService {
         -Detail "Service: $serviceName`nCommand: wireguard /uninstalltunnelservice $Name" `
         -Condition "Existing tunnel service found"
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         Write-Log "Removing existing tunnel service: $serviceName"
         Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
@@ -365,10 +366,10 @@ function Main {
     # 3. Generate server keys
     Write-Log "Generating server key pair..."
     $keys = New-WireGuardKeyPair
-    if (-not $DryRun) {
+    if ($NoDry) {
         Write-Log "Server Public Key: $($keys.PublicKey)"
     } else {
-        Write-Log "(dry-run) Server Public Key: would generate new key pair"
+        Write-Log "(preview) Server Public Key: would generate new key pair"
     }
 
     # 4. Build server configuration
@@ -406,7 +407,7 @@ function Main {
     # 5. Write config and install tunnel service
     if (-not (Test-Path $ConfigOutputDir)) {
         DryTrace -Section "Step 3: Configuration" -Action "Create config directory" -Detail $ConfigOutputDir
-        if (-not $DryRun) {
+        if ($NoDry) {
             New-Item -ItemType Directory -Path $ConfigOutputDir -Force | Out-Null
         }
     }
@@ -420,7 +421,7 @@ Config content:
 $($configLines -join "`n")
 "@
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         Write-Log "Writing server configuration to: $configPath"
         Set-Content -Path $configPath -Value $configContent -Encoding ASCII
 
@@ -432,7 +433,7 @@ $($configLines -join "`n")
     DryTrace -Section "Step 4: Install Tunnel Service" -Action "Install tunnel service" `
         -Detail "Command: wireguard /installtunnelservice `"$configPath`"`nResulting service: WireGuardTunnel`$$InterfaceName (Automatic start)"
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         Write-Log "Installing tunnel service..."
         $installArgs = @("/installtunnelservice", "`"$configPath`"")
         $proc = Start-Process -FilePath $script:wgExe -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
@@ -463,7 +464,7 @@ $($configLines -join "`n")
         -Detail "Command: Start-Service -Name $serviceName" `
         -Condition "After tunnel service installation"
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         Write-Log "Starting tunnel service: $serviceName"
         Start-Service -Name $serviceName -ErrorAction SilentlyContinue
         $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
@@ -484,7 +485,7 @@ $($configLines -join "`n")
             DryTrace -Section "Step 8: Client Configs" -Action "Generate client configs" `
                 -Detail "Output directory: $clientDir`nEndpoint: $Endpoint`nPeers: $($parsedPeers.Count)"
 
-            if (-not $DryRun) {
+            if ($NoDry) {
                 if (-not (Test-Path $clientDir)) {
                     New-Item -ItemType Directory -Path $clientDir -Force | Out-Null
                 }
@@ -520,12 +521,12 @@ $($configLines -join "`n")
                 DryTrace -Section "Step 8: Client Configs" -Action "Write client config" `
                     -Detail "File: $clientConfigPath`nPeer: $peerName`nPublicKey: $($clientKeys.PublicKey)"
 
-                if (-not $DryRun) {
+                if ($NoDry) {
                     Set-Content -Path $clientConfigPath -Value $clientConfig -Encoding ASCII
                     Write-Log "  Generated client config: $clientConfigPath (PublicKey: $($clientKeys.PublicKey))"
                 }
             }
-            if (-not $DryRun) {
+            if ($NoDry) {
                 Write-Log "Client configs written to: $clientDir"
             }
         }

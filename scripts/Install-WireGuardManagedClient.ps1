@@ -65,10 +65,11 @@
 ║    immediate effect. This script handles this by restarting the Manager      ║
 ║    Service after setting the key, so the change takes effect right away.     ║
 ║                                                                              ║
-║  DRY RUN                                                                     ║
-║    Pass -DryRun to see a complete structured breakdown of every action       ║
-║    the script would take, without modifying the system. The output is        ║
-║    designed for consumption by low-parameter-count models.                   ║
+║  DRY-RUN MODE (DEFAULT)                                                        ║
+║    By default the script runs in dry-run mode: it produces a structured         ║
+║    breakdown of every action it would take without modifying the system.        ║
+║    Pass -NoDry to execute changes for real. The output is designed for          ║
+║    consumption by low-parameter-count models.                                   ║
 ║                                                                              ║
 ║  PARAMETERS                                                                  ║
 ║    -ConfigContent              Inline WireGuard config string                ║
@@ -82,7 +83,7 @@
 ║    -NoStart                    Do not start the tunnel after deployment      ║
 ║    -Remove                     Remove a previously deployed managed config   ║
 ║    -Force                      When removing, stop the tunnel service first  ║
-║    -DryRun                     Preview all actions without executing them    ║
+║    -NoDry                      Execute changes for real (default is dry-run)  ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 #>
@@ -113,7 +114,7 @@ param(
     [switch]$Force,
 
     [Parameter(Mandatory = $false)]
-    [switch]$DryRun
+    [switch]$NoDry
 )
 
 #Requires -RunAsAdministrator
@@ -129,7 +130,7 @@ $script:dryRunActions = @()
 
 function DryTrace {
     param([string]$Section, [string]$Action, [string]$Detail = "", [string]$Condition = "")
-    if (-not $DryRun) { return }
+    if ($NoDry) { return }
     $script:dryRunActions += [PSCustomObject]@{
         Section   = $Section
         Action    = $Action
@@ -139,7 +140,7 @@ function DryTrace {
 }
 
 function EmitDryRunReport {
-    if (-not $DryRun) { return }
+    if ($NoDry) { return }
     Write-Host "[DRY-RUN] Script: Install-WireGuardManagedClient.ps1"
     Write-Host "[DRY-RUN] Parameters:"
     Write-Host "[DRY-RUN]   ConfigContent           = $(if ($ConfigContent) { '(provided)' } else { '(not provided)' })"
@@ -187,7 +188,7 @@ function EmitDryRunReport {
 
     Write-Host "[DRY-RUN]"
     Write-Host "[DRY-RUN] === DRY-RUN COMPLETE ==="
-    Write-Host "[DRY-RUN] No changes were made to the system."
+    Write-Host "[DRY-RUN] No changes were made to the system. Pass -NoDry to execute."
     exit 0
 }
 
@@ -222,7 +223,7 @@ function Install-WireGuardProduct {
         -Detail "msiexec /i `"$msi`" /qn DO_NOT_LAUNCH=1 /norestart" `
         -Condition "After download"
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             (New-Object System.Net.WebClient).DownloadFile($url, $msi)
@@ -248,7 +249,7 @@ function Install-ManagerService {
         Write-Log "WireGuard Manager Service already exists (Status: $($svc.Status))."
         DryTrace -Section "Step 2: Manager Service" -Action "Skip install" `
             -Condition "Manager Service already exists (Status: $($svc.Status))"
-        if ($svc.Status -ne "Running" -and -not $DryRun) {
+        if ($svc.Status -ne "Running" -and $NoDry) {
             Start-Service -Name "WireGuardManager" -ErrorAction SilentlyContinue
             Write-Log "WireGuard Manager Service started."
         }
@@ -258,7 +259,7 @@ function Install-ManagerService {
     DryTrace -Section "Step 2: Manager Service" -Action "Install Manager Service" `
         -Detail "Command: wireguard /installmanagerservice`nResulting service: WireGuardManager (Automatic start)"
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         Write-Log "Installing WireGuard Manager Service..."
         $proc = Start-Process -FilePath $script:wgExe -ArgumentList "/installmanagerservice" -Wait -PassThru -NoNewWindow
         Start-Sleep -Seconds 3
@@ -279,7 +280,7 @@ function Deploy-ManagedConfig {
 
     if (-not (Test-Path $script:managedConfigDir)) {
         DryTrace -Section "Step 3: Deploy Config" -Action "Create managed config directory" -Detail $script:managedConfigDir
-        if (-not $DryRun) {
+        if ($NoDry) {
             New-Item -ItemType Directory -Path $script:managedConfigDir -Force | Out-Null
             Write-Log "Created managed configurations directory: $script:managedConfigDir"
         }
@@ -318,7 +319,7 @@ Post-write: Manager Service will:
 Result: Users can start/stop tunnel via system tray but cannot remove/edit config
 "@
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         if (Test-Path $configPath) {
             Write-Log "A pending configuration for '$TunnelName' already exists. Overwriting..." -Level "WARN"
         }
@@ -352,7 +353,7 @@ function Remove-ManagedConfig {
                 -Condition "-Force specified"
         }
 
-        if (-not $DryRun) {
+        if ($NoDry) {
             if ($Force) {
                 Write-Log "Stopping tunnel service: $serviceName"
                 Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
@@ -379,7 +380,7 @@ Files to remove:
   $dpapiPath (if exists)
 "@
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         if (Test-Path $configPath) {
             Remove-Item $configPath -Force -ErrorAction SilentlyContinue
             Write-Log "Removed: $configPath"
@@ -458,7 +459,7 @@ Method: net localgroup
 Note: This group exists on every Windows machine. No Domain Controller required.
 "@
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         Write-Log "Adding user '$UserName' to Network Configuration Operators group..."
         $result = net localgroup "Network Configuration Operators" $UserName /add 2>&1
         if ($LASTEXITCODE -eq 0) {
@@ -489,7 +490,7 @@ CRITICAL NOTES:
    Manager Service's DPAPI encryption mechanism, not by registry settings.
 "@
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         Write-Log "Setting LimitedOperatorUI registry key..."
         $regPath = "HKLM:\Software\WireGuard"
         if (-not (Test-Path $regPath)) {
@@ -517,7 +518,7 @@ Without a restart, the LimitedOperatorUI change will not take effect until the
 next time the service starts (e.g., on reboot).
 "@ -Condition "LimitedOperatorUI was enabled"
 
-    if (-not $DryRun) {
+    if ($NoDry) {
         Write-Log "Restarting WireGuard Manager Service to apply registry change..."
         Stop-Service -Name "WireGuardManager" -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
@@ -546,7 +547,7 @@ function Main {
         Install-WireGuardProduct
         Remove-ManagedConfig -TunnelName $TunnelName
         EmitDryRunReport
-        if (-not $DryRun) {
+        if ($NoDry) {
             Write-Log "=== Removal Complete ==="
         }
         return
@@ -624,7 +625,7 @@ Config length: $($resolvedContent.Length) chars
             -Detail "Command: Start-Service -Name $serviceName" `
             -Condition "Service exists after Manager Service processing"
 
-        if (-not $DryRun) {
+        if ($NoDry) {
             Write-Log "Waiting for Manager Service to process the configuration..."
             Start-Sleep -Seconds 5
             $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
