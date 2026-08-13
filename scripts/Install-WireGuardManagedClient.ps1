@@ -74,9 +74,11 @@
 ║    -ConfigContent              Inline WireGuard config string                ║
 ║    -ConfigPath                 Path to a .conf file to deploy               ║
 ║    -TunnelName                 Name for the tunnel (derived from filename)   ║
-║    -LimitedOperatorUI          Enable restricted system-tray UI for non-admins║
-║    -AddToNetConfigOperators    Add a user to Network Configuration Operators ║
-║                                (defaults to current user; pass DOMAIN\User)  ║
+║    -LimitedOperatorUI          Enable restricted system-tray UI for members of ║
+║                                the Network Configuration Operators group       ║
+║    -AddToNetConfigOperators    Add a user to Network Configuration Operators   ║
+║                                (defaults to current user when -LimitedOperatorUI║
+║                                is passed; specify DOMAIN\User to override)     ║
 ║    -NoStart                    Do not start the tunnel after deployment      ║
 ║    -Remove                     Remove a previously deployed managed config   ║
 ║    -Force                      When removing, stop the tunnel service first  ║

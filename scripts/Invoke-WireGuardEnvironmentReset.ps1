@@ -23,7 +23,9 @@
 ║    - WireGuard MSI product (full binary uninstall)                           ║
 ║    - HKLM\Software\WireGuard registry key                                    ║
 ║    - All files/directories matching *[Ww]ire[Gg]uard* (high confidence)      ║
-║    - wg.exe, wg.conf, and similar *wg* artifacts outside system paths        ║
+║    - Tier 2 artifacts (*wg*.exe, *wg*.sys, *wg*.conf, *wg*.dll outside      ║
+║      system paths) are reported but NOT automatically removed (see SCAN      ║
+║      STRATEGY above for rationale)                                           ║
 ║    - WireGuard Windows Firewall rules                                        ║
 ║                                                                              ║
 ║  DRY RUN                                                                     ║

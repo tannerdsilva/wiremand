@@ -21,7 +21,7 @@
 ║                                                                              ║
 ║  HOW IT WORKS                                                                ║
 ║    1. Installs WireGuard if not already present (silent MSI).                ║
-║    2. Generates a server key pair (or uses the one in the config).           ║
+║    2. Generates a fresh server key pair (always; does not reuse existing).   ║
 ║    3. Builds a .conf file with [Interface] + optional [Peer] sections.       ║
 ║    4. Installs a tunnel service via `wireguard /installtunnelservice`.       ║
 ║    5. Creates a Windows Firewall allow rule for the listen port.             ║
@@ -39,7 +39,7 @@
 ║    -Address             Comma-separated IPs for the interface (REQUIRED)     ║
 ║    -PeerConfigPath      Path to a file with [Peer] sections                  ║
 ║    -DnsServers          DNS servers for the interface                        ║
-║    -ConfigOutputDir     Where to write configs (default: ProgramData)        ║
+║    -ConfigOutputDir     Where to write configs (default: %ProgramData%\WireGuard\Configs)║
 ║    -NoFirewall          Skip Windows Firewall rule creation                  ║
 ║    -NoForwarding        Skip IP forwarding enablement                        ║
 ║    -GenerateClientConfigs  Emit a ready-to-use .conf per peer                ║
