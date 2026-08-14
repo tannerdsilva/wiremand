@@ -32,8 +32,22 @@ Key parameters:
 | `-PeerConfigPath` | Path to a file containing `[Peer]` sections |
 | `-GenerateClientConfigs` | Emit a ready-to-deploy `.conf` per peer |
 | `-Endpoint` | Public address for generated client configs |
-| `-Force` | Remove and re-create an existing tunnel service |
-| `-NoDry` | Execute changes for real (default is dry-run) |
+|| `-Force` | Remove and re-create an existing tunnel service (also cleans up stale firewall rules) |
+|| `-NoFirewall` | Skip firewall rule creation |
+|| `-NoForwarding` | Skip enabling IP forwarding |
+|| `-NoDry` | Execute changes for real (default is dry-run) |
+
+**Input validation:**
+
+The script validates all parameters before making any changes:
+
+| Check | Behavior |
+|-------|----------|
+| `-InterfaceName` length | Rejected if > 31 characters (WireGuard service name limit) |
+| `-InterfaceName` characters | Only `[a-zA-Z0-9_-]` allowed |
+| `-ListenPort` range | Rejected if 0 or > 65535 |
+| Duplicate tunnel | Rejected unless `-Force` is passed |
+| Port conflict | Rejected if another tunnel already uses the same UDP port |
 
 Example:
 ```powershell
@@ -126,7 +140,7 @@ Key parameters:
 
 **Two-tier filesystem scan:**
 
-The script scans `C:\` to depth 3 using two tiers of pattern matching:
+The script scans `C:\` to depth 2 using two tiers of pattern matching:
 
 - **Tier 1** (`*[Ww]ire[Gg]uard*`): High-confidence matches. These are
   automatically removed. Catches `WireGuard` directories, `wireguard.exe`,
@@ -185,6 +199,26 @@ For a typical enterprise deployment across a fleet of standalone machines:
    ```
 
 4. **Verify** with `wg show` and `Get-Service "WireGuard*"`.
+
+---
+
+## Testing
+
+A comprehensive test battery is included at `test_battery_lethal.ps1`. It runs
+against a live Windows VM over SSH and covers:
+
+- **Phase 1 (20 tests):** Tunnel script -- fresh install, isolation, IPv6,
+  dual-stack, DNS, peer configs, client config generation, force reinstall,
+  NoFirewall, NoForwarding, dry-run, missing parameters, multiple peers, empty
+  peers, wg show verification, service stop/restart, duplicate rejection, port
+  conflict, port 0 rejection
+- **Phase 2 (10 tests):** Managed client script
+- **Phase 3 (5 tests):** Environment reset script
+- **Phase 4 (4 tests):** End-to-end sequences
+- **Phase 5 (4 tests):** Edge cases (rapid cycles, long names, special chars,
+  concurrent installs)
+
+See `TEST_RESULTS.md` for the latest test results.
 
 ---
 
