@@ -449,7 +449,9 @@ function Add-UserToNetConfigOperators {
     param([string]$UserName)
 
     if (-not $UserName) {
-        $UserName = "$env:USERDOMAIN\$env:USERNAME"
+        # On a workgroup machine, net localgroup rejects DOMAIN\user format
+        # Use just the username without domain prefix
+        $UserName = "$env:USERNAME"
     }
 
     DryTrace -Section "Step 4: Group Membership" -Action "Add user to Network Configuration Operators" -Detail @"
@@ -461,12 +463,17 @@ Note: This group exists on every Windows machine. No Domain Controller required.
 
     if ($NoDry) {
         Write-Log "Adding user '$UserName' to Network Configuration Operators group..."
-        $result = net localgroup "Network Configuration Operators" $UserName /add 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            Write-Log "User '$UserName' added to Network Configuration Operators group."
-            Write-Log "The change takes effect on next logon."
-        } else {
-            Write-Log "Failed to add user to group: $result" -Level "WARN"
+        try {
+            $result = net localgroup "Network Configuration Operators" $UserName /add 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Log "User '$UserName' added to Network Configuration Operators group."
+                Write-Log "The change takes effect on next logon."
+            } else {
+                Write-Log "Failed to add user to group: $result" -Level "WARN"
+                Write-Log "You may need to add the user manually via 'net localgroup' or 'lusrmgr.msc'." -Level "WARN"
+            }
+        } catch {
+            Write-Log "Failed to add user to group: $_" -Level "WARN"
             Write-Log "You may need to add the user manually via 'net localgroup' or 'lusrmgr.msc'." -Level "WARN"
         }
     }

@@ -550,14 +550,14 @@ function Main {
         DryTrace -Section "Phase 5: Firewall Rules" -Action "Remove firewall rule" -Detail $r.DisplayName
     }
 
-    # ---- Emit dry-run report and exit if dry run ----
-    EmitDryRunReport
-
-    # ---- If ScanOnly, stop here ----
+    # ---- If ScanOnly, stop here (before dry-run report, since ScanOnly implies we want real scan output) ----
     if ($ScanOnly) {
         Write-Log "`n=== Scan complete. Use -Force to remove all artifacts. ==="
         return
     }
+
+    # ---- Emit dry-run report and exit if dry run ----
+    EmitDryRunReport
 
     # ---- Confirmation ----
     if (-not $Force) {
