@@ -355,6 +355,43 @@ function Main {
         throw "This script must be run as Administrator."
     }
 
+    # ---- Input validation ----
+    # Interface name: WireGuard rejects names > ~31 chars via /installtunnelservice
+    if ($InterfaceName.Length -gt 31) {
+        throw "Interface name '$InterfaceName' is $($InterfaceName.Length) characters long. Maximum is 31 characters."
+    }
+    if ($InterfaceName -notmatch '^[a-zA-Z0-9_-]+$') {
+        throw "Interface name '$InterfaceName' contains invalid characters. Use only letters, digits, hyphens, and underscores."
+    }
+
+    # ListenPort: must be 1-65535 (0 is reserved/random, which is not supported for tunnel services)
+    if ($ListenPort -eq 0) {
+        throw "ListenPort cannot be 0. A valid port (1-65535) is required."
+    }
+
+    # Check for duplicate interface (same name already installed)
+    $existingSvc = Get-Service -Name "WireGuardTunnel`$$InterfaceName" -ErrorAction SilentlyContinue
+    if ($existingSvc) {
+        if (-not $Force) {
+            throw "Tunnel service 'WireGuardTunnel`$$InterfaceName' already exists. Use -Force to remove and recreate."
+        }
+        # If -Force, the existing service will be removed below
+    }
+
+    # Check for port conflict (another tunnel already using this port)
+    $allTunnelSvcs = Get-Service -Name 'WireGuardTunnel*' -ErrorAction SilentlyContinue
+    foreach ($svc in $allTunnelSvcs) {
+        $svcName = $svc.Name -replace '^WireGuardTunnel\$', ''
+        if ($svcName -eq $InterfaceName) { continue } # same interface, handled above
+        $svcConfigPath = "$ConfigOutputDir\$svcName.conf"
+        if (Test-Path $svcConfigPath) {
+            $svcConfig = Get-Content $svcConfigPath -Raw
+            if ($svcConfig -match "ListenPort\s*=\s*$ListenPort") {
+                throw "Port $ListenPort is already in use by tunnel '$svcName'. Choose a different port."
+            }
+        }
+    }
+
     # 1. Install WireGuard if needed
     Install-WireGuardProduct
 

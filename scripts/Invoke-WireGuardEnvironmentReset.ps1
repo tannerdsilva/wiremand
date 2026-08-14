@@ -309,7 +309,7 @@ function Get-WireGuardServices {
 # ---- Phase 3: MSI product lookup ----
 
 function Get-WireGuardMsiProduct {
-    $wgProducts = @()
+    $wgProducts = [System.Collections.ArrayList]@()
     $paths = @(
         "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
         "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
@@ -319,14 +319,14 @@ function Get-WireGuardMsiProduct {
             $_.DisplayName -like "*WireGuard*"
         }
         foreach ($item in $items) {
-            $wgProducts += [PSCustomObject]@{
+            $wgProducts.Add([PSCustomObject]@{
                 Name = $item.DisplayName
                 ProductCode = $item.PSChildName
                 Version = $item.DisplayVersion
-            }
+            }) | Out-Null
         }
     }
-    return $wgProducts
+    return @($wgProducts.ToArray())
 }
 
 # ---- Phase 4: Registry scan ----
@@ -609,6 +609,7 @@ function Main {
     }
 
     # Uninstall MSI
+    Write-Log "DEBUG: Before MSI uninstall, msiProducts type=$($msiProducts.GetType().Name), count=$($msiProducts.Count), isNull=$($msiProducts -eq $null)" -Level "INFO"
     if ($msiProducts.Count -gt 0) {
         Write-Log "Uninstalling WireGuard MSI product..."
         Uninstall-WireGuardMsi -Products $msiProducts
