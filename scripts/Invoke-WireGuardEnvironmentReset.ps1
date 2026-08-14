@@ -11,7 +11,7 @@
 ║                                                                              ║
 ║  SCAN STRATEGY                                                               ║
 ║    The script performs a two-tier filesystem scan from root (C:\) to         ║
-║    depth 3, matching file and directory names against WireGuard-related      ║
+║    depth 2, matching file and directory names against WireGuard-related      ║
 ║    patterns. Tier 1 matches *[Ww]ire[Gg]uard* (high confidence). Tier 2      ║
 ║    matches *wg* (broader, catches wg.exe and similar) but excludes known     ║
 ║    Windows system components (WinSxS, System32, Boot fonts, etc.) to         ║
@@ -98,7 +98,7 @@ function EmitDryRunReport {
     Write-Host "[DRY-RUN]   PreserveConfigs = $PreserveConfigs"
     Write-Host "[DRY-RUN]"
     Write-Host "[DRY-RUN] === PLAN ==="
-    Write-Host "[DRY-RUN] Phase 1: Filesystem scan (root depth 3, two-tier)"
+    Write-Host "[DRY-RUN] Phase 1: Filesystem scan (root depth 2, two-tier)"
     Write-Host "[DRY-RUN] Phase 2: Service enumeration and uninstall"
     Write-Host "[DRY-RUN] Phase 3: Driver removal"
     Write-Host "[DRY-RUN] Phase 4: MSI product uninstall"
@@ -152,7 +152,18 @@ $script:excludedSystemPaths = @(
     'Fonts',
     'Fonts_EX',
     'en-US',
-    'Manifests'
+    'Manifests',
+    'Windows',
+    'Recovery',
+    'System Volume Information',
+    '$Recycle.Bin',
+    'PerfLogs',
+    'MSOCache',
+    'Microsoft',
+    'Assembly',
+    'Installer',
+    'WinStore',
+    'ServiceState'
 )
 
 function Test-IsSystemPath {
@@ -165,10 +176,10 @@ function Test-IsSystemPath {
     return $false
 }
 
-# ---- Phase 1: Filesystem scan (root depth 3, two-tier pattern matching) ----
+# ---- Phase 1: Filesystem scan (root depth 2, two-tier pattern matching) ----
 
 function Invoke-FastFileScan {
-    Write-Log "Scanning filesystem from root (C:\) to depth 3 for WireGuard artifacts..."
+    Write-Log "Scanning filesystem from root (C:\) to depth 2 for WireGuard artifacts..."
 
     # Tier 1: High-confidence patterns (definitely WireGuard)
     $tier1Patterns = @(
@@ -210,12 +221,12 @@ function Invoke-FastFileScan {
         }
     }
 
-    # Depth-first scan to depth 3
+    # Depth-first scan to depth 2
     $roots = @(Get-ChildItem "C:\" -Directory -ErrorAction SilentlyContinue)
     $depth = 0
     $currentLevel = $roots
 
-    while ($depth -le 3 -and $currentLevel.Count -gt 0) {
+    while ($depth -le 2 -and $currentLevel.Count -gt 0) {
         $nextLevel = @()
         foreach ($item in $currentLevel) {
             $isSystem = Test-IsSystemPath -Path $item.FullName
@@ -243,7 +254,7 @@ function Invoke-FastFileScan {
             }
 
             # Check files in this directory
-            if ($depth -lt 3) {
+            if ($depth -lt 2) {
                 $files = Get-ChildItem $item.FullName -File -ErrorAction SilentlyContinue
                 foreach ($f in $files) {
                     $fIsSystem = Test-IsSystemPath -Path $f.FullName
@@ -268,7 +279,7 @@ function Invoke-FastFileScan {
             }
 
             # Collect subdirectories for next level
-            if ($depth -lt 3) {
+            if ($depth -lt 2) {
                 $subdirs = Get-ChildItem $item.FullName -Directory -ErrorAction SilentlyContinue
                 $nextLevel += $subdirs
             }
@@ -475,7 +486,7 @@ function Main {
     # ---- Phase 1: Filesystem scan ----
     Write-Log "Phase 1: Scanning filesystem for WireGuard artifacts..."
     $scanResults = Invoke-FastFileScan
-    DryTrace -Section "Phase 1: Filesystem Scan" -Action "Scan root C:\ to depth 3 (two-tier)" `
+    DryTrace -Section "Phase 1: Filesystem Scan" -Action "Scan root C:\ to depth 2 (two-tier)" `
         -Detail "Tier 1 (*[Ww]ire[Gg]uard*): $($scanResults.Tier1Directories.Count) dirs, $($scanResults.Tier1Files.Count) files`nTier 2 (*wg* non-system): $($scanResults.Tier2Directories.Count) dirs, $($scanResults.Tier2Files.Count) files"
 
     $totalTier1 = $scanResults.Tier1Directories.Count + $scanResults.Tier1Files.Count

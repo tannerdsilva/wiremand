@@ -279,6 +279,19 @@ function Remove-ExistingTunnelService {
     param([string]$Name)
     $serviceName = "WireGuardTunnel`$$Name"
     $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+
+    # Remove any existing firewall rule for this interface (port may have changed)
+    $oldRulePattern = "WireGuard ($Name - UDP *)"
+    $oldRules = Get-NetFirewallRule -DisplayName $oldRulePattern -ErrorAction SilentlyContinue
+    foreach ($r in $oldRules) {
+        DryTrace -Section "Step 4 (pre): Remove Existing" -Action "Remove old firewall rule" `
+            -Detail "Rule: $($r.DisplayName)"
+        if ($NoDry) {
+            $r | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+            Write-Log "Removed old firewall rule: $($r.DisplayName)"
+        }
+    }
+
     if (-not $svc) { return }
 
     DryTrace -Section "Step 4 (pre): Remove Existing" -Action "Remove existing tunnel service" `
