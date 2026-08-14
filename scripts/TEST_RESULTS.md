@@ -33,11 +33,24 @@ Scripts: Install-WireGuardTunnel.ps1, Install-WireGuardManagedClient.ps1, Invoke
 | T1.17 Duplicate install without -Force rejected | 1 | PASS |
 | T1.18 Force reinstall preserves config | 2 | ALL PASS |
 | T1.19 Port conflict rejected | 2 | ALL PASS |
-| T1.20 Port 0 (invalid) rejected | 1 | PASS |
+|| T1.20 Port 0 (invalid) rejected | 1 | PASS |
+|| T1.21 Long name (63 chars) rejected | 2 | ALL PASS |
+|| T1.22 Special chars (hyphens, underscores) | 1 | PASS |
+|| T1.23 Auto-generated key (no -PrivateKey) | 2 | ALL PASS |
+|| T1.24 Public config file (no private key) | 2 | ALL PASS |
+|| T1.25 Driver verification | 2 | ALL PASS |
+|| T1.26 IP forwarding state | 1 | PASS (WARN: requires reboot) |
+|| T1.27 Config file permissions (ACLs) | 2 | ALL PASS |
+|| T1.28 Unicode interface name rejection | 1 | PASS |
+|| T1.29 Lock file prevents concurrent execution | 1 | PASS |
+
+## Phase 2-5 Results
+
+Not executed in this run (cumulative tunnel creation time exceeded 180s foreground timeout; individual scripts validated in earlier runs).
 
 ## Bugs Found and Fixed
 
-### Script Bugs (6)
+### Script Bugs (9)
 
 | # | Bug | Script | Fix |
 |---|-----|--------|-----|
@@ -47,6 +60,9 @@ Scripts: Install-WireGuardTunnel.ps1, Install-WireGuardManagedClient.ps1, Invoke
 | 4 | 63-char name rejected by WireGuard with ugly error | Install-WireGuardTunnel.ps1 | Validate name length (max 31) and character set |
 | 5 | Old firewall rules leak on force reinstall with new port | Install-WireGuardTunnel.ps1 | Remove-ExistingTunnelService now cleans up stale rules |
 | 6 | MSI uninstall silently skipped | Invoke-WireGuardEnvironmentReset.ps1 | Fixed Get-WireGuardMsiProduct returning single PSCustomObject instead of array (`.Count` was null) |
+| 7 | Config files world-readable (private key exposure) | Install-WireGuardTunnel.ps1 | Set ACLs to `BUILTIN\Administrators` + `NT AUTHORITY\SYSTEM` only |
+| 8 | MSI download has no retry or cleanup | Install-WireGuardTunnel.ps1 | 3x retry with 3s delay; cleans up partial downloads |
+| 9 | Port conflict check is racy (concurrent instances) | Install-WireGuardTunnel.ps1 | File-based deployment lock (`%TEMP%\WireGuardTunnelLocks\deploy.lock`) |
 
 ### Test Harness Bugs (4)
 

@@ -195,7 +195,24 @@ function Install-WireGuardProduct {
     if ($NoDry) {
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            (New-Object System.Net.WebClient).DownloadFile($url, $msi)
+            $maxRetries = 3
+            $downloaded = $false
+            for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+                try {
+                    (New-Object System.Net.WebClient).DownloadFile($url, $msi)
+                    $downloaded = $true
+                    break
+                } catch {
+                    if ($attempt -lt $maxRetries) {
+                        Write-Log "Download attempt $attempt failed: $($_.Exception.Message). Retrying..." -Level "WARN"
+                        Start-Sleep -Seconds 3
+                        # Clean up partial download before retry
+                        if (Test-Path $msi) { Remove-Item $msi -Force -ErrorAction SilentlyContinue }
+                    } else {
+                        throw "Failed to download WireGuard MSI after $maxRetries attempts: $($_.Exception.Message)"
+                    }
+                }
+            }
             Write-Log "Downloaded $((Get-Item $msi).Length) bytes"
             Write-Log "Installing WireGuard silently (DO_NOT_LAUNCH)..."
             $proc = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/i `"$msi`" /qn DO_NOT_LAUNCH=1 /norestart"
@@ -369,7 +386,27 @@ function Main {
     }
 
     # ---- Input validation ----
-    # Interface name: WireGuard rejects names > ~31 chars via /installtunnelservice
+    # Acquire a lock to prevent concurrent script instances from racing on port checks
+    $lockDir = "$env:TEMP\WireGuardTunnelLocks"
+    $lockFile = "$lockDir\deploy.lock"
+    if (-not (Test-Path $lockDir)) { New-Item -ItemType Directory -Path $lockDir -Force | Out-Null }
+    $lockAttempts = 0
+    $lockMax = 10
+    while ($lockAttempts -lt $lockMax) {
+        try {
+            $lockStream = [System.IO.File]::Open($lockFile, 'OpenOrCreate', 'ReadWrite', 'None')
+            break  # Lock acquired
+        } catch {
+            $lockAttempts++
+            if ($lockAttempts -ge $lockMax) {
+                throw "Could not acquire deployment lock after $lockMax attempts. Another instance may be running."
+            }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+
+    try {
+        # Interface name: WireGuard rejects names > ~31 chars via /installtunnelservice
     if ($InterfaceName.Length -gt 31) {
         throw "Interface name '$InterfaceName' is $($InterfaceName.Length) characters long. Maximum is 31 characters."
     }
@@ -474,9 +511,26 @@ $($configLines -join "`n")
     if ($NoDry) {
         Write-Log "Writing server configuration to: $configPath"
         Set-Content -Path $configPath -Value $configContent -Encoding ASCII
+        # Restrict config to Administrators and SYSTEM only
+        $acl = Get-Acl -Path $configPath
+        $acl.SetAccessRuleProtection($true, $false)
+        $admins = [System.Security.Principal.NTAccount]::new('BUILTIN\Administrators')
+        $system = [System.Security.Principal.NTAccount]::new('NT AUTHORITY\SYSTEM')
+        $acl.SetOwner($admins)
+        $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($admins, 'FullControl', 'Allow'))
+        $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($system, 'FullControl', 'Allow'))
+        Set-Acl -Path $configPath -AclObject $acl
 
         $publicConfigLines = $configLines -replace "^PrivateKey = .*$", "; PrivateKey = (hidden in server config)"
         Set-Content -Path $publicConfigPath -Value ($publicConfigLines -join "`r`n") -Encoding ASCII
+        # Also restrict public config (contains public keys and endpoint info)
+        $pubAcl = Get-Acl -Path $publicConfigPath
+        $pubAcl.SetAccessRuleProtection($true, $false)
+        $pubAcl.SetOwner($admins)
+        $pubAcl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($admins, 'FullControl', 'Allow'))
+        $pubAcl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($system, 'FullControl', 'Allow'))
+        Set-Acl -Path $publicConfigPath -AclObject $pubAcl
+
         Write-Log "Public config (no private key) saved to: $publicConfigPath"
     }
 
@@ -573,6 +627,15 @@ $($configLines -join "`n")
 
                 if ($NoDry) {
                     Set-Content -Path $clientConfigPath -Value $clientConfig -Encoding ASCII
+                    # Restrict client config to Administrators and SYSTEM only
+                    $cacl = Get-Acl -Path $clientConfigPath
+                    $cacl.SetAccessRuleProtection($true, $false)
+                    $admins = [System.Security.Principal.NTAccount]::new('BUILTIN\Administrators')
+                    $system = [System.Security.Principal.NTAccount]::new('NT AUTHORITY\SYSTEM')
+                    $cacl.SetOwner($admins)
+                    $cacl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($admins, 'FullControl', 'Allow'))
+                    $cacl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($system, 'FullControl', 'Allow'))
+                    Set-Acl -Path $clientConfigPath -AclObject $cacl
                     Write-Log "  Generated client config: $clientConfigPath (PublicKey: $($clientKeys.PublicKey))"
                 }
             }
@@ -607,6 +670,9 @@ $($configLines -join "`n")
         ConfigPath     = $configPath
         ServiceName    = $serviceName
         PeerCount      = $parsedPeers.Count
+    }
+    } finally {
+        if ($lockStream) { $lockStream.Close() }
     }
 }
 

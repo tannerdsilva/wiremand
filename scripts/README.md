@@ -47,7 +47,16 @@ The script validates all parameters before making any changes:
 | `-InterfaceName` characters | Only `[a-zA-Z0-9_-]` allowed |
 | `-ListenPort` range | Rejected if 0 or > 65535 |
 | Duplicate tunnel | Rejected unless `-Force` is passed |
-| Port conflict | Rejected if another tunnel already uses the same UDP port |
+|| Port conflict | Rejected if another tunnel already uses the same UDP port |
+
+**Security features:**
+
+| Feature | Description |
+|---------|-------------|
+| Config file ACLs | All `.conf` files are restricted to `BUILTIN\Administrators` and `NT AUTHORITY\SYSTEM` only |
+| Deployment lock | File-based lock (`%TEMP%\WireGuardTunnelLocks\deploy.lock`) prevents concurrent instances from racing |
+| MSI download retry | Retries up to 3 times with 3s delay; cleans up partial downloads |
+| Exit code verification | `wireguard /installtunnelservice` exit code is checked; non-zero exits throw a terminating error |
 
 Example:
 ```powershell

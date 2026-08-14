@@ -124,3 +124,34 @@ There is currently **no unit coverage** for the LMDB state machine (`WGDB`), the
 ## CLI reference (high level)
 
 `install`, `update` (hidden, root), `run` (hidden daemon), `reset-public-addresses`, `domain make|remove|list [--api-keys]`, `client make|list [--domain] [--windows-legacy]|rename|revoke|punt|add-domain|remove-domain`, `firewall add-rule|delete-rules|list [--name]`, `ipstack set-api-key|get-api-key`. Several commands prompt interactively when `--domain`/`--name` are omitted (see `Client.DomainNameGroup.promptInteractivelyIfNecessary`).
+
+---
+
+## Windows PowerShell Scripts (`scripts/`)
+
+The `scripts/` directory contains three PowerShell scripts for enterprise WireGuard deployment on Windows Server 2022 and Windows clients, plus a comprehensive test battery:
+
+| Script | Purpose |
+|--------|---------|
+| `Install-WireGuardTunnel.ps1` | Headless tunnel service deployment (no GUI dependency) |
+| `Install-WireGuardManagedClient.ps1` | Managed client with locked config via Manager Service |
+| `Invoke-WireGuardEnvironmentReset.ps1` | Full environment reset with two-tier filesystem scan |
+| `test_battery_lethal.ps1` | 43-test lethal battery covering all three scripts |
+| `TEST_RESULTS.md` | Test results summary with bug tracker |
+| `README.md` | Full documentation for all scripts |
+
+**Key design decisions:**
+- All scripts are **dry by default**; pass `-NoDry` to execute
+- Server script uses `wg genkey` for key generation (no GUI dependency)
+- Client script sets `LimitedOperatorUI` registry key for locked configs
+- Config files are ACL-restricted to `BUILTIN\Administrators` and `SYSTEM` only
+- A file-based deployment lock (`%TEMP%\WireGuardTunnelLocks\deploy.lock`) prevents concurrent script instances from racing
+- MSI download retries up to 3 times with partial-download cleanup
+- `wireguard /installtunnelservice` exit code is verified; non-zero exits throw
+
+**Test results (Phase 1):** 95/96 assertions PASS across 29 test groups covering input validation, IPv6, dual-stack, DNS, peer configs, client config generation, force reinstall, firewall cleanup, dry-run, service restart, duplicate rejection, port conflict, port 0, long names, unicode names, ACL verification, and lock file mechanism.
+
+**Known non-issues:**
+- Client config DNS is omitted when the source peer config has no DNS servers (correct behavior)
+- Config encryption via DPAPI requires an interactive desktop session (plaintext `.conf` is functional)
+- Network connectivity verification (ping through tunnel) requires a second VM
