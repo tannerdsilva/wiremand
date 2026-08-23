@@ -428,8 +428,8 @@ extension CLI {
 				ipStackKey = asString
 			}
 			
-			appLogger.info("clearing umask...")
-			umask(000)
+			appLogger.info("setting default umask (all file creation sites pass explicit permissions)...")
+			umask(022)
 			
 			appLogger.info("installing software...")
 			
@@ -612,7 +612,12 @@ extension CLI {
 			// CAP_NET_ADMIN suffices). No sudo is required: every privileged
 			// helper (`wg`, `ip`, `wg-quick`, in-process nft) works off the
 			// ambient capability. NoNewPrivileges hardens against setuid/setcap
-			// escalation, which is compatible with ambient (not file) caps.
+			// escalation: the kernel downgrades any exec that would grant the
+			// daemon privileges it does not already hold, and it preserves
+			// ambient caps across exec (only file-capped or setuid targets
+			// clear them). exec'ing file-capped `wg` is unaffected — its cap is
+			// not "new" relative to the daemon — and `ip`/`wg-quick`/sh have no
+			// file caps, so the ambient set flows to them unchanged.
 			var systemdConfig = "[Unit]\n"
 			systemdConfig += "Description=wireguard management daemon\n"
 			systemdConfig += "After=network-online.target wg-quick@\(interfaceName).service\n"
@@ -624,6 +629,7 @@ extension CLI {
 			systemdConfig += "Type=exec\n"
 			systemdConfig += "AmbientCapabilities=CAP_NET_ADMIN\n"
 			systemdConfig += "CapabilityBoundingSet=CAP_NET_ADMIN\n"
+			systemdConfig += "NoNewPrivileges=yes\n"
 			systemdConfig += "PrivateTmp=yes\n"
 			systemdConfig += "ExecStart=/opt/wiremand run\n"
 			systemdConfig += "Restart=always\n\n"

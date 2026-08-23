@@ -41,7 +41,10 @@ extension CLI {
 		var globals:GlobalCLIOptions
 		
 		mutating func run() async throws {
-			umask(000)
+			// every file creation site passes explicit permissions, so an
+			// 022 umask only keeps stray artifacts (LMDB envs, child-process
+			// output, shell redirections) from landing world-writable.
+			umask(022)
 			var appLogger = Logger(label:"wiremand")
 			appLogger.logLevel = globals.logLevel
 
