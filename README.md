@@ -20,6 +20,8 @@ Wiremand is a Swift-based command-line tool and systemd daemon designed to autom
 
 📡 Web Provisioning API - Secure HTTPS endpoints for self-service client configuration
 
+🤖 Internal MCP Admin Server - The full CLI command surface (except `install`/`update`/`run`/`domain remove`) over the authenticated VPN tunnel via MCP, gated per public key for admin-grade control
+
 🔁 Automatic DNS Updates - Seamless dnsmasq integration with auto-generated host entries on clients
 
 ## Install/Setup
@@ -48,8 +50,9 @@ Getting a key that has been created on the server: `curl -k "https://serverPubli
 | `wiremand client make --domain <domain> --name <name> [--public-key <BASE64>]` | Create a new client |
 | `wiremand client list [--domain <domain>] [--windows-legacy]` | List active clients with handshake/endpoint status |
 | `wiremand client rename <BASE64_KEY> <newname>` | Change a client's display name |
-| `wiremand client add-domain --domain <domain> --name <name>` | Assign an ip address to a client in a domain |
-| `wiremand client remove-domain --domain <domain> --name <name>` | Remove a client from a domain |
+| `wiremand client add-domain --domain <domain> --name <name> [--public-key <BASE64>]` | Assign an ip address to a client in a domain (identify by `--name` or, deterministically, `--public-key`) |
+| `wiremand client remove-domain --domain <domain> --name <name> [--public-key <BASE64>]` | Remove a client from a domain (same identification options; revokes if it was the only domain) |
+| `wiremand client mcp-access --domain <domain> --name <name> --grant\|--revoke` | Grant or revoke access to the internal MCP admin server |
 | `wiremand client punt --domain <domain> --name <name>` | Extend client's auto-revoke deadline |
 | `wiremand client revoke --domain <domain> --name <name>` | Remove client from WG, firewall, and DNS |
 
@@ -76,10 +79,22 @@ Getting a key that has been created on the server: `curl -k "https://serverPubli
 | `wiremand reset-public-addresses` | Reset public addresses post installer |
 
 ## Daemon Architecture
-The daemon orchestrates three background services via Apple's Swift ServiceLifecycle:
+The daemon orchestrates five services via Apple's Swift ServiceLifecycle under one `ServiceGroup` (graceful shutdown on SIGTERM/SIGINT). The firewall is declared first so it is torn down last, after the traffic-serving services stop.
 
 | Service | Function |
 |---------|----------|
+| **FirewallService** | Renders the managed nftables ruleset (whitelist, domain isolation, trace) on start and deletes its tables on graceful shutdown. |
 | **HandshakeChecker** | Polls `wg show latest-handshakes` & `endpoints` every 10s. Updates DB, triggers IP resolution, revokes expired clients. |
 | **IPStacker** | Resolves pending endpoint IPs via ipstack.com every 10m. Handles retries & stale record rotation. |
 | **PublicHTTPWebServer** | Serves HTTPS provisioning API (`/wg_makekey`, `/wg_getkey`) on public IPv4 & IPv6 addresses. |
+| **MCPAdminServer** | Serves the internal MCP admin API bound to the server's own wireguard interface address (port 8095 by default, `wiremand run --mcp-port`). Reachable only through the authenticated tunnel. |
+
+### Internal MCP admin server
+
+A granted client can drive the full CLI surface over MCP (domain/client/firewall/ipstack management plus `reset-public-addresses`; `install`/`update`/`run` and `domain remove` are deliberately absent). Authorization is layered:
+
+1. **Transport** - the server binds only to the wireguard interface address; nothing is exposed on public interfaces.
+2. **Accept time** - the connection's source address is reverse-mapped to a client public key and must hold the MCP grant bit; unknown/non-granted peers see zero tools.
+3. **Per call** - every tool re-checks the caller's grant at each invocation, so revoking access takes effect immediately on already-open connections.
+
+Administrators grant access per key: `wiremand client mcp-access --domain <domain> --name <name> --grant` (revoke with `--revoke`). `client list` marks granted keys with `[mcp]`.

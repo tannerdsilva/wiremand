@@ -281,6 +281,7 @@ enum WGDBError:Swift.Error {
 	case immutableClient
 	case domainNotFound
 	case clientExistsInDomain
+	case addressSpaceExhausted
 }
 
 /// Core persistence layer for WireGuard client, domain, and handshake management.
@@ -349,6 +350,10 @@ public struct WireguardDatabase: Sendable {
 		
 		/// Maps a given client public key to the config data that may be served
 		case webServe__clientPub_configData = "wgdb___webserve_clientPub_configData"
+		
+		/// Marks a client as granted access to the internal MCP admin server.
+		/// Key present = access granted, absent = revoked. Cleared on full client removal.
+		case clientPub_mcpAccess = "wgdb_clientPub_mcpAccess"
 	}
 	
 	let log:Logger
@@ -389,6 +394,9 @@ public struct WireguardDatabase: Sendable {
 	
 	let webserve__clientPub_configData:Database.Strict<PublicKey, EncodedString>
 	
+	// - mcp access (key presence = granted)
+	let pub_mcpAccess:Database.Strict<PublicKey, RAW_byte>
+	
 	public func serveConfiguration(_ configString:EncodedString, forPublicKey publicKey:PublicKey) throws {
 		let newTrans = try Transaction(env: env, readOnly: false)
 		// confirm it exists
@@ -405,6 +413,40 @@ public struct WireguardDatabase: Sendable {
 		}
 		let getName = try clientPub_clientName.loadEntry(key: publicKey, tx: newTrans)
 		return (configuration:try self.webserve__clientPub_configData.loadEntry(key: publicKey, tx: newTrans), name:getName)
+	}
+
+	// MARK: - MCP access control
+
+	/// Resolves the client public key that owns a given in-tunnel address.
+	/// Used by the MCP server to authenticate a peer from its source address.
+	public func clientPublicKey(forAddress address:Address) throws -> PublicKey {
+		let newTrans = try Transaction(env: env, readOnly: true)
+		return try ip_clientPub.loadEntry(key: address, tx: newTrans)
+	}
+
+	/// Grants MCP admin access to the client with the given public key.
+	public func grantMCPAccess(publicKey:PublicKey) throws {
+		let newTrans = try Transaction(env: env, readOnly: false)
+		try pub_mcpAccess.setEntry(key: publicKey, value: RAW_byte(RAW_native: 1), flags: [], tx: newTrans)
+		try newTrans.commit()
+	}
+
+	/// Revokes MCP admin access from the client with the given public key.
+	public func revokeMCPAccess(publicKey:PublicKey) throws {
+		let newTrans = try Transaction(env: env, readOnly: false)
+		try? pub_mcpAccess.deleteEntry(key: publicKey, tx: newTrans)
+		try newTrans.commit()
+	}
+
+	/// Whether the client with the given public key currently holds MCP admin access.
+	public func hasMCPAccess(publicKey:PublicKey) throws -> Bool {
+		let newTrans = try Transaction(env: env, readOnly: true)
+		do {
+			_ = try pub_mcpAccess.loadEntry(key: publicKey, tx: newTrans)
+			return true
+		} catch LMDBError.notFound {
+			return false
+		}
 	}
 
 	public init(base:Path, logLevel:Logger.Level) throws {
@@ -435,6 +477,7 @@ public struct WireguardDatabase: Sendable {
 		domainHash_clientNameHash = try Database.DupSort<DomainHash, ClientNameHash>(env:env, name:Databases.domainHash_clientNameHash.rawValue, flags:[.create], tx:someTrans)
 		ip_domainHash = try Database.Strict<Address, DomainHash>(env:env, name:Databases.ip_domainHash.rawValue, flags:[.create], tx:someTrans)
 		webserve__clientPub_configData = try Database.Strict<PublicKey, EncodedString>(env:env, name:Databases.webServe__clientPub_configData.rawValue, flags:[.create], tx:someTrans)
+		pub_mcpAccess = try Database.Strict<PublicKey, RAW_byte>(env:env, name:Databases.clientPub_mcpAccess.rawValue, flags:[.create], tx:someTrans)
 		log.trace("successfully created databases")
 		try someTrans.commit()
 		log.info("successfully initialized WireguardDatabase")
@@ -642,50 +685,126 @@ public struct WireguardDatabase: Sendable {
 		let domainHash = try DomainHash(domainName: name)
 		return try self.domainHash_network.containsEntry(key: domainHash, tx: newTrans)
 	}
-	
+
 	@discardableResult
-	/// Creates and assigns a new IP address in the specified domain for a client.
+	/// Assigns a new IP address in the target domain for the client with the
+	/// given name. The name must not already be registered in the target domain.
 	/// - Parameters
 	/// 	- domain: The domain of the client.
 	/// 	- name: The human readable name of the client.
 	public func clientAssignDomain(domain:EncodedString, name:EncodedString) throws -> Address {
+		// single read transaction: LMDB allows only one reader slot per thread
+		let readTrans = try Transaction(env: env, readOnly: true)
+		let domainHash = try DomainHash(domainName: domain)
+		guard try _domainContainsName(domainHash: domainHash, clientNameHash: ClientNameHash(clientName: name), tx: readTrans) == false else {
+			throw WGDBError.clientExistsInDomain
+		}
+		let publicKey = try _resolveClientPublicKeyAnywhere(name: name, tx: readTrans)
+		return try clientAssignDomain(domain: domain, publicKey: publicKey)
+	}
+
+	@discardableResult
+	/// Assigns a new IP address in the target domain for the client with the
+	/// given public key. The key must be an existing client, must not already
+	/// be a member of the target domain, and must not be the server's own key.
+	/// - Parameters
+	/// 	- domain: The domain of the client.
+	/// 	- publicKey: The public key of the client.
+	public func clientAssignDomain(domain:EncodedString, publicKey:PublicKey) throws -> Address {
 		let newTrans = try Transaction(env: env, readOnly: false)
 		let domainHash = try DomainHash(domainName: domain)
-		let clientNameHash = try ClientNameHash(clientName: name)
 
-		let publicKey = try clientPub_clientName.cursor(tx: newTrans) { cursor in
-			return try domainHash_clientNameHash.cursor(tx: newTrans) { domainHashCursor in
-				for (publicKey, clientName) in cursor.makeIterator() {
-					if clientName == name {
-						guard try domainHashCursor.containsEntry(key: domainHash, value: clientNameHash) == false else {
-							throw WGDBError.clientExistsInDomain
-						}
-						return publicKey
-					}
-				}
-				throw LMDBError.notFound
-			}
-		}
-		
+		let clientName = try clientPub_clientName.loadEntry(key: publicKey, tx: newTrans)
+		let clientNameHash = try ClientNameHash(clientName: clientName)
+
 		let myPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: newTrans)!
 		guard myPubKey != publicKey else {
 			throw WGDBError.immutableClient
 		}
+		guard try _domainContainsClient(domainHash: domainHash, publicKey: publicKey, tx: newTrans) == false else {
+			throw WGDBError.clientExistsInDomain
+		}
+		guard try _domainContainsName(domainHash: domainHash, clientNameHash: clientNameHash, tx: newTrans) == false else {
+			throw WGDBError.clientExistsInDomain
+		}
 		let domainSubnet = try domainHash_network.loadEntry(key: domainHash, tx: newTrans)
 
-		var newIP:Address
-		repeat {
-			newIP = Address(try domainSubnet.net.randomAddress())
-		} while try self.ip_clientPub.containsEntry(key:newIP, tx:newTrans) == true
+		let newIP = try _allocateAddress(in: domainSubnet, tx: newTrans)
 		try self.clientPub_ip.setEntry(key:publicKey, value:newIP, flags:[], tx:newTrans)
 		try self.ip_clientPub.setEntry(key:newIP, value:publicKey, flags:[.noOverwrite], tx:newTrans)
 		try self.clientPub_domainHash.setEntry(key:publicKey, value:domainHash, flags:[], tx:newTrans)
 		try self.domainHash_clientPub.setEntry(key:domainHash, value:publicKey, flags:[], tx:newTrans)
 		try self.domainHash_clientNameHash.setEntry(key:domainHash, value: clientNameHash, flags:[], tx:newTrans)
 		try self.ip_domainHash.setEntry(key: newIP, value: domainHash, flags: [.noOverwrite], tx: newTrans)
-		
+
 		try newTrans.commit()
 		return newIP
+	}
+
+	/// Resolves a client public key by its global name (any domain). Used by
+	/// the name-based add-domain path, where the client is by definition not
+	/// yet a member of the target domain.
+	fileprivate func _resolveClientPublicKeyAnywhere(name: EncodedString, tx: borrowing Transaction) throws -> PublicKey {
+		return try clientPub_clientName.cursor(tx: tx) { cursor in
+			for (publicKey, clientName) in cursor.makeIterator() {
+				if clientName == name {
+					return publicKey
+				}
+			}
+			throw LMDBError.notFound
+		}
+	}
+
+	/// Resolves a client public key by its global name, requiring that the
+	/// name is registered in the given domain (matches the historical
+	/// name-based resolution semantics of the domain membership commands).
+	fileprivate func _resolveClientPublicKey(name: EncodedString, domainHash: DomainHash) throws -> PublicKey {
+		let newTrans = try Transaction(env: env, readOnly: true)
+		return try clientPub_clientName.cursor(tx: newTrans) { cursor in
+			return try domainHash_clientNameHash.cursor(tx: newTrans) { domainHashCursor in
+				for (publicKey, clientName) in cursor.makeIterator() {
+					if clientName == name {
+						if try domainHashCursor.containsEntry(key: domainHash, value: ClientNameHash(clientName: clientName)) {
+							return publicKey
+						}
+					}
+				}
+				throw LMDBError.notFound
+			}
+		}
+	}
+
+	/// Whether the given public key is a member of the given domain.
+	/// Uses a DupSort cursor because the typed dup-sort wrapper does not
+	/// expose a value-scoped `containsEntry` directly.
+	fileprivate func _domainContainsClient(domainHash: DomainHash, publicKey: PublicKey, tx: borrowing Transaction) throws -> Bool {
+		return try self.domainHash_clientPub.cursor(tx: tx) { cursor in
+			for (_, memberKey) in cursor.makeDupIterator(key: domainHash) {
+				if memberKey == publicKey {
+					return true
+				}
+			}
+			return false
+		}
+	}
+
+	/// Whether the given client name hash is registered in the given domain.
+	fileprivate func _domainContainsName(domainHash: DomainHash, clientNameHash: ClientNameHash, tx: borrowing Transaction) throws -> Bool {
+		return try self.domainHash_clientNameHash.cursor(tx: tx) { cursor in
+			return try cursor.containsEntry(key: domainHash, value: clientNameHash)
+		}
+	}
+
+	/// Draws a random unallocated address inside a domain subnet, failing
+	/// after a bounded number of attempts instead of spinning forever.
+	fileprivate func _allocateAddress(in subnet: Network, tx: borrowing Transaction) throws -> Address {
+		for _ in 0..<2048 {
+			let candidate = Address(try subnet.net.randomAddress())
+			if try self.ip_clientPub.containsEntry(key: candidate, tx: tx) == false {
+				return candidate
+			}
+		}
+		throw WGDBError.addressSpaceExhausted
 	}
 
 	/// Fileprivate version of `clientRemoveDomain` to be used in `domainRemove`.
@@ -723,7 +842,7 @@ public struct WireguardDatabase: Sendable {
 	}
 
 	@discardableResult
-	/// Removes a client from a specified domain.
+	/// Removes a client from a specified domain, identified by name.
 	/// If it's the last domain they belong to, then it revokes the key.
 	/// - Parameters
 	/// 	- domain: The domain of the client.
@@ -731,52 +850,36 @@ public struct WireguardDatabase: Sendable {
 	/// - Returns
 	/// 	- Bool: The status of the client after domain removal. If true, then it was revoked.
 	public func clientRemoveDomain(domain:EncodedString, name:EncodedString) throws -> (PublicKey, Bool) {
-		let newTrans = try Transaction(env: env, readOnly: false)
 		let domainHash = try DomainHash(domainName: domain)
-		let clientNameHash = try ClientNameHash(clientName: name)
+		let publicKey = try _resolveClientPublicKey(name: name, domainHash: domainHash)
+		return try clientRemoveDomain(domain: domain, publicKey: publicKey)
+	}
 
-		let publicKey = try clientPub_clientName.cursor(tx: newTrans) { cursor in
-			return try domainHash_clientNameHash.cursor(tx: newTrans) { domainHashCursor in
-				for (publicKey, clientName) in cursor.makeIterator() {
-					if clientName == name {
-						if try domainHashCursor.containsEntry(key: domainHash, value: ClientNameHash(clientName: clientName)) {
-							return publicKey
-						}
-					}
-				}
-				throw LMDBError.notFound
-			}
+	@discardableResult
+	/// Removes a client from a specified domain, identified by public key.
+	/// If it's the last domain they belong to, then it revokes the key.
+	/// - Parameters
+	/// 	- domain: The domain of the client.
+	/// 	- publicKey: The public key of the client.
+	/// - Returns
+	/// 	- Bool: The status of the client after domain removal. If true, then it was revoked.
+	public func clientRemoveDomain(domain:EncodedString, publicKey:PublicKey) throws -> (PublicKey, Bool) {
+		let newTrans = try Transaction(env: env, readOnly: false)
+		let myPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: newTrans)!
+		guard myPubKey != publicKey else {
+			throw WGDBError.immutableClient
 		}
-
-		let ret = try clientPub_ip.cursor(tx:newTrans) { cursor in 
-			var count = 0
-			for (_, _) in cursor.makeDupIterator(key:publicKey) { count += 1 }
-			if count == 1 {
-				// The client only in this domain. Revoke it and return true.
-				try self._clientRemove(publicKey: publicKey, tx:newTrans)
-				return true
-			} else {
-				// The client exists in other domains. Remove it from this one and return false.
-				for (_, ip) in cursor.makeDupIterator(key:publicKey) {
-					if try ip_domainHash.loadEntry(key:ip, tx:newTrans) == domainHash {
-						let clientIP = ip
-
-						try self.clientPub_ip.deleteEntry(key:publicKey, value:clientIP, tx:newTrans)
-						try self.ip_clientPub.deleteEntry(key:clientIP, value:publicKey, tx:newTrans)
-						try self.clientPub_domainHash.deleteEntry(key:publicKey, value:domainHash, tx:newTrans)
-						try self.domainHash_clientPub.deleteEntry(key:domainHash, value:publicKey, tx:newTrans)
-						try self.domainHash_clientNameHash.deleteEntry(key:domainHash, value: clientNameHash, tx:newTrans)
-						try self.ip_domainHash.deleteEntry(key: clientIP, value: domainHash, tx: newTrans)
-
-						return false
-					}
-				}
-				throw LMDBError.notFound
-			}
+		guard try clientPub_clientName.containsEntry(key: publicKey, tx: newTrans) else {
+			throw LMDBError.notFound
 		}
-		
+		let domainHash = try DomainHash(domainName: domain)
+		// only detach a client that is actually a member of the requested domain
+		guard try _domainContainsClient(domainHash: domainHash, publicKey: publicKey, tx: newTrans) else {
+			throw LMDBError.notFound
+		}
+		let didRevoke = try self._clientRemoveDomain(publicKey: publicKey, domain: domain, tx: newTrans)
 		try newTrans.commit()
-		return (publicKey, ret)
+		return (publicKey, didRevoke)
 	}
 	
 	fileprivate func _clientMake(name:EncodedString, publicKey:PublicKey, domain:EncodedString, noHandshakeInvalidation:bedrock.Date.Seconds?, tx:borrowing Transaction) throws -> Address {
@@ -784,10 +887,7 @@ public struct WireguardDatabase: Sendable {
 				
 		let domainSubnet = try domainHash_network.loadEntry(key: domainHash, tx: tx)
 
-		var ipAddress:Address
-		repeat {
-			ipAddress = Address(try domainSubnet.net.randomAddress())
-		} while try self.ip_clientPub.containsEntry(key:ipAddress, tx:tx) == true
+		let ipAddress = try _allocateAddress(in: domainSubnet, tx: tx)
 		try self.clientPub_ip.setEntry(key:publicKey, value:ipAddress, flags:[.noOverwrite], tx:tx)
 		try self.ip_clientPub.setEntry(key:ipAddress, value:publicKey, flags:[.noOverwrite], tx:tx)
 		
@@ -870,6 +970,9 @@ public struct WireguardDatabase: Sendable {
 		}
 		
 		try self.clientPub_invalidDate.deleteEntry(key:publicKey, tx:tx)
+
+	// a revoked client never retains MCP access
+	try? self.pub_mcpAccess.deleteEntry(key:publicKey, tx:tx)
 
 		// Remove the public key from each of its domains
 		for clientDomain in clientDomains {

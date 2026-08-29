@@ -8,6 +8,7 @@ import bedrock
 import Crtnetlink
 import ServiceLifecycle
 import NIO
+import struct MCP.ServerAddress
 //import SignalStack
 
 extension CLI {
@@ -18,9 +19,11 @@ extension CLI {
 	///
 	/// Runs the services necessary for wiremand to function.
 	/// Services:
+	/// - FirewallService: Renders and tears down the managed nftables ruleset. See FirewallService for more details.
 	/// - HandshakeChecker: Checks the servers peers for any changes in handshakes. See HandshakeChecker for more details.
-	/// - IPStacker: Keeps ip information up to date. See IPStacker for more details..
+	/// - IPStacker: Keeps ip information up to date. See IPStacker for more details.
 	/// - WebServer: The hosted server for catching incoming HTTP requests. See PublicHTTPWebServer for more details.
+	/// - MCPAdminServer: The internal MCP admin server, bound to the wireguard interface address. See MCPAccessServer for more details.
 	struct Run:AsyncParsableCommand {
 		enum Error:Swift.Error {
 			case invalidUser
@@ -36,7 +39,10 @@ extension CLI {
 
 		@Option
 		var firewallPath:String = "/var/lib/wiremand/firewallCommands.txt"
-		
+
+		@Option(help:ArgumentHelp("The port for the internal MCP admin server. The server binds only to the wireguard interface address, so it is only reachable through the authenticated tunnel."))
+		var mcpPort:UInt16 = 8095
+	
 		@OptionGroup
 		var globals:GlobalCLIOptions
 		
@@ -71,7 +77,7 @@ extension CLI {
 			let ipdb = try IPDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 			let firewallDB = try FirewallDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 
-			let (_, _, _, interfaceName, publicIPv4Interface, publicIPv6Interface) = try wgdb.getWireguardConfigMetas()
+			let (_, wgPrimarySubnet, _, interfaceName, publicIPv4Interface, publicIPv6Interface) = try wgdb.getWireguardConfigMetas()
 
 			// The firewall is rendered and torn down by a first-class Service so
 			// that the ruleset is installed at startup and removed on graceful
@@ -86,7 +92,17 @@ extension CLI {
 			let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 			let webserver = try PublicHTTPWebServer(eventLoop: .shared(eventLoopGroup), wgdb: wgdb, hostIPv6: publicIPv6Interface.string, hostIPv4: publicIPv4Interface.string, port: UInt16(publicHTTPPort))
 
-			try await ServiceGroup(services:[firewallService, webserver, handshakeChecker, ipStacker], gracefulShutdownSignals:[.sigterm, .sigint], logger:Logger(label:"wiremand")).run()
+			// the internal MCP admin server binds to the server's own
+			// wireguard interface address and authorizes peers by source
+			// address + grant bit. see MCPAccessServer for the full model.
+			let mcpDeps = MCPDeps(wgdb: wgdb, ipdb: ipdb, firewallDB: firewallDB, interfaceName: interfaceName, logLevel: globals.logLevel)
+			let mcpServer = MCPAccessServer.makeServer(
+				address: ServerAddress.hostname(wgPrimarySubnet.addressString, port: Int(mcpPort)),
+				deps: mcpDeps,
+				eventLoopGroup: eventLoopGroup
+			)
+
+			try await ServiceGroup(services:[firewallService, webserver, mcpServer, handshakeChecker, ipStacker], gracefulShutdownSignals:[.sigterm, .sigint], logger:Logger(label:"wiremand")).run()
 		}
 	}
 }

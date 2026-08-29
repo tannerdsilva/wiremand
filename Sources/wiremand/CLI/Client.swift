@@ -10,10 +10,12 @@ extension CLI {
 		enum Error:Swift.Error {
 			case notFound
 			case clientAlreadyExists
+			case missingGrantOrRevoke
+			case missingDomain
 		}
 		static let configuration = CommandConfiguration(
 			abstract:"manage wireguard clients.",
-			subcommands:[Punt.self, AddDomain.self, RemoveDomain.self, Revoke.self, Make.self, List.self, Rename.self]
+			subcommands:[Punt.self, AddDomain.self, RemoveDomain.self, Revoke.self, Make.self, List.self, Rename.self, MCPAccess.self]
 		)
 				
 		struct Punt:AsyncParsableCommand {
@@ -44,6 +46,9 @@ extension CLI {
 
 			@OptionGroup
 			var domainName:DomainNameGroup
+
+			@Option(help:ArgumentHelp("Identify the client by its base64 wireguard public key instead of its name. When provided, --name is ignored."))
+			var publicKey:PublicKey? = nil
 		
 			@OptionGroup
 			var globals:GlobalCLIOptions
@@ -52,8 +57,26 @@ extension CLI {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				
 				let (_, wgPrimarySubnet, _, interfaceName, _, _) = try wgdb.getWireguardConfigMetas()
-				try wgdb.clientAssignDomain(domain:domainName.domain!, name:domainName.name!)
-				let clientInfo = try wgdb.allClients().filter { $0.name == domainName.name! }.first!
+
+				// identify the client either by public key (deterministic) or by
+				// name (interactive convenience)
+				let clientInfo: WireguardDatabase.ClientInfo
+				if let publicKey {
+					guard let targetDomain = domainName.domain, String(targetDomain).count > 0 else {
+						throw CLI.Client.Error.missingDomain
+					}
+					_ = try wgdb.clientAssignDomain(domain: targetDomain, publicKey: publicKey)
+					guard let resolved = try wgdb.allClients().first(where: { $0.publicKey == publicKey }) else {
+						throw CLI.Client.Error.notFound
+					}
+					clientInfo = resolved
+				} else {
+					_ = try wgdb.clientAssignDomain(domain: domainName.domain!, name: domainName.name!)
+					guard let resolved = try wgdb.allClients().filter({ $0.name == domainName.name! }).first else {
+						throw CLI.Client.Error.notFound
+					}
+					clientInfo = resolved
+				}
 				try await WireguardExecutor.updateExistingClient(publicKey:clientInfo.publicKey, with:Array(clientInfo.domains.values), interfaceName:interfaceName)
 				try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
 				print(Colors.Green("Client successfully added to \(String(domainName.domain!))!"))
@@ -88,6 +111,9 @@ extension CLI {
 			@OptionGroup
 			var domainName:DomainNameGroup
 
+			@Option(help:ArgumentHelp("Identify the client by its base64 wireguard public key instead of its name. When provided, --name is ignored."))
+			var publicKey:PublicKey? = nil
+
 			@OptionGroup
 			var globals:GlobalCLIOptions
 			
@@ -95,16 +121,48 @@ extension CLI {
 				let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
 				
 				let (_, wgPrimarySubnet, _, interfaceName, _, _) = try wgdb.getWireguardConfigMetas()
-				try domainName.promptInteractivelyIfNecessary(db:wgdb)
 
-				let (removedClientPub, status) = try wgdb.clientRemoveDomain(domain:domainName.domain!, name:domainName.name!)
+				// identify the client either by public key (deterministic) or by
+				// name (interactive convenience)
+				let removalKey: PublicKey
+				let removalStatus: Bool
+				let removalLookupName: EncodedString?
+				if let publicKey {
+					guard let targetDomain = domainName.domain, String(targetDomain).count > 0 else {
+						throw CLI.Client.Error.missingDomain
+					}
+					guard let preInfo = try wgdb.allClients().first(where: { $0.publicKey == publicKey }) else {
+						throw CLI.Client.Error.notFound
+					}
+					removalLookupName = preInfo.name
+					let result = try wgdb.clientRemoveDomain(domain: targetDomain, publicKey: publicKey)
+					removalKey = result.0
+					removalStatus = result.1
+				} else {
+					try domainName.promptInteractivelyIfNecessary(db: wgdb)
+					let result = try wgdb.clientRemoveDomain(domain:domainName.domain!, name:domainName.name!)
+					removalKey = result.0
+					removalStatus = result.1
+					removalLookupName = domainName.name!
+				}
 
-				if status == true {
+				if removalStatus == true {
 					print(Colors.Red("No more domains on the client. Client revoked and uninstalled from the server."))
-					try await WireguardExecutor.uninstall(publicKey: removedClientPub, interfaceName: interfaceName)
+					try await WireguardExecutor.uninstall(publicKey: removalKey, interfaceName: interfaceName)
 					try await WireguardExecutor.saveConfiguration(interfaceName: interfaceName, logLevel: globals.logLevel)
 				} else {
-					let clientInfo = try wgdb.allClients().filter { $0.name == domainName.name! }.first!
+					let clientInfo: WireguardDatabase.ClientInfo
+					if let removalLookupName {
+						guard let resolved = try wgdb.allClients().filter({ $0.name == removalLookupName }).first else {
+							throw CLI.Client.Error.notFound
+						}
+						clientInfo = resolved
+					} else {
+						guard let resolved = try wgdb.allClients().first(where: { $0.publicKey == removalKey }) else {
+							throw CLI.Client.Error.notFound
+						}
+						clientInfo = resolved
+					}
 					try await WireguardExecutor.updateExistingClient(publicKey:clientInfo.publicKey, with:Array(clientInfo.domains.values), interfaceName:interfaceName)
 					try await WireguardExecutor.saveConfiguration(interfaceName:interfaceName, logLevel: globals.logLevel)
 					print(Colors.Green("Client successfully removed from \(String(domainName.domain!))!"))
@@ -291,13 +349,14 @@ extension CLI {
 					// print the sorted clients
 					let sortedClients = domainToList.value.sorted(by: { $0.name < $1.name })
 					for curClient in sortedClients {
+						let mcpMarker = (try? wgdb.hasMCPAccess(publicKey: curClient.publicKey)) == true ? " [mcp]" : ""
 						if (curClient.lastHandshake == nil) {
 							// print the name in dim text since the client has never successfully handshaken
-							print(Colors.dim("\t- \(String(curClient.name))"), terminator:"\n")
+							print(Colors.dim("\t- \(String(curClient.name))\(mcpMarker)"), terminator:"\n")
 						} else {
 							if (curClient.lastHandshake!.timeIntervalSinceNow > -150) {
 								// print the name in green text since the client is online
-								print(Colors.Green("\t- \(String(curClient.name))"), terminator:"")
+								print(Colors.Green("\t- \(String(curClient.name))\(mcpMarker)"), terminator:"")
 								
 								// endpoint info
 								if let hasEndpoint = curClient.endpoint {
@@ -315,10 +374,10 @@ extension CLI {
 								}
 							} else if curClient.invalidationDate.timeIntervalSinceNow < 43200 {
 								// print the name in red text since the client is going to be revoked soon
-								print(Colors.Red("\t- \(String(curClient.name))"), terminator:"")
+								print(Colors.Red("\t- \(String(curClient.name))\(mcpMarker)"), terminator:"")
 							} else {
 								// print the name in white text because the client has successfully made a handshake in the past, but is currently offline
-								print("\t- \(String(curClient.name))", terminator:"")
+								print("\t- \(String(curClient.name))\(mcpMarker)", terminator:"")
 								
 								// endpoint info
 								print(Colors.dim("\n\t  - \(curClient.lastHandshake!.relativeTimeString(to:nowDate).lowercased()) "), terminator:"")
@@ -386,6 +445,46 @@ extension CLI {
 }
 
 extension CLI.Client {
+	/// Grants or revokes MCP admin access for a specified client.
+	struct MCPAccess:AsyncParsableCommand {
+		static let configuration = CommandConfiguration(
+			commandName:"mcp-access",
+			abstract:"grant or revoke MCP admin access for a specified client.",
+			discussion:"MCP access grants the client admin-level control over this wiremand server through the internal MCP service. Only grant this to highly trusted keys."
+		)
+
+		@OptionGroup
+		var domainName:DomainNameGroup
+
+		@Flag(name:[.customLong("grant")], help:ArgumentHelp("Grant MCP admin access to the specified client."))
+		var grant:Bool = false
+
+		@Flag(name:[.customLong("revoke")], help:ArgumentHelp("Revoke MCP admin access from the specified client."))
+		var revoke:Bool = false
+
+		@OptionGroup
+		var globals:CLI.GlobalCLIOptions
+
+		mutating func run() async throws {
+			guard grant != revoke else {
+				throw CLI.Client.Error.missingGrantOrRevoke
+			}
+			let wgdb = try WireguardDatabase(base: Path(globals.databasePath), logLevel: globals.logLevel)
+
+			try domainName.promptInteractivelyIfNecessary(db: wgdb)
+			guard let target = try wgdb.allClients(domain: domainName.domain!).filter({ $0.name == domainName.name! }).first else {
+				throw CLI.Client.Error.notFound
+			}
+
+			if grant {
+				try wgdb.grantMCPAccess(publicKey: target.publicKey)
+				print(Colors.Green("MCP access granted to \(String(domainName.name!))"))
+			} else {
+				try wgdb.revokeMCPAccess(publicKey: target.publicKey)
+				print(Colors.Green("MCP access revoked from \(String(domainName.name!))"))
+			}
+		}
+	}
 	struct DomainNameGroup:ParsableArguments {
 		@Option(
 			name:.shortAndLong,

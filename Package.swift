@@ -25,6 +25,8 @@ let package = Package(
 		
 		.package(url:"https://github.com/swift-server/swift-service-lifecycle.git", "2.6.3"..<"3.0.0"),
 		.package(url:"https://github.com/apple/swift-nio.git", "2.81.0"..<"3.0.0"),
+		.package(path:"../swift-mcp"),
+		// .package(url:"https://github.com/tannerdsilva/swift-mcp.git", exact:"1.0.0"), requires a follow-up release with the public transport/accessResolver initializers
     ],
     targets: [
     	.target(
@@ -53,6 +55,7 @@ let package = Package(
     			.product(name:"bedrock", package:"bedrock"),
 				.product(name:"RAW_base64", package:"rawdog"),
 				.product(name:"SwiftSlash", package:"SwiftSlash"),
+				.product(name:"MCP", package:"swift-mcp"),
 				.product(name:"QuickLMDB", package:"QuickLMDB"),
 				.product(name:"ArgumentParser", package:"swift-argument-parser"),
 				.product(name:"Logging", package:"swift-log"),
