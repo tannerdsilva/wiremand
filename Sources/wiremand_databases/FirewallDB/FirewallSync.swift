@@ -1,17 +1,15 @@
 import Foundation
 import Logging
-import wiremand_databases
 
 /// Abstracts the in-process nftables execution so the sync logic can be unit
-/// tested without a live kernel. `NFTables` conforms in production.
-protocol NftCommandRunner {
+/// tested without a live kernel. The executable's `NFTables` conforms.
+public protocol NftCommandRunner {
 	func run(commands: [String]) throws
 }
-extension NFTables: NftCommandRunner {}
 
 /// Abstracts the persisted per-chain rule mirror. `FirewallDatabase` conforms in
 /// production; a mock can be used in tests.
-protocol ChainRuleMirrorStore {
+public protocol ChainRuleMirrorStore {
 	func getChainRuleMirror(_ chainID: String) throws -> Set<String>
 	func setChainRuleMirror(_ chainID: String, rules: Set<String>) throws
 }
@@ -36,8 +34,8 @@ extension FirewallDatabase: ChainRuleMirrorStore {}
 /// text, corrupting text-based matching for the counter-bearing isolation and
 /// trace rules. Matching on our own generated rule text avoids both problems:
 /// additions need no handle, and removals fall back to a scoped re-render.
-struct FirewallSync {
-	static func chainID(family: String, table: String, chain: String) -> String {
+public struct FirewallSync {
+	public static func chainID(family: String, table: String, chain: String) -> String {
 		return "\(family)/\(table)/\(chain)"
 	}
 
@@ -49,7 +47,7 @@ struct FirewallSync {
 	///   - force: when true, always flush and fully re-render the chain and
 	///     refresh its mirror. Used at daemon boot to guarantee a clean slate
 	///     and to self-heal any state left by an unclean prior exit.
-	static func sync(
+	public static func sync(
 		family: String,
 		table: String,
 		chain: String,

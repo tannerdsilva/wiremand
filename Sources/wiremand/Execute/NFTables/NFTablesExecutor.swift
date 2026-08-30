@@ -3,6 +3,7 @@ import SwiftSlash
 import Clibnftables
 import SystemPackage
 import Logging
+import wiremand_databases
 
 /// A class for executing NFTable commands.
 /// Create an instance of the class and call the run function.
@@ -65,3 +66,5 @@ internal final class NFTables {
 		nft_ctx_free(nft_context);
 	}
 }
+
+extension NFTables: NftCommandRunner {}

@@ -8,6 +8,9 @@ let package = Package(
     platforms: [
     	.macOS(.v15)
     ],
+    products: [
+        .library(name: "wiremand_databases", targets: ["wiremand_databases"]),
+    ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
         // .package(url: /* package url */, from: "1.0.0"),
@@ -29,12 +32,11 @@ let package = Package(
 		// .package(url:"https://github.com/tannerdsilva/swift-mcp.git", exact:"1.0.0"), requires a follow-up release with the public transport/accessResolver initializers
     ],
     targets: [
-    	.target(
-    		name:"wiremand_databases",
-    		dependencies: [
-    			"QuickLMDB",
-				"Clibnftables",
-				.product(name:"RAW", package:"rawdog"),
+    		.target(
+    			name:"wiremand_databases",
+    			dependencies: [
+    				"QuickLMDB",
+    				.product(name:"RAW", package:"rawdog"),
 				.product(name:"RAW_dh25519", package:"rawdog"),
 				.product(name:"bedrock_ip", package:"bedrock"),
 				.product(name:"RAW_blake2", package:"rawdog"),
@@ -67,16 +69,16 @@ let package = Package(
 		),
 		.target(name:"Crtnetlink", dependencies: []),
 		.systemLibrary(name:"Clibnftables", pkgConfig:"libnftables", providers:[.apt(["libnftables-dev"])]),
-		.testTarget(
-			name: "wiremandTests",
-			dependencies: [
-				"wiremand_databases",
-				"Clibnftables",
-				"wiremand",
-				.product(name:"SwiftSlash", package:"SwiftSlash"),
-				.product(name:"bedrock", package:"bedrock"),
-				.product(name:"RAW", package:"rawdog"),
-			],
-		)
+				.testTarget(
+					name: "wiremandTests",
+					dependencies: [
+						"wiremand_databases",
+						.product(name:"bedrock", package:"bedrock"),
+						.product(name:"bedrock_ip", package:"bedrock"),
+						.product(name:"RAW", package:"rawdog"),
+						.product(name:"RAW_base64", package:"rawdog"),
+						.product(name:"Logging", package:"swift-log"),
+					],
+				)
     ]
 )
