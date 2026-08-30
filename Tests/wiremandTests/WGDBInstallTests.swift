@@ -1,6 +1,5 @@
 import Testing
 import Foundation
-import RAW
 import bedrock
 import wiremand_databases
 
@@ -26,6 +25,18 @@ struct WGDBInstallTests {
 		}
 	}
 
+	@Test("install accepts an IPv4 server block")
+	func installIPv4ServerBlock() throws {
+		// regression: the shared /64 defaultDomainMask forced-unwrapped a nil
+		// Network for any v4 block; the block's own prefix is now authoritative
+		let (db, dir) = try WGDBFixture.makeDatabase(serverBlock: "10.66.0.0/24")
+		defer { WGDBFixture.cleanup(dir) }
+
+		let domains = try db.allDomains()
+		let host = try #require(domains.first { String($0.name) == "host_block" })
+		#expect(host.network == Network("10.66.0.0/24")!)
+	}
+
 	@Test("install is repeatable on an already-initialized database")
 	func reinstall() throws {
 		let (db, dir) = try WGDBFixture.makeDatabase()
@@ -38,8 +49,7 @@ struct WGDBInstallTests {
 			wg_serverPublicListenPort: EncodedUInt16(RAW_native: 29300),
 			serverIPBlock: Network(WGDBFixture.serverBlock)!,
 			serverBlockName: EncodedString("host_block"),
-			publicKey: WGDBFixture.serverKey,
-			defaultDomainMask: RAW_byte(RAW_native: 64)
+			publicKey: WGDBFixture.serverKey
 		)
 		let domains = try db.allDomains()
 		#expect(domains.contains { String($0.name) == "host_block" })

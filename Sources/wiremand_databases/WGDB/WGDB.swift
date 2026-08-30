@@ -282,6 +282,7 @@ enum WGDBError:Swift.Error {
 	case domainNotFound
 	case clientExistsInDomain
 	case addressSpaceExhausted
+	case invalidServerBlock
 }
 
 /// Core persistence layer for WireGuard client, domain, and handshake management.
@@ -300,9 +301,6 @@ public struct WireguardDatabase: Sendable {
 		case wg_serverPublicListenPort = "wg_serverPublicListenPort"		// UInt16
 		/// The public key for the server.
 		case wg_serverPublicKey = "serverPublicKey" //String
-		/// The default domain subnet mask for the server.
-		///  - TODO: This really needs to be deleted and replaced with two different values for IPv4 and IPv6.
-		case wg_defaultDomainMask = "defaultDomainMask" //UInt8
 		/// The default invalidation interval
 		case wg_noHandshakeInvalidationInterval = "noHandshakeInvalidationInterval" //TimeInterval
 		case wg_handshakeInvalidationInterval = "handshakeInvalidationInterval" //TimeInterval
@@ -490,12 +488,16 @@ public struct WireguardDatabase: Sendable {
 	
 	/// The setup function for a new host. Creates new databases for the host.
 	/// Adds necessary metadata values for the host to the metadata database.
-	public func install(wg_primaryInterfaceName:EncodedString, wg_resolvedServerPublicIPv4:AddressV4, wg_resolvedServerPublicIPv6:AddressV6, wg_serverPublicListenPort:EncodedUInt16, serverIPBlock:Network, serverBlockName:EncodedString, publicKey:PublicKey, defaultDomainMask:RAW_byte, noHandshakeInvalidationInterval:EncodedTimeInterval = EncodedTimeInterval(RAW_native: 3600), handshakeInvalidationInterval:EncodedTimeInterval = EncodedTimeInterval(RAW_native: 2629800)) throws {
+	public func install(wg_primaryInterfaceName:EncodedString, wg_resolvedServerPublicIPv4:AddressV4, wg_resolvedServerPublicIPv6:AddressV6, wg_serverPublicListenPort:EncodedUInt16, serverIPBlock:Network, serverBlockName:EncodedString, publicKey:PublicKey, noHandshakeInvalidationInterval:EncodedTimeInterval = EncodedTimeInterval(RAW_native: 3600), handshakeInvalidationInterval:EncodedTimeInterval = EncodedTimeInterval(RAW_native: 2629800)) throws {
 		let newTrans = try Transaction(env: env, readOnly: false)
 		
 		let myClientName = EncodedString("localhost")
-		let myAddress = Address(serverIPBlock.addressString)!
-		let myDomain = Network(myAddress.string + "/\(defaultDomainMask.RAW_native())")!
+		guard let myAddress = Address(serverIPBlock.addressString) else {
+			throw WGDBError.invalidServerBlock
+		}
+		// the server's own domain (`host_block`) is exactly the block the
+		// admin supplied; the block's own prefix is authoritative for its family
+		let myDomain = serverIPBlock
 		let myDomainName = serverBlockName
 		let myDomainHash = try DomainHash(domainName: myDomainName)
 		
@@ -524,7 +526,6 @@ public struct WireguardDatabase: Sendable {
 		
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPublicListenPort.rawValue), value: wg_serverPublicListenPort, flags: [], tx: newTrans)
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), value: publicKey, flags: [], tx: newTrans)
-		try metadata.setEntry(key: EncodedString(Metadatas.wg_defaultDomainMask.rawValue), value: defaultDomainMask, flags: [], tx: newTrans)
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_noHandshakeInvalidationInterval.rawValue), value: noHandshakeInvalidationInterval, flags: [], tx: newTrans)
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_handshakeInvalidationInterval.rawValue), value: handshakeInvalidationInterval, flags: [], tx: newTrans)
 		try newTrans.commit()

@@ -1,7 +1,6 @@
 import Testing
 import Foundation
 import Logging
-import RAW
 import RAW_base64
 import bedrock
 import wiremand_databases
@@ -24,13 +23,14 @@ enum WGDBFixture {
 	/// a key that is never registered in any fixture database
 	static let unknownKey = makeKey("MEoSCqSQE0inR5h5NFRy1UOjZ+Hm8vVDnFM4AMIcN2k=")
 
-	// the production install defaults to an IPv6 ULA block with a /64 mask
-	// (the shared defaultDomainMask); a v4 block here would crash install
+	// the server's own domain (`host_block`) is exactly the supplied block;
+	// any address family works — the block's prefix is authoritative
 	static let serverBlock = "fd00:f00d:cafe::/64"
 
 	/// Creates a fresh database with the standard install metadata. Returns the
 	/// database and the temp directory path so the caller can clean up.
 	static func makeDatabase(
+		serverBlock: String = WGDBFixture.serverBlock,
 		noHandshakeInvalidationInterval: UInt64 = 3600,
 		handshakeInvalidationInterval: UInt64 = 2629800
 	) throws -> (WireguardDatabase, String) {
@@ -46,7 +46,6 @@ enum WGDBFixture {
 			serverIPBlock: Network(serverBlock)!,
 			serverBlockName: EncodedString("host_block"),
 			publicKey: serverKey,
-			defaultDomainMask: RAW_byte(RAW_native: 64),
 			noHandshakeInvalidationInterval: EncodedTimeInterval(RAW_native: noHandshakeInvalidationInterval),
 			handshakeInvalidationInterval: EncodedTimeInterval(RAW_native: handshakeInvalidationInterval)
 		)

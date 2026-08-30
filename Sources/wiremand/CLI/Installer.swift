@@ -668,7 +668,7 @@ extension CLI {
 			
 			WireguardDatabase.deleteDB(base: Path(homeDir.path))
 			let wgdb = try WireguardDatabase(base: Path(homeDir.path), logLevel: logLevel)
-			try wgdb.install(wg_primaryInterfaceName: EncodedString(interfaceName), wg_resolvedServerPublicIPv4: resExtV4!, wg_resolvedServerPublicIPv6: resExtV6!, wg_serverPublicListenPort: EncodedUInt16(RAW_native: wireguardPort), serverIPBlock: ipScope!, serverBlockName: ipScopeString!, publicKey: newKeys.publicKey, defaultDomainMask: RAW_byte(RAW_native: 64))
+			try wgdb.install(wg_primaryInterfaceName: EncodedString(interfaceName), wg_resolvedServerPublicIPv4: resExtV4!, wg_resolvedServerPublicIPv6: resExtV6!, wg_serverPublicListenPort: EncodedUInt16(RAW_native: wireguardPort), serverIPBlock: ipScope!, serverBlockName: ipScopeString!, publicKey: newKeys.publicKey)
 			appLogger.trace("wireguard database created...")
 			
 			IPDatabase.deleteDB(base: Path(homeDir.path))
