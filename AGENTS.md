@@ -47,23 +47,24 @@ Sources/
         MCPFirewallTools.swift # firewall add-rule/delete-rules/list tools
         MCPSystemTools.swift   # ipstack get/set + reset-public-addresses tools
       NFTables/
-        NFTablesExecutor.swift # in-process libnftables context wrapper
-        FirewallExecute.swift  # builds nft tables/chains for whitelist + domain isolation
-        FirewallSync.swift     # incremental per-chain sync (mirror-based delta)
+        NFTablesExecutor.swift # in-process libnftables context executor (conforms to FirewallSync's NftCommandRunner)
+        FirewallReload.swift   # live reload entrypoints for whitelist/isolation/trace (needs a kernel context)
       DNSmasq.swift            # exports hosts-auto entries, reloads dnsmasq
       RTNetlink.swift          # Swift wrapper over Crtnetlink for addr/route/iface dumps
       SelfSignedCertExecutor.swift
     Colors.swift               # ANSI 8-bit color helpers for informational output
-  wiremand_databases/          # library target: all LMDB persistence
+  wiremand_databases/          # library target: all LMDB persistence + pure firewall command builders
     WGDB/WGDB.swift            # core: WireguardDatabase, domain/client model, handshake engine
     WGDB/RandomAddress.swift   # random address allocation within a subnet
     FirewallDB/FirewallDB.swift# per-network nft rules
+    FirewallDB/FirewallExecute.swift # pure nft command builders (createIPFilters, desired*Rules) — kernel-free
+    FirewallDB/FirewallSync.swift    # public incremental per-chain sync (NftCommandRunner / ChainRuleMirrorStore protocols)
     IPDatabase/                # ipstack cache + ResolvedIPInfo
     Scheduler/                 # Scheduler (interval runner) + DateUTC
     Extensions/                # Date/String/URL/BedrockDate helpers
   Clibnftables/                # systemLibrary (modulemap only; pkg-config libnftables)
   Crtnetlink/                  # C module: raw netlink socket helpers (Ctrnetlink.c + include/)
-Tests/wiremandTests/           # Swift Testing (@Suite/@Test)
+Tests/wiremandTests/           # Swift Testing (@Suite/@Test): one file per suite (WGDB + firewall)
 scripts/                       # Windows PowerShell deployment scripts + lethal test battery
 docs/security-verification.md  # systemd unit hardening verification procedure + residual exposure notes
 ```
@@ -135,9 +136,9 @@ Do **not** chase a near-zero exposure score by enabling `SystemCallFilter` / `Me
 
 Framework: **Swift Testing** (`import Testing`, `@Suite`, `@Test`, `#expect`).
 
-**Current state: the test target does not compile against `vX-dev`.** `Tests/wiremandTests/wiremandTests.swift` calls `WireguardDatabase.install(...)` with a stale signature (`wg_serverPublicDomainName:`, separate `serverIPv6Block:`/`serverIPv4Block:`, `serverIPv6BlockName:`) — the live `install(...)` takes `wg_primaryInterfaceName:`, `wg_resolvedServerPublicIPv4:`, `wg_resolvedServerPublicIPv6:`, `wg_serverPublicListenPort:`, `serverIPBlock: Network`, `serverBlockName:`, `publicKey:`, `defaultDomainMask:`. The test target should not be treated as a live contract until fixed. Netlink tests shell out to `ip` on the host (Linux-only). Treat green tests as an explicit goal, not the baseline.
+**Current state: the test target compiles and runs (37 tests, 7 suites).** `Tests/wiremandTests/` holds one file per suite (WGDB install/domain/client/handshake/MCP + firewall builders/sync), running against a `WireguardDatabase` install fixture whose `install(...)` matches the live signature (`wg_primaryInterfaceName:`, `wg_resolvedServerPublicIPv4:`, `wg_resolvedServerPublicIPv6:`, `wg_serverPublicListenPort:`, `serverIPBlock: Network`, `serverBlockName:`, `publicKey:`, with optional interval overrides). `swift test` requires the full Linux build; on macOS the DB suites run via a scratch harness in `/tmp` that path-depends on the repo and its `wiremand_databases` product (the executable's Clibnftables/Crtnetlink can't build here), while `swift build --target wiremandTests` gives the scoped type-check. Netlink-level and CLI integration coverage is a separate concern (subprocess-based, Linux-only) and does not live in this target.
 
-There is currently **no unit coverage** for the LMDB state machine (`WGDB`), the handshake processing logic, or the firewall command builders, despite those being the highest-risk code. Adding focused tests for `processHandshakes`, `clientAssignDomain`/`clientRemoveDomain`, `domainMake`/`domainRemove`, and `FirewallExecutor.create*` command emission would be high-value work.
+There is now focused unit coverage for the LMDB state machine (install/domain/client membership), handshake processing (`processHandshakes`), MCP access control, and the firewall command builders + incremental sync. Still uncovered: `clientRename` (name-hash re-hash), `Scheduler`/`DateUTC`, `IPDatabase`, and the webserver/handshake pollers — CLI integration tests are the natural follow-up.
 
 ## Pitfalls & gotchas
 
@@ -148,7 +149,7 @@ There is currently **no unit coverage** for the LMDB state machine (`WGDB`), the
 - **One read-only LMDB transaction per thread.** LMDB grants a single reader slot per thread; opening a second read `Transaction` while one is still alive throws `LMDBError.badReaderSlot`. Share one transaction across lookups (see `clientAssignDomain(domain:name:)`), never nest read-only transactions.
 - **`import MCP` in a CLI/ArgumentParser file is ambiguous.** MCP exports `Option`/`OptionGroup`/`Argument`/`Flag` property wrappers, so `@Option` becomes ambiguous with ArgumentParser. Import just what you need: `import struct MCP.ServerAddress` (as `Daemon.swift` does).
 - **`GlobalCLIOptions` must be qualified (`CLI.GlobalCLIOptions`)** in subcommands declared directly in `extension CLI.*` (same rule as `IPStack`); bare resolution only works inside `struct Client`-nested subcommands.
-- **`defaultDomainMask` metadata is a single `UInt8`** shared for v4/v6. There is an explicit `TODO` that it should be split into two values. Any new subnet-mask logic should be aware of this simplification.
+- **The server's `host_block` domain is exactly the `serverIPBlock` passed to `install`** — its own prefix is authoritative for its family; there is no separate default-domain-mask metadata (the old single `UInt8` was removed). A malformed block throws `WGDBError.invalidServerBlock` which the installer surfaces.
 - **CLI firewall/domain commands assume the base nft tables exist.** `reloadDomainIsolation` / `reloadWhitelist` add rules into `ip_filter`/`ip6_filter`, which are only created by the daemon's `FirewallService.render` (or equivalent `nft` skeletons). With the daemon stopped (e.g. during CLI-only maintenance), these fail with `return_code=-1`/"unable to run commands from buffer". The failure is post-commit, so the DB mutation still lands.
 - **HandshakeChecker uses tab (ASCII 9) splitting**, and `wg show ... endpoints` output formats IPv6 as `[addr]:port` while IPv4 is bare `addr:port`. The parser branches on `[`/`.` heuristics; keep that intact if you touch endpoint parsing.
 - **The firewall forward chain policy is `drop`.** Whitelist and domain-isolation chains must `accept`; a rule that ends in `drop` locks out the domain. Domain isolation only accepts traffic *within the same domain*, so inter-domain traffic is blocked by design.
