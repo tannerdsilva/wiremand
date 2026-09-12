@@ -45,7 +45,12 @@ struct DNSmasqExecutor {
 		// capabilities, but dnsmasq runs as the same `wiremand` user (set in
 		// /etc/dnsmasq.conf), so a same-UID SIGHUP is permitted. Use `-x` to
 		// match the exact process name and `-o` to require at least one match.
-		guard try await Command(sh: "pkill -HUP -x -o dnsmasq", environment: CurrentEnvironment.environmentVariables()).runSync().succeeded == true else {
+		// posix_spawn, no shell.
+		guard try await Command(
+			absolutePath: "/usr/bin/pkill",
+			arguments: ["-HUP", "-x", "-o", "dnsmasq"],
+			environment: CurrentEnvironment.environmentVariables()
+		).runSync().succeeded == true else {
 			throw Error.reloadError
 		}
 	}

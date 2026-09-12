@@ -19,12 +19,19 @@ struct SelfSignedCertExecutor {
 		let fullchainPath = "\(certBaseDir)/fullchain.pem"
 		let privkeyPath = "\(certBaseDir)/privkey.pem"
 		
-		// Generate a self-signed certificate valid for 10 years
-		// -x509: self-signed, -nodes: no passphrase, -days 3650: 10 years
-		let certCmd = try await Command(sh:
-			"openssl req -x509 -nodes -days 3650 -newkey rsa:2048 " +
-			"-keyout '\(privkeyPath)' -out '\(fullchainPath)' " +
-			"-subj \"/CN=\(interfaceName)\" -addext \"subjectAltName=DNS:\(interfaceName)\"",
+		// Generate a self-signed certificate valid for 10 years.
+		// -x509: self-signed, -nodes: no passphrase, -days 3650: 10 years.
+		// posix_spawn, no shell (avoids shell metacharacter handling of paths).
+		let certCmd = try await Command(
+			absolutePath: "/usr/bin/openssl",
+			arguments: [
+				"req", "-x509", "-nodes", "-days", "3650",
+				"-newkey", "rsa:2048",
+				"-keyout", privkeyPath,
+				"-out", fullchainPath,
+				"-subj", "/CN=\(interfaceName)",
+				"-addext", "subjectAltName=DNS:\(interfaceName)",
+			],
 			environment: CurrentEnvironment.environmentVariables()
 		).runSync()
 		
@@ -34,7 +41,15 @@ struct SelfSignedCertExecutor {
 			throw Error.unableToGenerateCert
 		}
 		
-		let _ = try await Command(sh: "chmod 644 '\(fullchainPath)' '\(privkeyPath)'", environment: CurrentEnvironment.environmentVariables()).runSync()
+		// Set 0644 on both certificate files via posix_spawn.
+		let chmodResult = try await Command(
+			absolutePath: "/bin/chmod",
+			arguments: ["644", fullchainPath, privkeyPath],
+			environment: CurrentEnvironment.environmentVariables()
+		).runSync()
+		if !chmodResult.succeeded {
+			log.warning("unable to set permissions on certificate files")
+		}
 		
 		log.info("self-signed certificate generated")
 	}

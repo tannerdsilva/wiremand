@@ -47,7 +47,9 @@ final class HandshakeChecker: Service {
 			try await scheduler.runSchedule(name: taskName, interval: .seconds(10)) {
 				do {
 					let interfaceNameStr = String(self.interfaceName)
-					let env = CurrentEnvironment.environmentVariables()
+					// Force C locale so wg output parsing stays locale-stable.
+					var env = CurrentEnvironment.environmentVariables()
+					env["LC_ALL"] = "C"
 					
 					// run the command to check for the handshakes associated with the various public keys
 					let checkHandshakes = try await Command(absolutePath: "/usr/bin/wg", arguments: ["show", interfaceNameStr, "latest-handshakes"], environment: env).runSync()
