@@ -64,7 +64,8 @@ let package = Package(
 				.product(name:"Hummingbird", package:"hummingbird"),
 				.product(name:"HummingbirdTLS", package:"hummingbird"),
 				"wiremand_databases",
-				"Crtnetlink"
+				"Crtnetlink",
+				"Clibnftables"
 			],
 		),
 		.target(name:"Crtnetlink", dependencies: []),
