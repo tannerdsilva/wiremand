@@ -22,33 +22,27 @@ struct WireguardExecutor {
 			throw Error.wireguardCmdError
 		}
 		
-		// wg pubkey only accepts the key on stdin, and SwiftSlash 4.0.5's stdin
-		// data channel cannot deliver EOF on Linux: its writer fd is registered
-		// with EPOLLET (edge-triggered), so after the single initial writability
-		// event flushes the payload, no second event ever arrives and the write
-		// task never closes the child's stdin — the child blocks on EOF forever.
-		// (verified for every usage ordering; macOS kqueue does not have this
-		// bug). Feed the key through a mkstemp file and one sh invocation
-		// instead: the path is generated here (never client input) and quoted,
-		// so there is no injection surface, and key material never appears in
-		// argv. this matches the PSK-by-path convention used below in install().
-		let tempPath = malloc(64);
-		defer {
-			free(tempPath)
+		// `wg pubkey` reads the private key from stdin to EOF. SwiftSlash >= 5.0.1
+		// delivers stdin EOF on linux (the 5.0.0/4.x EPOLLET write-path deadlock is
+		// fixed upstream), so feed the key through the native data channel: yield
+		// the payload and close the channel. the execute layer is otherwise
+		// shell-free; this was the last `Command(sh:)` call site.
+		let pubKeyProcess = ChildProcess(Command(
+			absolutePath: "/usr/bin/wg",
+			arguments: ["pubkey"],
+			environment: CurrentEnvironment.environmentVariables()
+		))
+		async let pubKeyExit = pubKeyProcess.run()
+		let pubKeyOutTask = Task {
+			var collected = [[UInt8]]()
+			for await chunk in pubKeyProcess.stdout {
+				collected.append(chunk)
+			}
+			return collected
 		}
-		strcpy(tempPath!, "/tmp/wg_genkey_XXXXXXXXX")
-		mkstemp(tempPath!)
-		let newData = Data(bytes:tempPath!, count:strlen(tempPath!))
-		let pathAsString = String(data:newData, encoding:.utf8)!
-		defer {
-			remove(tempPath)
-		}
-		let newFD = try FileDescriptor.open(pathAsString, .writeOnly, options:[.create, .truncate], permissions: [.ownerReadWriteExecute])
-		_ = try newFD.closeAfter {
-			try newFD.writeAll("\(privateKey)\n".utf8)
-		}
-		let makePubKey = try await Command(sh: "cat '\(pathAsString)' | /usr/bin/wg pubkey", environment: CurrentEnvironment.environmentVariables()).runSync()
-		guard makePubKey.succeeded == true, let keyData = makePubKey.stdout.first, let pubKeyString = String(data:Data(keyData), encoding:.utf8) else {
+		try? pubKeyProcess.stdin.yield([UInt8](privateKey.utf8))
+		pubKeyProcess.stdin.closeDataChannel()
+		guard await pubKeyExit == .code(0), let keyData = (await pubKeyOutTask.value).first, let pubKeyString = String(data:Data(keyData), encoding:.utf8) else {
 			throw Error.wireguardCmdError
 		}
 
