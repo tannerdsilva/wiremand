@@ -4,7 +4,9 @@ import bedrock_ip
 
 extension bedrock_ip.NetworkV4 {
 	public func randomAddress() throws -> bedrock_ip.AddressV4 {
-		let randomBytes = try generateSecureRandomBytes(as: bedrock_ip.AddressV4.self)
+		let rawRandomBytes = try generateSecureRandomBytes(count: MemoryLayout<bedrock_ip.AddressV4.RAW_fixed_type>.size)
+		// the byte count was requested to match the address width exactly, so decode cannot fail.
+		let randomBytes = rawRandomBytes.withUnsafeBytes { bedrock_ip.AddressV4(RAW_decode: $0)! }
 		let maskedRandomBytes = ~self.subnetMask & randomBytes
 		let result = maskedRandomBytes | (self.subnetMask & self.address)
 		return result
@@ -13,7 +15,9 @@ extension bedrock_ip.NetworkV4 {
 
 extension bedrock_ip.NetworkV6 {
 	public func randomAddress() throws -> bedrock_ip.AddressV6 {
-		let randomBytes = try generateSecureRandomBytes(as: bedrock_ip.AddressV6.self)
+		let rawRandomBytes = try generateSecureRandomBytes(count: MemoryLayout<bedrock_ip.AddressV6.RAW_fixed_type>.size)
+		// the byte count was requested to match the address width exactly, so decode cannot fail.
+		let randomBytes = rawRandomBytes.withUnsafeBytes { bedrock_ip.AddressV6(RAW_decode: $0)! }
 		let maskedRandomBytes = ~self.subnetMask & randomBytes
 		let result = maskedRandomBytes | (self.subnetMask & self.address)
 		return result

@@ -35,7 +35,7 @@ public struct FirewallDatabase: Sendable {
         let fileSize = envPath.getFileSize() + (16 * 1024 * 1024 * 1024) // current + 16GB
         env = try Environment(path: envPath.path(), flags: [.noSubDir], mapSize: Int(fileSize), maxReaders: 32, maxDBs: 8, mode: [.ownerReadWriteExecute, .groupReadExecute, .otherReadExecute])
 
-        let someTrans = try Transaction(env: env, readOnly: false)
+        let someTrans = try Transaction<Write>(env: env)
 
         networkV4_firewallRule = try Database.DupSort<NetworkV4, EncodedString>(env: env, name: Databases.networkV4_firewallRule.rawValue, flags: [.create], tx: someTrans)
         networkV6_firewallRule = try Database.DupSort<NetworkV6, EncodedString>(env: env, name: Databases.networkV6_firewallRule.rawValue, flags: [.create], tx: someTrans)
@@ -55,7 +55,7 @@ public struct FirewallDatabase: Sendable {
 	/// rule strings. Empty when the chain has never been synced.
 	/// - Parameter chainID: The chain identifier (family/table/chain).
 	public func getChainRuleMirror(_ chainID: String) throws -> Set<String> {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		var result = Set<String>()
 		try chainRuleMirror.cursor(tx: newTrans) { cursor in
 			for (_, rule) in cursor.makeDupIterator(key: EncodedString(chainID)) {
@@ -69,7 +69,7 @@ public struct FirewallDatabase: Sendable {
 	/// - Parameter chainID: The chain identifier (family/table/chain).
 	/// - Parameter rules: The rule set currently live in the kernel.
 	public func setChainRuleMirror(_ chainID: String, rules: Set<String>) throws {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		try? chainRuleMirror.deleteEntry(key: EncodedString(chainID), tx: newTrans)
 		for rule in rules {
 			try chainRuleMirror.setEntry(key: EncodedString(chainID), value: EncodedString(rule), flags: [], tx: newTrans)
@@ -82,7 +82,7 @@ public struct FirewallDatabase: Sendable {
 	/// 	- domain: The IPv4 domain.
 	/// 	- rule: The nft syntax compliant rule.
     public func addDomainV4Rule(domain: NetworkV4, rule: EncodedString) throws {
-        let newTrans = try Transaction(env: env, readOnly: false)
+        let newTrans = try Transaction<Write>(env: env)
         try networkV4_firewallRule.setEntry(key:domain, value: rule, flags: [], tx: newTrans)
         try newTrans.commit()
     }
@@ -92,7 +92,7 @@ public struct FirewallDatabase: Sendable {
 	/// 	- domain: The IPv6 domain.
 	/// 	- rule: The nft syntax compliant rule.
     public func addDomainV6Rule(domain: NetworkV6, rule: EncodedString) throws {
-        let newTrans = try Transaction(env: env, readOnly: false)
+        let newTrans = try Transaction<Write>(env: env)
         try networkV6_firewallRule.setEntry(key:domain, value: rule, flags: [], tx: newTrans)
         try newTrans.commit()
     }
@@ -101,7 +101,7 @@ public struct FirewallDatabase: Sendable {
     // - Parameters
     //      - domain: The IPv4/IPv6 domain.
     public func deleteDomainRules(domain:bedrock_ip.Network) throws {
-        let newTrans = try Transaction(env: env, readOnly: false)
+        let newTrans = try Transaction<Write>(env: env)
         switch domain {
             case .v4(let v4):
                 try networkV4_firewallRule.deleteEntry(key:wiremand_databases.NetworkV4(v4), tx:newTrans)
@@ -115,7 +115,7 @@ public struct FirewallDatabase: Sendable {
 	/// - Returns
 	/// 	- [NetworkV4:[EncodedString]] : A dictionary of each domain and its corresponding rules.
     public func getIPv4Rules() throws -> [NetworkV4:[EncodedString]] {
-        let newTrans = try Transaction(env: env, readOnly: true)
+        let newTrans = try Transaction<Read>(env: env)
         var result = [NetworkV4:[EncodedString]]()
         networkV4_firewallRule.cursor (tx: newTrans) { cursor in
             for (networkV4, rule) in cursor.makeIterator() {
@@ -129,7 +129,7 @@ public struct FirewallDatabase: Sendable {
 	/// - Returns
 	/// 	- [NetworkV6:[EncodedString]] : A dictionary of each domain and its corresponding rules.
     public func getIPv6Rules() throws -> [NetworkV6:[EncodedString]] {
-        let newTrans = try Transaction(env: env, readOnly: true)
+        let newTrans = try Transaction<Read>(env: env)
         var result = [NetworkV6:[EncodedString]]()
         networkV6_firewallRule.cursor (tx: newTrans) { cursor in
             for (networkV6, rule) in cursor.makeIterator() {

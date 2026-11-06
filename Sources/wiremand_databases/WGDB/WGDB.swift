@@ -127,21 +127,28 @@ public struct Address:Sendable, Hashable, Comparable {
 }
 
 extension Address:RAW_accessible {
-	public borrowing func RAW_access<R, E>(_ body:(UnsafeBufferPointer<UInt8>) throws(E) -> R) throws(E) -> R where E:Swift.Error {
-		return try addr.RAW_access(body)
+	public borrowing func RAW_access_immutable<R, E>(_: UnsafeRawBufferPointer.Type, _ body:(UnsafeRawBufferPointer) throws(E) -> R) throws(E) -> R where E:Swift.Error {
+		return try addr.RAW_access_immutable(UnsafeRawBufferPointer.self, body)
 	}
-	public mutating func RAW_access_mutating<R, E>(_ body:(UnsafeMutableBufferPointer<UInt8>) throws(E) -> R) throws(E) -> R where E:Swift.Error {
+	public mutating func RAW_access_mutable<R, E>(_: UnsafeMutableRawBufferPointer.Type, _ body:(UnsafeMutableRawBufferPointer) throws(E) -> R) throws(E) -> R where E:Swift.Error {
 		var addr = addr.self
-		return try addr.RAW_access_mutating(body)
+		return try addr.RAW_access_mutable(UnsafeMutableRawBufferPointer.self, body)
 	}
 }
 
-extension Address:RAW_decodable {
-	public init?(RAW_decode:UnsafeRawPointer, count:size_t) {
-		guard let addr = bedrock_ip.Address(RAW_decode:RAW_decode, count:count) else {
+extension Address:RAW_decodable, RAW_encodable {
+	public init?(RAW_decode buffer: UnsafeRawBufferPointer) {
+		guard let addr = bedrock_ip.Address(RAW_decode: buffer) else {
 			return nil
 		}
 		self.addr = addr
+	}
+	public func RAW_encode(count: inout Int) {
+		addr.RAW_encode(count: &count)
+	}
+	@discardableResult
+	public func RAW_encode(_: UnsafeMutableRawPointer.Type, destination: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
+		return addr.RAW_encode(UnsafeMutableRawPointer.self, destination: destination)
 	}
 }
 
@@ -182,21 +189,28 @@ public struct Network:Sendable, Hashable, Comparable {
 }
 
 extension Network:RAW_accessible {
-	public borrowing func RAW_access<R, E>(_ body:(UnsafeBufferPointer<UInt8>) throws(E) -> R) throws(E) -> R where E:Swift.Error {
-		return try net.RAW_access(body)
+	public borrowing func RAW_access_immutable<R, E>(_: UnsafeRawBufferPointer.Type, _ body:(UnsafeRawBufferPointer) throws(E) -> R) throws(E) -> R where E:Swift.Error {
+		return try net.RAW_access_immutable(UnsafeRawBufferPointer.self, body)
 	}
-	public mutating func RAW_access_mutating<R, E>(_ body:(UnsafeMutableBufferPointer<UInt8>) throws(E) -> R) throws(E) -> R where E:Swift.Error {
+	public mutating func RAW_access_mutable<R, E>(_: UnsafeMutableRawBufferPointer.Type, _ body:(UnsafeMutableRawBufferPointer) throws(E) -> R) throws(E) -> R where E:Swift.Error {
 		var net = self.net
-		return try net.RAW_access_mutating(body)
+		return try net.RAW_access_mutable(UnsafeMutableRawBufferPointer.self, body)
 	}
 }
 
-extension Network:RAW_decodable {
-	public init?(RAW_decode:UnsafeRawPointer, count:size_t) {
-		guard let net = bedrock_ip.Network(RAW_decode:RAW_decode, count:count) else {
+extension Network:RAW_decodable, RAW_encodable {
+	public init?(RAW_decode buffer: UnsafeRawBufferPointer) {
+		guard let net = bedrock_ip.Network(RAW_decode: buffer) else {
 			return nil
 		}
 		self.net = net
+	}
+	public func RAW_encode(count: inout Int) {
+		net.RAW_encode(count: &count)
+	}
+	@discardableResult
+	public func RAW_encode(_: UnsafeMutableRawPointer.Type, destination: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
+		return net.RAW_encode(UnsafeMutableRawPointer.self, destination: destination)
 	}
 }
 
@@ -214,7 +228,7 @@ public struct DomainHash:Sendable, Comparable {
 	public init(domainName:EncodedString) throws {
 		var hasher = try RAW_blake2.Hasher<B, Self>()
 		try hasher.update(domainName)
-		self = try hasher.finish()
+		self = try blake2StaticbuffFinish(&hasher)
 	}
 	public init?(base64String: String) {
 		let rawBytes = try? RAW_base64.decode(base64String)
@@ -234,7 +248,7 @@ public struct ClientNameHash:Sendable, Hashable {
 	public init(clientName:EncodedString) throws {
 		var hasher = try RAW_blake2.Hasher<B, Self>()
 		try hasher.update(clientName)
-		self = try hasher.finish()
+		self = try blake2StaticbuffFinish(&hasher)
 	}
 	public var string:String {
 		String(RAW_base64.encode(self))
@@ -396,14 +410,14 @@ public struct WireguardDatabase: Sendable {
 	let pub_mcpAccess:Database.Strict<PublicKey, RAW_byte>
 	
 	public func serveConfiguration(_ configString:EncodedString, forPublicKey publicKey:PublicKey) throws {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		// confirm it exists
 		_ = try clientPub_domainHash.loadEntry(key: publicKey, tx: newTrans)
 		try webserve__clientPub_configData.setEntry(key: publicKey, value: configString, flags: [.noOverwrite], tx: newTrans)
 		try newTrans.commit()
 	}
 	public func getConfiguration(publicKey:PublicKey, domainName:EncodedString) throws -> (configuration:EncodedString, name:EncodedString) {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		let sh = try clientPub_domainHash.loadEntry(key: publicKey, tx: newTrans)
 		let domainHash = try DomainHash(domainName: domainName)
 		guard sh == domainHash else {
@@ -418,27 +432,27 @@ public struct WireguardDatabase: Sendable {
 	/// Resolves the client public key that owns a given in-tunnel address.
 	/// Used by the MCP server to authenticate a peer from its source address.
 	public func clientPublicKey(forAddress address:Address) throws -> PublicKey {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		return try ip_clientPub.loadEntry(key: address, tx: newTrans)
 	}
 
 	/// Grants MCP admin access to the client with the given public key.
 	public func grantMCPAccess(publicKey:PublicKey) throws {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		try pub_mcpAccess.setEntry(key: publicKey, value: RAW_byte(RAW_native: 1), flags: [], tx: newTrans)
 		try newTrans.commit()
 	}
 
 	/// Revokes MCP admin access from the client with the given public key.
 	public func revokeMCPAccess(publicKey:PublicKey) throws {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		try? pub_mcpAccess.deleteEntry(key: publicKey, tx: newTrans)
 		try newTrans.commit()
 	}
 
 	/// Whether the client with the given public key currently holds MCP admin access.
 	public func hasMCPAccess(publicKey:PublicKey) throws -> Bool {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		do {
 			_ = try pub_mcpAccess.loadEntry(key: publicKey, tx: newTrans)
 			return true
@@ -456,7 +470,7 @@ public struct WireguardDatabase: Sendable {
 		let fileSize = envPath.getFileSize() + (16 * 1024 * 1024 * 1024) // current + 16GB
 		env = try Environment(path:envPath.path(), flags:[.noSubDir], mapSize:Int(fileSize), maxReaders:32, maxDBs:32, mode:[.ownerReadWriteExecute, .groupReadExecute, .otherReadExecute])
 		log.debug("successfully created environment", metadata:["mmap_size":"\(fileSize)b"])
-		let someTrans = try Transaction(env:env, readOnly:false)
+		let someTrans = try Transaction<Write>(env: env)
 		log.trace("successfully created transaction")
 		metadata = try Database(env:env, name:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
 		clientPub_ip = try Database.DupSort<PublicKey, Address>(env:env, name:Databases.clientPub_ip.rawValue, flags:[.create], tx:someTrans)
@@ -489,7 +503,7 @@ public struct WireguardDatabase: Sendable {
 	/// The setup function for a new host. Creates new databases for the host.
 	/// Adds necessary metadata values for the host to the metadata database.
 	public func install(wg_primaryInterfaceName:EncodedString, wg_resolvedServerPublicIPv4:AddressV4, wg_resolvedServerPublicIPv6:AddressV6, wg_serverPublicListenPort:EncodedUInt16, serverIPBlock:Network, serverBlockName:EncodedString, publicKey:PublicKey, noHandshakeInvalidationInterval:EncodedTimeInterval = EncodedTimeInterval(RAW_native: 3600), handshakeInvalidationInterval:EncodedTimeInterval = EncodedTimeInterval(RAW_native: 2629800)) throws {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		
 		let myClientName = EncodedString("localhost")
 		guard let myAddress = Address(serverIPBlock.addressString) else {
@@ -510,7 +524,7 @@ public struct WireguardDatabase: Sendable {
 		try domainHash_network.setEntry(key:myDomainHash, value:myDomain, flags: [], tx:newTrans)
 		try network_domainHash.setEntry(key:myDomain, value:myDomainHash, flags: [], tx:newTrans)
 
-		try domainHash_securityKey.setEntry(key:myDomainHash, value:SecurityKey(randomBytes: try generateRandomBytes(count: MemoryLayout<SecurityKey>.size))!, flags:[], tx:newTrans)
+		try domainHash_securityKey.setEntry(key:myDomainHash, value:SecurityKey(randomBytes: try generateRandomBytesChunked(count: MemoryLayout<SecurityKey>.size))!, flags:[], tx:newTrans)
 		try domainHash_clientPub.setEntry(key:myDomainHash, value:publicKey, flags:[], tx:newTrans)
 		try domainHash_clientNameHash.setEntry(key: myDomainHash, value: ClientNameHash(clientName: myClientName), flags: [], tx: newTrans)
 		try ip_domainHash.setEntry(key: myAddress, value: myDomainHash, flags: [], tx: newTrans)
@@ -533,34 +547,34 @@ public struct WireguardDatabase: Sendable {
 
 	/// Installs new public ipv4 and ipv6 addresses to be used for the HTTP server.
 	public func installPublicIPAddresses(wg_resolvedServerPublicIPv4:AddressV4, wg_resolvedServerPublicIPv6:AddressV6) throws {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPublicIPv4Address.rawValue), value: wg_resolvedServerPublicIPv4, flags: [], tx: newTrans)
 		try metadata.setEntry(key: EncodedString(Metadatas.wg_serverPublicIPv6Address.rawValue), value: wg_resolvedServerPublicIPv6, flags: [], tx: newTrans)
 		try newTrans.commit()
 	}
 
 	public func primaryInterfaceName() throws -> EncodedString {
-		let newTrans = try Transaction(env: env, readOnly: true)
-		return try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_primaryInterfaceName.rawValue), as: EncodedString.self, tx: newTrans)!
+		let newTrans = try Transaction<Read>(env: env)
+		return try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_primaryInterfaceName.rawValue), as: EncodedString.self, tx: newTrans)
 	}
-	public func getServerPublicKey(_ tx:borrowing Transaction) throws -> PublicKey {
-		return try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: tx)!
+	public func getServerPublicKey<M:TransactionMode>(_ tx:borrowing Transaction<M>) throws -> PublicKey {
+		return try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: tx)
 	}
 	public func getPublicListenPort() throws -> EncodedUInt16 {
-		let newTrans = try Transaction(env: env, readOnly: true)
-		return try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicListenPort.rawValue), as: EncodedUInt16.self, tx: newTrans)!
+		let newTrans = try Transaction<Read>(env: env)
+		return try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicListenPort.rawValue), as: EncodedUInt16.self, tx: newTrans)
 	}
 	
 	public func getWireguardConfigMetas() throws -> (EncodedUInt16, Network, PublicKey, EncodedString, AddressV4, AddressV6) {
-		let newTrans = try Transaction(env: env, readOnly: true)
-		let getPort = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicListenPort.rawValue), as: EncodedUInt16.self, tx: newTrans)!
+		let newTrans = try Transaction<Read>(env: env)
+		let getPort = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicListenPort.rawValue), as: EncodedUInt16.self, tx: newTrans)
 		
-		let primaryServerSubnet = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPrimarySubnet.rawValue), as: Network.self, tx: newTrans)!
-		let serverPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: newTrans)!
-		let publicInterfaceName = try metadata.loadEntry(key: EncodedString(Metadatas.wg_primaryInterfaceName.rawValue), as: EncodedString.self, tx: newTrans)!
+		let primaryServerSubnet = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPrimarySubnet.rawValue), as: Network.self, tx: newTrans)
+		let serverPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: newTrans)
+		let publicInterfaceName = try metadata.loadEntry(key: EncodedString(Metadatas.wg_primaryInterfaceName.rawValue), as: EncodedString.self, tx: newTrans)
 
-		let publicIPv4Interface = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicIPv4Address.rawValue), as: AddressV4.self, tx: newTrans)!
-		let publicIPv6Interface = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicIPv6Address.rawValue), as: AddressV6.self, tx: newTrans)!
+		let publicIPv4Interface = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicIPv4Address.rawValue), as: AddressV4.self, tx: newTrans)
+		let publicIPv6Interface = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicIPv6Address.rawValue), as: AddressV6.self, tx: newTrans)
 
 		return (getPort, primaryServerSubnet, serverPubKey, publicInterfaceName, publicIPv4Interface, publicIPv6Interface)
 	}
@@ -570,7 +584,7 @@ public struct WireguardDatabase: Sendable {
 	/// 	- name: The domain name.
 	/// 	- subnet: The network of the domain.
 	public func domainMake(name:EncodedString, subnet:Network) throws -> SecurityKey {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		let domainHash = try DomainHash(domainName: name)
 		
 		guard try self.network_domainHash.containsEntry(key: subnet, tx: newTrans) == false else {
@@ -581,7 +595,7 @@ public struct WireguardDatabase: Sendable {
 		try self.domainHash_network.setEntry(key: domainHash, value: subnet, flags: [.noOverwrite], tx: newTrans)
 		try self.network_domainHash.setEntry(key: subnet, value: domainHash, flags: [.noOverwrite], tx: newTrans)
 		
-		let securityKey = SecurityKey(randomBytes: try generateRandomBytes(count: MemoryLayout<SecurityKey>.size))!
+		let securityKey = SecurityKey(randomBytes: try generateRandomBytesChunked(count: MemoryLayout<SecurityKey>.size))!
 		try self.domainHash_securityKey.setEntry(key: domainHash, value: securityKey, flags: [], tx: newTrans)
 		try self.domainHash_domainName.setEntry(key: domainHash, value: name, flags: [.noOverwrite], tx: newTrans)
 		
@@ -596,7 +610,7 @@ public struct WireguardDatabase: Sendable {
 	/// 	- Network: The network of the removed domain.
 	/// 	- [PublicKey:Bool]: A dictionary of the removed client public key and a bool indicating its revoked status.
 	public func domainRemove(name:EncodedString) throws -> (Network, [PublicKey:Bool])  {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		let domainHash = try DomainHash(domainName: name)
 		// get the domain of this network
 		let domain = try domainHash_network.loadEntry(key: domainHash, tx: newTrans)
@@ -628,7 +642,7 @@ public struct WireguardDatabase: Sendable {
 	}
 	
 	public func allDomains() throws -> [DomainInfo] {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		var domains = [DomainInfo]()
 				
 		try domainHash_securityKey.cursor(tx: newTrans) { securityKeyCursor in
@@ -646,13 +660,13 @@ public struct WireguardDatabase: Sendable {
 	}
 	
 	@discardableResult public func regenerateSecurityKey(domain:EncodedString) throws -> SecurityKey {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		let domainHash = try DomainHash(domainName: domain)
 		
 		let existingSecurityKey = try self.domainHash_securityKey.loadEntry(key: domainHash, tx: newTrans)
-		var newSecurityKey = SecurityKey(randomBytes: try generateRandomBytes(count: MemoryLayout<SecurityKey>.size))!
+		var newSecurityKey = SecurityKey(randomBytes: try generateRandomBytesChunked(count: MemoryLayout<SecurityKey>.size))!
 		while newSecurityKey == existingSecurityKey {
-			newSecurityKey = SecurityKey(randomBytes: try generateRandomBytes(count: MemoryLayout<SecurityKey>.size))!
+			newSecurityKey = SecurityKey(randomBytes: try generateRandomBytesChunked(count: MemoryLayout<SecurityKey>.size))!
 		}
 		try self.domainHash_securityKey.setEntry(key: domainHash, value: newSecurityKey, flags: [], tx: newTrans)
 		
@@ -665,7 +679,7 @@ public struct WireguardDatabase: Sendable {
 	/// 	- dk: The domain hash.
 	/// 	- sk: The security key to be validated.
 	public func validateSecurity(dk domainHash:DomainHash, sk securityKey:SecurityKey) throws -> Bool {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		do {
 			let currentSecurityKey = try self.domainHash_securityKey.loadEntry(key: domainHash, tx: newTrans)
 			if (currentSecurityKey == securityKey) {
@@ -682,7 +696,7 @@ public struct WireguardDatabase: Sendable {
 	/// - Parameters
 	/// 	- name: The name of the domain.
 	public func validateDomain(name:EncodedString) throws -> Bool {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		let domainHash = try DomainHash(domainName: name)
 		return try self.domainHash_network.containsEntry(key: domainHash, tx: newTrans)
 	}
@@ -695,7 +709,7 @@ public struct WireguardDatabase: Sendable {
 	/// 	- name: The human readable name of the client.
 	public func clientAssignDomain(domain:EncodedString, name:EncodedString) throws -> Address {
 		// single read transaction: LMDB allows only one reader slot per thread
-		let readTrans = try Transaction(env: env, readOnly: true)
+		let readTrans = try Transaction<Read>(env: env)
 		let domainHash = try DomainHash(domainName: domain)
 		guard try _domainContainsName(domainHash: domainHash, clientNameHash: ClientNameHash(clientName: name), tx: readTrans) == false else {
 			throw WGDBError.clientExistsInDomain
@@ -712,13 +726,13 @@ public struct WireguardDatabase: Sendable {
 	/// 	- domain: The domain of the client.
 	/// 	- publicKey: The public key of the client.
 	public func clientAssignDomain(domain:EncodedString, publicKey:PublicKey) throws -> Address {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		let domainHash = try DomainHash(domainName: domain)
 
 		let clientName = try clientPub_clientName.loadEntry(key: publicKey, tx: newTrans)
 		let clientNameHash = try ClientNameHash(clientName: clientName)
 
-		let myPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: newTrans)!
+		let myPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: newTrans)
 		guard myPubKey != publicKey else {
 			throw WGDBError.immutableClient
 		}
@@ -745,7 +759,7 @@ public struct WireguardDatabase: Sendable {
 	/// Resolves a client public key by its global name (any domain). Used by
 	/// the name-based add-domain path, where the client is by definition not
 	/// yet a member of the target domain.
-	fileprivate func _resolveClientPublicKeyAnywhere(name: EncodedString, tx: borrowing Transaction) throws -> PublicKey {
+	fileprivate func _resolveClientPublicKeyAnywhere<M:TransactionMode>(name: EncodedString, tx: borrowing Transaction<M>) throws -> PublicKey {
 		return try clientPub_clientName.cursor(tx: tx) { cursor in
 			for (publicKey, clientName) in cursor.makeIterator() {
 				if clientName == name {
@@ -760,7 +774,7 @@ public struct WireguardDatabase: Sendable {
 	/// name is registered in the given domain (matches the historical
 	/// name-based resolution semantics of the domain membership commands).
 	fileprivate func _resolveClientPublicKey(name: EncodedString, domainHash: DomainHash) throws -> PublicKey {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		return try clientPub_clientName.cursor(tx: newTrans) { cursor in
 			return try domainHash_clientNameHash.cursor(tx: newTrans) { domainHashCursor in
 				for (publicKey, clientName) in cursor.makeIterator() {
@@ -778,7 +792,7 @@ public struct WireguardDatabase: Sendable {
 	/// Whether the given public key is a member of the given domain.
 	/// Uses a DupSort cursor because the typed dup-sort wrapper does not
 	/// expose a value-scoped `containsEntry` directly.
-	fileprivate func _domainContainsClient(domainHash: DomainHash, publicKey: PublicKey, tx: borrowing Transaction) throws -> Bool {
+	fileprivate func _domainContainsClient<M:TransactionMode>(domainHash: DomainHash, publicKey: PublicKey, tx: borrowing Transaction<M>) throws -> Bool {
 		return try self.domainHash_clientPub.cursor(tx: tx) { cursor in
 			for (_, memberKey) in cursor.makeDupIterator(key: domainHash) {
 				if memberKey == publicKey {
@@ -790,7 +804,7 @@ public struct WireguardDatabase: Sendable {
 	}
 
 	/// Whether the given client name hash is registered in the given domain.
-	fileprivate func _domainContainsName(domainHash: DomainHash, clientNameHash: ClientNameHash, tx: borrowing Transaction) throws -> Bool {
+	fileprivate func _domainContainsName<M:TransactionMode>(domainHash: DomainHash, clientNameHash: ClientNameHash, tx: borrowing Transaction<M>) throws -> Bool {
 		return try self.domainHash_clientNameHash.cursor(tx: tx) { cursor in
 			return try cursor.containsEntry(key: domainHash, value: clientNameHash)
 		}
@@ -798,7 +812,7 @@ public struct WireguardDatabase: Sendable {
 
 	/// Draws a random unallocated address inside a domain subnet, failing
 	/// after a bounded number of attempts instead of spinning forever.
-	fileprivate func _allocateAddress(in subnet: Network, tx: borrowing Transaction) throws -> Address {
+	fileprivate func _allocateAddress<M:TransactionMode>(in subnet: Network, tx: borrowing Transaction<M>) throws -> Address {
 		for _ in 0..<2048 {
 			let candidate = Address(try subnet.net.randomAddress())
 			if try self.ip_clientPub.containsEntry(key: candidate, tx: tx) == false {
@@ -809,7 +823,7 @@ public struct WireguardDatabase: Sendable {
 	}
 
 	/// Fileprivate version of `clientRemoveDomain` to be used in `domainRemove`.
-	fileprivate func _clientRemoveDomain(publicKey:PublicKey, domain:EncodedString, tx:borrowing Transaction) throws -> Bool {
+	fileprivate func _clientRemoveDomain(publicKey:PublicKey, domain:EncodedString, tx:borrowing Transaction<Write>) throws -> Bool {
 		let domainHash = try DomainHash(domainName: domain)
 		let clientName = try clientPub_clientName.loadEntry(key:publicKey, tx:tx)
 		let clientNameHash = try ClientNameHash(clientName: clientName)
@@ -865,8 +879,8 @@ public struct WireguardDatabase: Sendable {
 	/// - Returns
 	/// 	- Bool: The status of the client after domain removal. If true, then it was revoked.
 	public func clientRemoveDomain(domain:EncodedString, publicKey:PublicKey) throws -> (PublicKey, Bool) {
-		let newTrans = try Transaction(env: env, readOnly: false)
-		let myPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: newTrans)!
+		let newTrans = try Transaction<Write>(env: env)
+		let myPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: newTrans)
 		guard myPubKey != publicKey else {
 			throw WGDBError.immutableClient
 		}
@@ -883,7 +897,7 @@ public struct WireguardDatabase: Sendable {
 		return (publicKey, didRevoke)
 	}
 	
-	fileprivate func _clientMake(name:EncodedString, publicKey:PublicKey, domain:EncodedString, noHandshakeInvalidation:bedrock.Date.Seconds?, tx:borrowing Transaction) throws -> Address {
+	fileprivate func _clientMake(name:EncodedString, publicKey:PublicKey, domain:EncodedString, noHandshakeInvalidation:bedrock.Date.Seconds?, tx:borrowing Transaction<Write>) throws -> Address {
 		let domainHash = try DomainHash(domainName: domain)
 				
 		let domainSubnet = try domainHash_network.loadEntry(key: domainHash, tx: tx)
@@ -901,7 +915,7 @@ public struct WireguardDatabase: Sendable {
 			try self.clientPub_invalidDate.setEntry(key: publicKey, value: noHandshakeInvalidation!, flags: [.noOverwrite], tx: tx)
 			log.info("new client invalidation date explicitly provided", metadata:["date":"\(noHandshakeInvalidation!.iso8601String())"])
 		} else {
-			let defaultInvalidation = try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_noHandshakeInvalidationInterval.rawValue), as: EncodedTimeInterval.self, tx: tx)!
+			let defaultInvalidation = try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_noHandshakeInvalidationInterval.rawValue), as: EncodedTimeInterval.self, tx: tx)
 			let targetDate = bedrock.Date.Seconds().addingTimeInterval(defaultInvalidation.RAW_native())
 			try self.clientPub_invalidDate.setEntry(key: publicKey, value: targetDate, flags: [.noOverwrite], tx: tx)
 			log.info("new client invalidation date defined as a default value", metadata:["time_interval":"\(defaultInvalidation.timeInterval.description)", "target_date":"\(targetDate.iso8601String())"])
@@ -922,14 +936,14 @@ public struct WireguardDatabase: Sendable {
 	/// - Returns
 	/// 	- Address: The new address for the client.
 	public func clientMake(name:EncodedString, publicKey:PublicKey, domain:EncodedString, noHandshakeInvalidation:bedrock.Date.Seconds? = nil) throws -> Address {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		let ret = try _clientMake(name:name, publicKey:publicKey, domain:domain, noHandshakeInvalidation:noHandshakeInvalidation, tx:newTrans)
 		try newTrans.commit()
 		return ret
 	}
 	
-	@discardableResult fileprivate func _clientRemove(publicKey:PublicKey, tx:borrowing Transaction) throws -> PublicKey {
-		let myPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: tx)!
+	@discardableResult fileprivate func _clientRemove(publicKey:PublicKey, tx:borrowing Transaction<Write>) throws -> PublicKey {
+		let myPubKey = try metadata.loadEntry(key: EncodedString(Metadatas.wg_serverPublicKey.rawValue), as: PublicKey.self, tx: tx)
 		guard myPubKey != publicKey else {
 			throw WGDBError.immutableClient
 		}
@@ -993,7 +1007,7 @@ public struct WireguardDatabase: Sendable {
 	/// - Returns
 	/// 	- PublicKey: The public key of the client that was removed.
 	@discardableResult public func clientRemove(publicKey:PublicKey) throws -> PublicKey {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		let ret = try self._clientRemove(publicKey:publicKey, tx:newTrans)
 		try newTrans.commit()
 		return ret
@@ -1006,7 +1020,7 @@ public struct WireguardDatabase: Sendable {
 	/// - Returns
 	/// 	- PublicKey: The public key of the client that was removed.
 	@discardableResult public func clientRemove(domain:EncodedString, name:EncodedString) throws -> PublicKey {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		let domainHash = try DomainHash(domainName: domain)
 		let ret = try clientPub_clientName.cursor(tx: newTrans) { cursor in
 			return try domainHash_clientNameHash.cursor(tx: newTrans) { domainHashCursor in
@@ -1034,7 +1048,7 @@ public struct WireguardDatabase: Sendable {
 		public let invalidationDate:bedrock.Date.Seconds
 	}
 	
-	fileprivate func _allClients(domain:EncodedString? = nil, tx:borrowing Transaction) throws -> Set<ClientInfo> {
+	fileprivate func _allClients<M:TransactionMode>(domain:EncodedString? = nil, tx:borrowing Transaction<M>) throws -> Set<ClientInfo> {
 		var buildClients = Set<ClientInfo>()
 		
 		let serverPublicKey = try self.getServerPublicKey(tx)
@@ -1119,7 +1133,7 @@ public struct WireguardDatabase: Sendable {
 	}
 	
 	public func allClients(domain:EncodedString? = nil) throws -> Set<ClientInfo> {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		return try _allClients(domain:domain, tx:newTrans)
 	}
 	
@@ -1128,7 +1142,7 @@ public struct WireguardDatabase: Sendable {
 	/// 	- domain: The name of the domain.
 	/// 	- clientName: The name of the client to be validated.
 	public func validateNewClientName(domain:EncodedString, clientName:EncodedString) throws -> Bool {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		let domainHash = try DomainHash(domainName: domain)
 		let clientNameHash = try ClientNameHash(clientName: clientName)
 		if try domainHash_network.containsEntry(key: domainHash, tx: newTrans) {
@@ -1143,7 +1157,7 @@ public struct WireguardDatabase: Sendable {
 		return true
 	}
 	
-	fileprivate func _puntClientInvalidation(to newInvalidationDate:bedrock.Date.Seconds? = nil, publicKey:PublicKey, tx:borrowing Transaction) throws -> bedrock.Date.Seconds {
+	fileprivate func _puntClientInvalidation(to newInvalidationDate:bedrock.Date.Seconds? = nil, publicKey:PublicKey, tx:borrowing Transaction<Write>) throws -> bedrock.Date.Seconds {
 		// this is the new date that is to be assigned to the client
 		let targetDate:bedrock.Date.Seconds
 		
@@ -1153,7 +1167,7 @@ public struct WireguardDatabase: Sendable {
 		} else {
 			// the caller did not provide a new invalidation date for this client. we need to take the configured time interval from the metadata database and add it to present time. this is will become the new invalidation date for the client
 			let now = bedrock.Date.Seconds()
-			let shiftTime = try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_handshakeInvalidationInterval.rawValue), as: EncodedTimeInterval.self, tx: tx)!
+			let shiftTime = try self.metadata.loadEntry(key: EncodedString(Metadatas.wg_handshakeInvalidationInterval.rawValue), as: EncodedTimeInterval.self, tx: tx)
 			targetDate = now.addingTimeInterval(shiftTime.RAW_native())
 		}
 		
@@ -1165,7 +1179,7 @@ public struct WireguardDatabase: Sendable {
 	
 	@discardableResult public func puntClientInvalidation(to newInvalidDate:bedrock.Date.Seconds? = nil, domain:EncodedString, name:EncodedString) throws -> bedrock.Date.Seconds {
 		let domainHash = try DomainHash(domainName: domain)
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		let ret = try self.domainHash_clientPub.cursor(tx:newTrans) { domainPubCursor in
 			return try self.clientPub_clientName.cursor(tx:newTrans) { clientNameCursor in
 				for (_, publicKey) in domainPubCursor.makeDupIterator(key:domainHash) {
@@ -1183,7 +1197,7 @@ public struct WireguardDatabase: Sendable {
 	}
 	
 	@discardableResult public func puntAllClients(domain:EncodedString, to newInvalidDate:bedrock.Date.Seconds? = nil) throws -> bedrock.Date.Seconds {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		let domainHash = try DomainHash(domainName: domain)
 		let ret = try self.domainHash_clientPub.cursor(tx:newTrans) { domainPubCursor in
 			var puntTo:bedrock.Date.Seconds? = newInvalidDate
@@ -1202,7 +1216,7 @@ public struct WireguardDatabase: Sendable {
 	}
 	
 	@discardableResult public func puntClientInvalidation(to newInvalidDate:bedrock.Date.Seconds? = nil, publicKey:PublicKey) throws -> bedrock.Date.Seconds {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		let ret = try self._puntClientInvalidation(to: newInvalidDate, publicKey: publicKey, tx: newTrans)
 		try env.sync()
 		try newTrans.commit()
@@ -1210,7 +1224,7 @@ public struct WireguardDatabase: Sendable {
 	}
 	
 	public func clientRename(publicKey:PublicKey, name:EncodedString) throws {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		let getCurrentName = try self.clientPub_clientName.loadEntry(key: publicKey, tx: newTrans)
 		let getCurrentNetworkName = try self.clientPub_domainHash.loadEntry(key: publicKey, tx: newTrans)
 		let hashedName = try ClientNameHash(clientName: getCurrentName)
@@ -1234,14 +1248,14 @@ public struct WireguardDatabase: Sendable {
 	/// 	- endpoints: The dictionary of the client's public key to their endpoint address.
 	/// 	- all: The complete set of client public keys.
 	public func processHandshakes(_ handshakes:[PublicKey:bedrock.Date.Seconds], endpoints:[PublicKey:bedrock_ip.Address], all:Set<PublicKey>) throws -> [ProcessedHandshakeAction] {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		var returnActions = [ProcessedHandshakeAction]()
 		
 		let ret = try self.clientPub_handshakeDate.cursor(tx: newTrans) { handshakeCursor in
 			return try self.clientPub_invalidDate.cursor(tx: newTrans) { invalidationCursor in
 				return try self.clientPub_endpointAddress.cursor(tx: newTrans) { endpointCursor in
 					
-					let handshakeInvalidationTimeInterval = try metadata.loadEntry(key: EncodedString(Metadatas.wg_handshakeInvalidationInterval.rawValue), as: EncodedTimeInterval.self, tx: newTrans)!
+					let handshakeInvalidationTimeInterval = try metadata.loadEntry(key: EncodedString(Metadatas.wg_handshakeInvalidationInterval.rawValue), as: EncodedTimeInterval.self, tx: newTrans)
 					
 					var removeKeys = Set<PublicKey>()
 					
@@ -1252,20 +1266,20 @@ public struct WireguardDatabase: Sendable {
 								let existingHandshake = try handshakeCursor.opSet(key: ourClientKey)
 								if existingHandshake < ourClientHSTime {
 									// only update the handshake in the database if the new handshake is a date that is further in time than the existing handshake
-									try handshakeCursor.setEntry(key: ourClientKey, value: ourClientHSTime, flags: [])
-									try invalidationCursor.setEntry(key: ourClientKey, value: ourClientHSTime.addingTimeInterval(handshakeInvalidationTimeInterval.RAW_native()), flags: [])
+									try handshakeCursor.setEntry(key: ourClientKey, value: ourClientHSTime, flags: [], tx: newTrans)
+									try invalidationCursor.setEntry(key: ourClientKey, value: ourClientHSTime.addingTimeInterval(handshakeInvalidationTimeInterval.RAW_native()), flags: [], tx: newTrans)
 									let clientEndpoint = endpoints[ourClientKey]!
-									try endpointCursor.setEntry(key: ourClientKey, value: clientEndpoint, flags: [])
+									try endpointCursor.setEntry(key: ourClientKey, value: clientEndpoint, flags: [], tx: newTrans)
 									returnActions.append(.resolveIP(clientEndpoint))
 								} else if invalidationDate.timeIntervalSinceNow < 0 {
 									// if the client has reached their invalidation period
 									try _clientRemove(publicKey: ourClientKey, tx: newTrans)
 								}
 							} catch LMDBError.notFound {
-								try handshakeCursor.setEntry(key: ourClientKey, value: ourClientHSTime, flags: [])
-								try invalidationCursor.setEntry(key: ourClientKey, value: ourClientHSTime.addingTimeInterval(handshakeInvalidationTimeInterval.RAW_native()), flags: [])
+								try handshakeCursor.setEntry(key: ourClientKey, value: ourClientHSTime, flags: [], tx: newTrans)
+								try invalidationCursor.setEntry(key: ourClientKey, value: ourClientHSTime.addingTimeInterval(handshakeInvalidationTimeInterval.RAW_native()), flags: [], tx: newTrans)
 								let clientEndpoint = endpoints[ourClientKey]!
-								try endpointCursor.setEntry(key: ourClientKey, value: clientEndpoint, flags: [])
+								try endpointCursor.setEntry(key: ourClientKey, value: clientEndpoint, flags: [], tx: newTrans)
 								returnActions.append(.resolveIP(clientEndpoint))
 							}
 							do {

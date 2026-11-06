@@ -39,17 +39,17 @@ public struct IPHash:Sendable, Comparable {
 	public init(ipString:EncodedString) throws {
 		var hasher = try RAW_blake2.Hasher<B, Self>()
 		try hasher.update(ipString)
-		self = try hasher.finish()
+		self = try blake2StaticbuffFinish(&hasher)
 	}
 	public init(addressV4:AddressV4) throws {
 		var hasher = try RAW_blake2.Hasher<B, Self>()
 		try hasher.update(addressV4)
-		self = try hasher.finish()
+		self = try blake2StaticbuffFinish(&hasher)
 	}
 	public init(addressV6:AddressV6) throws {
 		var hasher = try RAW_blake2.Hasher<B, Self>()
 		try hasher.update(addressV6)
-		self = try hasher.finish()
+		self = try blake2StaticbuffFinish(&hasher)
 	}
 }
 
@@ -133,7 +133,7 @@ public final class IPDatabase: Sendable {
 		let fileSize = envPath.getFileSize() + (16 * 1024 * 1024 * 1024) // current + 16GB
 		env = try Environment(path:envPath.path(), flags:[.noSubDir], mapSize:Int(fileSize), maxReaders:32, maxDBs:32, mode:[.ownerReadWriteExecute, .groupReadExecute, .otherReadExecute])
 		log.debug("successfully created environment", metadata:["mmap_size":"\(fileSize)b"])
-		let someTrans = try Transaction(env:env, readOnly:false)
+		let someTrans = try Transaction<Write>(env: env)
 		log.trace("successfully created transaction")
 		metadata = try Database(env:env, name:Databases.metadata.rawValue, flags:[.create], tx:someTrans)
 		date_pendingIP = try Database.Strict<bedrock.Date.Seconds, EncodedString>(env:env, name:Databases.date_pendingIP.rawValue, flags:[.create], tx:someTrans)
@@ -159,7 +159,7 @@ public final class IPDatabase: Sendable {
 	}
 	
 	// installs a pending address. does not mark the current pid as a resolver of this address
-	fileprivate func installPending(ipv4:AddressV4, tx:borrowing Transaction) throws {
+	fileprivate func installPending(ipv4:AddressV4, tx:borrowing Transaction<Write>) throws {
 		let makeDate = bedrock.Date.Seconds()
 		try self.date_pendingIP.setEntry(key: makeDate, value: EncodedString(ipv4.string), flags: [.noOverwrite], tx: tx)
 		try self.pendingIP_date.setEntry(key: EncodedString(ipv4.string), value: makeDate, flags: [.noOverwrite], tx: tx)
@@ -167,7 +167,7 @@ public final class IPDatabase: Sendable {
 	}
 	
 	// installs a pending address. does not mark the current pid as a resolver for this address
-	fileprivate func installPending(ipv6:AddressV6, tx:borrowing Transaction) throws {
+	fileprivate func installPending(ipv6:AddressV6, tx:borrowing Transaction<Write>) throws {
 		let makeDate = bedrock.Date.Seconds()
 		try self.date_pendingIP.setEntry(key: makeDate, value: EncodedString(ipv6.string), flags: [.noOverwrite], tx: tx)
 		try self.pendingIP_date.setEntry(key: EncodedString(ipv6.string), value: makeDate, flags: [.noOverwrite], tx: tx)
@@ -175,7 +175,7 @@ public final class IPDatabase: Sendable {
 	}
 	
 	// PRIVATE USE ONLY (for retrying failed addresses) installs a pending address. does not mark the current pid as a resolver of this address
-	fileprivate func installPending(address:EncodedString, tx:borrowing Transaction) throws {
+	fileprivate func installPending(address:EncodedString, tx:borrowing Transaction<Write>) throws {
 		let makeDate = bedrock.Date.Seconds()
 		try self.date_pendingIP.setEntry(key: makeDate, value: address, flags: [.noOverwrite], tx: tx)
 		try self.pendingIP_date.setEntry(key: address, value: makeDate, flags: [.noOverwrite], tx: tx)
@@ -184,7 +184,7 @@ public final class IPDatabase: Sendable {
 	
 	// installs a resolved address string into the database with the corresponding IP information.
 	// may overwrite data if it already exists in the database
-	fileprivate func installSuccessfulResolve(address:EncodedString, resolution:ResolvedIPInfo, tx:borrowing Transaction) throws {
+	fileprivate func installSuccessfulResolve(address:EncodedString, resolution:ResolvedIPInfo, tx:borrowing Transaction<Write>) throws {
 		let successDate = bedrock.Date.Seconds()
 		let ipHash = try IPHash(ipString: address)
 		do {
@@ -200,24 +200,24 @@ public final class IPDatabase: Sendable {
 		log.debug("installed resolution info", metadata:["address": "\(address)"])
 	}
 	
-	fileprivate func uninstallPending(addressString:EncodedString, tx:borrowing Transaction) throws {
+	fileprivate func uninstallPending(addressString:EncodedString, tx:borrowing Transaction<Write>) throws {
 		let date = try self.pendingIP_date.cursor(tx:tx) { cursor in
 			let date = try cursor.opSet(key:addressString)
 			try self.date_pendingIP.deleteEntry(key:date, tx:tx)
-			try cursor.deleteCurrentEntry(flags: [])
+			try cursor.deleteCurrentEntry(flags: [], tx: tx)
 			return date
 		}
 		log.debug("pending IP uninstalled", metadata:["db_address": "\(String(addressString))", "db_date": "\(date.iso8601String())"])
 	}
 
 	public func uninstallPending(addressString:EncodedString) throws {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		try uninstallPending(addressString: addressString, tx:newTrans)
 		try newTrans.commit()
 	}
 	
 	// returns the next pending address from the database
-	fileprivate func getNextPendingAddress(tx:borrowing Transaction) throws -> String {
+	fileprivate func getNextPendingAddress<M:TransactionMode>(tx:borrowing Transaction<M>) throws -> String {
 		return try self.date_pendingIP.cursor(tx:tx) { dateCursor in
 			return try String(dateCursor.opFirst().value)
 		}
@@ -225,7 +225,7 @@ public final class IPDatabase: Sendable {
 
 	// installs a failed resolution into the database with the corresponding error that caused the info to fail
 	public func installFailedResolve(address:String, error:Swift.Error) throws {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		let failDate = bedrock.Date.Seconds()
 		let errorString = String(describing:error)
 		let ipHash = try IPHash(ipString: EncodedString(address))
@@ -239,7 +239,7 @@ public final class IPDatabase: Sendable {
 	}
 	
 	// removes a failed resolution from the database
-	fileprivate func uninstallFailedResolve(address:EncodedString, tx:borrowing Transaction) throws {
+	fileprivate func uninstallFailedResolve(address:EncodedString, tx:borrowing Transaction<Write>) throws {
 		let ipHash = try IPHash(ipString: address)
 
 		let resolveFailDate = try self.ipHash_resolveFailDate.loadEntry(key:ipHash, tx: tx)
@@ -249,7 +249,7 @@ public final class IPDatabase: Sendable {
 		try self.ipHash_ipString.deleteEntry(key:ipHash, tx:tx)
 	}
 	
-	fileprivate func rotateStaleRecords(tx:borrowing Transaction) throws {
+	fileprivate func rotateStaleRecords(tx:borrowing Transaction<Write>) throws {
 		// failed records that are a month old will rotate back into the pending section of the databse (they will be removed as failed records before this happens)
 		try self.resolveFailDate_ipHash.cursor(tx:tx) { failedIPDateCursor in
 			try self.ipHash_ipString.cursor(tx:tx) { hashStringCursor in
@@ -291,7 +291,7 @@ public final class IPDatabase: Sendable {
 		}
 	}
 	
-	fileprivate func getResolveStatus(ipString:String, tx:borrowing Transaction) throws -> ResolveStatus {
+	fileprivate func getResolveStatus<M:TransactionMode>(ipString:String, tx:borrowing Transaction<M>) throws -> ResolveStatus {
 		let ipHash = try IPHash(ipString: EncodedString(ipString))
 		do {
 			let resolvedInfo = try self.ipHash_resolvedData.loadEntry(key: ipHash, tx: tx)
@@ -311,22 +311,22 @@ public final class IPDatabase: Sendable {
 	}
 	
 	public func getResolveStatus(address:AddressV4) throws -> ResolveStatus {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		return try self.getResolveStatus(ipString:address.string, tx:newTrans)
 	}
 	
 	public func getResolveStatus(address:AddressV6) throws -> ResolveStatus {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		return try self.getResolveStatus(ipString:address.string, tx:newTrans)
 	}
 	
 	public func getResolveStatus(address:String) throws -> ResolveStatus {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		return try self.getResolveStatus(ipString:address, tx:newTrans)
 	}
 	
 	public func installAddress(ipv4:AddressV4) throws {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		do {
 			let resolveStatus = try self.getResolveStatus(ipString:ipv4.string, tx:newTrans)
 			log.debug("installing an address that is already accounted for. no action taken.", metadata:["ip": "\(ipv4.string)", "status": "\(String(describing:resolveStatus))"])
@@ -339,7 +339,7 @@ public final class IPDatabase: Sendable {
 	}
 	
 	public func installAddress(ipv6:AddressV6) throws {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		do {
 			let resolveStatus = try self.getResolveStatus(ipString:ipv6.string, tx:newTrans)
 			log.debug("installing an address that is already accounted for. no action taken.", metadata:["ip": "\(ipv6.string)", "status": "\(String(describing:resolveStatus))"])
@@ -352,7 +352,7 @@ public final class IPDatabase: Sendable {
 	}
 	
 	public func getNextPendingAddress() throws -> String? {
-		let newTrans = try Transaction(env: env, readOnly: true)
+		let newTrans = try Transaction<Read>(env: env)
 		do {
 			return try self.getNextPendingAddress(tx: newTrans)
 		} catch LMDBError.notFound {
@@ -361,11 +361,11 @@ public final class IPDatabase: Sendable {
 	}
 	
 	public func setupMainLoop() throws -> String? {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		try self.rotateStaleRecords(tx:newTrans)
 		var accessKey:String
 		do {
-			accessKey = String(try self.metadata.loadEntry(key: EncodedString(Metadatas.ipstackAccessKey.rawValue), as: EncodedString.self, tx: newTrans)!)
+			accessKey = String(try self.metadata.loadEntry(key: EncodedString(Metadatas.ipstackAccessKey.rawValue), as: EncodedString.self, tx: newTrans))
 		} catch LMDBError.notFound {
 			log.debug("resolver Task exiting. no access key configured.")
 			return nil
@@ -375,12 +375,12 @@ public final class IPDatabase: Sendable {
 	}
 	
 	public func installResolved(currentAddress: EncodedString, resolvedIPInfo: ResolvedIPInfo) throws -> String? {
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		try self.uninstallPending(addressString: currentAddress, tx: newTrans)
 		try self.installSuccessfulResolve(address: currentAddress, resolution: resolvedIPInfo, tx: newTrans)
 		var accessKey:String
 		do {
-			accessKey = String(try self.metadata.loadEntry(key: EncodedString(Metadatas.ipstackAccessKey.rawValue), as: EncodedString.self, tx: newTrans)!)
+			accessKey = String(try self.metadata.loadEntry(key: EncodedString(Metadatas.ipstackAccessKey.rawValue), as: EncodedString.self, tx: newTrans))
 		} catch LMDBError.notFound {
 			log.debug("resolver Task exiting. no access key configured.")
 			return nil
@@ -390,12 +390,12 @@ public final class IPDatabase: Sendable {
 	}
 
 	public func getIPStackKey() throws -> EncodedString {
-		let newTrans = try Transaction(env: env, readOnly: true)
-		return try self.metadata.loadEntry(key: EncodedString(Metadatas.ipstackAccessKey.rawValue), as: EncodedString.self, tx: newTrans)!
+		let newTrans = try Transaction<Read>(env: env)
+		return try self.metadata.loadEntry(key: EncodedString(Metadatas.ipstackAccessKey.rawValue), as: EncodedString.self, tx: newTrans)
 	}
 		
 	public func setIPStackKey(_ apiKey:String) throws { 
-		let newTrans = try Transaction(env: env, readOnly: false)
+		let newTrans = try Transaction<Write>(env: env)
 		try self.metadata.setEntry(key: EncodedString(Metadatas.ipstackAccessKey.rawValue), value: EncodedString(apiKey), flags: [], tx: newTrans)
 		try newTrans.commit()
 	}

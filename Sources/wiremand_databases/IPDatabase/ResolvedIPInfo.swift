@@ -175,10 +175,13 @@ extension IPDatabase {
 	}
 }
 
-extension IPDatabase.ResolvedIPInfo: RAW_convertible, RAW_accessible {
-	public init?(RAW_decode inputPtr: consuming UnsafeRawPointer, count: RAW.size_t) {
-		var inputPtr = inputPtr
-		var dataCount = count
+extension IPDatabase.ResolvedIPInfo: RAW_decodable, RAW_encodable, RAW_accessible {
+	public init?(RAW_decode buffer: UnsafeRawBufferPointer) {
+		guard let bufferBase = buffer.baseAddress else {
+			return nil
+		}
+		var inputPtr = UnsafeRawPointer(bufferBase)
+		var dataCount = buffer.count
 		var continent0: ContinentInfo?
 		let continentExists = EncodedBool(RAW_staticbuff_seeking: &inputPtr)
 		dataCount -= MemoryLayout<EncodedBool>.size
@@ -191,7 +194,7 @@ extension IPDatabase.ResolvedIPInfo: RAW_convertible, RAW_accessible {
 			guard dataCount >= continentLength else {
 				return nil
 			}
-			guard let continent1 = ContinentInfo(RAW_decode: inputPtr, count: continentLength) else {
+			guard let continent1 = ContinentInfo(RAW_decode: UnsafeRawBufferPointer(start: inputPtr, count: continentLength)) else {
 				return nil
 			}
 			inputPtr = inputPtr.advanced(by: continentLength)
@@ -213,7 +216,7 @@ extension IPDatabase.ResolvedIPInfo: RAW_convertible, RAW_accessible {
 			guard dataCount >= countryLength else {
 				return nil
 			}
-			guard let country1 = CountryInfo(RAW_decode: inputPtr, count: countryLength) else {
+			guard let country1 = CountryInfo(RAW_decode: UnsafeRawBufferPointer(start: inputPtr, count: countryLength)) else {
 				return nil
 			}
 			inputPtr = inputPtr.advanced(by: countryLength)
@@ -235,7 +238,7 @@ extension IPDatabase.ResolvedIPInfo: RAW_convertible, RAW_accessible {
 			guard dataCount >= regionLength else {
 				return nil
 			}
-			guard let region1 = RegionInfo(RAW_decode: inputPtr, count: regionLength) else {
+			guard let region1 = RegionInfo(RAW_decode: UnsafeRawBufferPointer(start: inputPtr, count: regionLength)) else {
 				return nil
 			}
 			inputPtr = inputPtr.advanced(by: regionLength)
@@ -257,7 +260,9 @@ extension IPDatabase.ResolvedIPInfo: RAW_convertible, RAW_accessible {
 			guard dataCount >= cityLength else {
 				return nil
 			}
-			let city1 = EncodedString(RAW_decode: inputPtr, count: cityLength)
+			guard let city1 = EncodedString(RAW_decode: UnsafeRawBufferPointer(start: inputPtr, count: cityLength)) else {
+				return nil
+			}
 			inputPtr = inputPtr.advanced(by: cityLength)
 			dataCount -= cityLength
 			city0 = city1
@@ -277,7 +282,9 @@ extension IPDatabase.ResolvedIPInfo: RAW_convertible, RAW_accessible {
 			guard dataCount >= zipLength else {
 				return nil
 			}
-			let zip1 = EncodedString(RAW_decode: inputPtr, count: zipLength)
+			guard let zip1 = EncodedString(RAW_decode: UnsafeRawBufferPointer(start: inputPtr, count: zipLength)) else {
+				return nil
+			}
 			inputPtr = inputPtr.advanced(by: zipLength)
 			dataCount -= zipLength
 			zip0 = zip1
@@ -293,7 +300,9 @@ extension IPDatabase.ResolvedIPInfo: RAW_convertible, RAW_accessible {
 		guard dataCount >= ispLength else {
 			return nil
 		}
-		let isp0 = EncodedString(RAW_decode: inputPtr, count: ispLength)
+		guard let isp0 = EncodedString(RAW_decode: UnsafeRawBufferPointer(start: inputPtr, count: ispLength)) else {
+			return nil
+		}
 		inputPtr = inputPtr.advanced(by: ispLength)
 		dataCount -= ispLength
 		self.isp = isp0
@@ -301,7 +310,7 @@ extension IPDatabase.ResolvedIPInfo: RAW_convertible, RAW_accessible {
 			return nil
 		}
 	}
-	public func RAW_encode(count: inout RAW.size_t) {
+	public func RAW_encode(count: inout Int) {
 		count += MemoryLayout<EncodedBool>.size
 		if let continent = continent {
 			count += MemoryLayout<Bytes4>.size
@@ -330,8 +339,9 @@ extension IPDatabase.ResolvedIPInfo: RAW_convertible, RAW_accessible {
 		count += MemoryLayout<Bytes4>.size
 		isp.RAW_encode(count: &count)
 	}
-	public func RAW_encode(dest: UnsafeMutablePointer<UInt8>) -> UnsafeMutablePointer<UInt8> {
-		var dest = dest
+	@discardableResult
+	public func RAW_encode(_: UnsafeMutableRawPointer.Type, destination: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
+		var dest = destination.assumingMemoryBound(to: UInt8.self)
 		if let continent = continent {
 			dest = EncodedBool(true).RAW_encode(dest: dest)
 			var continentLength = 0;
@@ -387,59 +397,46 @@ extension IPDatabase.ResolvedIPInfo: RAW_convertible, RAW_accessible {
 		let ispLengthBytes = Bytes4(RAW_native: UInt32(ispLength))
 		dest = ispLengthBytes.RAW_encode(dest: dest)
 		dest = isp.RAW_encode(dest: dest)
-		return dest
+		return UnsafeMutableRawPointer(dest)
 	}
 }
 
-extension RAW_accessible where Self: RAW_encodable & RAW_decodable {
-	public func RAW_access<R, E>(_ body: (UnsafeBufferPointer<UInt8>) throws(E) -> R) throws(E) -> R where E : Error {
-		var count: RAW.size_t = 0
+extension IPDatabase.ResolvedIPInfo {
+	public borrowing func RAW_access_immutable<R, E>(_: UnsafeRawBufferPointer.Type, _ body: (UnsafeRawBufferPointer) throws(E) -> R) throws(E) -> R where E : Swift.Error {
+		var count = 0
 		self.RAW_encode(count: &count)
-		
-		return try! withUnsafeTemporaryAllocation(
-			byteCount: count,
-			alignment: MemoryLayout<UInt8>.alignment
-		) { rawBuffer in
+		return try! withUnsafeTemporaryAllocation(byteCount: count, alignment: MemoryLayout<UInt8>.alignment) { rawBuffer in
 			let base = rawBuffer.baseAddress!.assumingMemoryBound(to: UInt8.self)
 			_ = self.RAW_encode(dest: base)
-
-			let buffer = UnsafeBufferPointer(start: base, count: count)
+			let buffer = UnsafeRawBufferPointer(start: base, count: count)
 			return try body(buffer)
 		}
 	}
-	
-	public mutating func RAW_access_mutating<R, E>(_ body: (UnsafeMutableBufferPointer<UInt8>) throws(E) -> R) throws(E) -> R where E : Error {
-		var count: RAW.size_t = 0
+
+	public mutating func RAW_access_mutable<R, E>(_: UnsafeMutableRawBufferPointer.Type, _ body: (UnsafeMutableRawBufferPointer) throws(E) -> R) throws(E) -> R where E : Swift.Error {
+		var count = 0
 		self.RAW_encode(count: &count)
-
-		return try! withUnsafeTemporaryAllocation(
-			byteCount: count,
-			alignment: MemoryLayout<UInt8>.alignment
-		) { rawBuffer in
-			let base = rawBuffer.baseAddress!.assumingMemoryBound(to: UInt8.self)
-			_ = self.RAW_encode(dest: base)
-
-			let buffer = UnsafeMutableBufferPointer(start: base, count: count)
+		return try! withUnsafeTemporaryAllocation(byteCount: count, alignment: MemoryLayout<UInt8>.alignment) { rawBuffer in
+			let base = rawBuffer.baseAddress!
+			_ = self.RAW_encode(dest: base.assumingMemoryBound(to: UInt8.self))
+			let buffer = UnsafeMutableRawBufferPointer(start: base, count: count)
 			let result = try body(buffer)
-
-			let readPtr = UnsafeRawPointer(base)
-			guard let decoded = Self(
-				RAW_decode: readPtr,
-				count: count
-			) else {
-				fatalError("RAW_access_mutating produced invalid state")
+			guard let decoded = Self(RAW_decode: UnsafeRawBufferPointer(start: UnsafeRawPointer(base), count: count)) else {
+				fatalError("RAW_access_mutable produced invalid state")
 			}
-
 			self = decoded
 			return result
 		}
 	}
 }
 
-extension IPDatabase.ResolvedIPInfo.CountryInfo: RAW_convertible {
-	public init?(RAW_decode inputPtr: consuming UnsafeRawPointer, count: RAW.size_t) {
-		var inputPtr = inputPtr
-		var dataCount = count
+extension IPDatabase.ResolvedIPInfo.CountryInfo: RAW_decodable, RAW_encodable {
+	public init?(RAW_decode buffer: UnsafeRawBufferPointer) {
+		guard let bufferBase = buffer.baseAddress else {
+			return nil
+		}
+		var inputPtr = UnsafeRawPointer(bufferBase)
+		var dataCount = buffer.count
 		guard dataCount >= MemoryLayout<Bytes4>.size else {
 			return nil
 		}
@@ -448,7 +445,9 @@ extension IPDatabase.ResolvedIPInfo.CountryInfo: RAW_convertible {
 		guard dataCount >= codeLength else {
 			return nil
 		}
-		let code0 = EncodedString(RAW_decode: inputPtr, count: codeLength)
+		guard let code0 = EncodedString(RAW_decode: UnsafeRawBufferPointer(start: inputPtr, count: codeLength)) else {
+			return nil
+		}
 		inputPtr = inputPtr.advanced(by: codeLength)
 		dataCount -= codeLength
 		self.code = code0
@@ -460,7 +459,9 @@ extension IPDatabase.ResolvedIPInfo.CountryInfo: RAW_convertible {
 		guard dataCount >= nameLength else {
 			return nil
 		}
-		let name0 = EncodedString(RAW_decode: inputPtr, count: nameLength)
+		guard let name0 = EncodedString(RAW_decode: UnsafeRawBufferPointer(start: inputPtr, count: nameLength)) else {
+			return nil
+		}
 		inputPtr = inputPtr.advanced(by: nameLength)
 		dataCount -= nameLength
 		self.name = name0
@@ -468,14 +469,15 @@ extension IPDatabase.ResolvedIPInfo.CountryInfo: RAW_convertible {
 			return nil
 		}
 	}
-	public func RAW_encode(count: inout RAW.size_t) {
+	public func RAW_encode(count: inout Int) {
 		count += MemoryLayout<Bytes4>.size
 		code.RAW_encode(count: &count)
 		count += MemoryLayout<Bytes4>.size
 		name.RAW_encode(count: &count)
 	}
-	public func RAW_encode(dest: UnsafeMutablePointer<UInt8>) -> UnsafeMutablePointer<UInt8> {
-		var dest = dest
+	@discardableResult
+	public func RAW_encode(_: UnsafeMutableRawPointer.Type, destination: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
+		var dest = destination.assumingMemoryBound(to: UInt8.self)
 		var codeLength = 0;
 		code.RAW_encode(count: &codeLength)
 		let codeLengthBytes = Bytes4(RAW_native: UInt32(codeLength))
@@ -486,14 +488,17 @@ extension IPDatabase.ResolvedIPInfo.CountryInfo: RAW_convertible {
 		let nameLengthBytes = Bytes4(RAW_native: UInt32(nameLength))
 		dest = nameLengthBytes.RAW_encode(dest: dest)
 		dest = name.RAW_encode(dest: dest)
-		return dest
+		return UnsafeMutableRawPointer(dest)
 	}
 }
 
-extension IPDatabase.ResolvedIPInfo.RegionInfo: RAW_convertible {
-	public init?(RAW_decode inputPtr: consuming UnsafeRawPointer, count: RAW.size_t) {
-		var inputPtr = inputPtr
-		var dataCount = count
+extension IPDatabase.ResolvedIPInfo.RegionInfo: RAW_decodable, RAW_encodable {
+	public init?(RAW_decode buffer: UnsafeRawBufferPointer) {
+		guard let bufferBase = buffer.baseAddress else {
+			return nil
+		}
+		var inputPtr = UnsafeRawPointer(bufferBase)
+		var dataCount = buffer.count
 		guard dataCount >= MemoryLayout<Bytes4>.size else {
 			return nil
 		}
@@ -502,7 +507,9 @@ extension IPDatabase.ResolvedIPInfo.RegionInfo: RAW_convertible {
 		guard dataCount >= codeLength else {
 			return nil
 		}
-		let code0 = EncodedString(RAW_decode: inputPtr, count: codeLength)
+		guard let code0 = EncodedString(RAW_decode: UnsafeRawBufferPointer(start: inputPtr, count: codeLength)) else {
+			return nil
+		}
 		inputPtr = inputPtr.advanced(by: codeLength)
 		dataCount -= codeLength
 		self.code = code0
@@ -514,7 +521,9 @@ extension IPDatabase.ResolvedIPInfo.RegionInfo: RAW_convertible {
 		guard dataCount >= nameLength else {
 			return nil
 		}
-		let name0 = EncodedString(RAW_decode: inputPtr, count: nameLength)
+		guard let name0 = EncodedString(RAW_decode: UnsafeRawBufferPointer(start: inputPtr, count: nameLength)) else {
+			return nil
+		}
 		inputPtr = inputPtr.advanced(by: nameLength)
 		dataCount -= nameLength
 		self.name = name0
@@ -522,14 +531,15 @@ extension IPDatabase.ResolvedIPInfo.RegionInfo: RAW_convertible {
 			return nil
 		}
 	}
-	public func RAW_encode(count: inout RAW.size_t) {
+	public func RAW_encode(count: inout Int) {
 		count += MemoryLayout<Bytes4>.size
 		code.RAW_encode(count: &count)
 		count += MemoryLayout<Bytes4>.size
 		name.RAW_encode(count: &count)
 	}
-	public func RAW_encode(dest: UnsafeMutablePointer<UInt8>) -> UnsafeMutablePointer<UInt8> {
-		var dest = dest
+	@discardableResult
+	public func RAW_encode(_: UnsafeMutableRawPointer.Type, destination: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
+		var dest = destination.assumingMemoryBound(to: UInt8.self)
 		var codeLength = 0;
 		code.RAW_encode(count: &codeLength)
 		let codeLengthBytes = Bytes4(RAW_native: UInt32(codeLength))
@@ -540,14 +550,17 @@ extension IPDatabase.ResolvedIPInfo.RegionInfo: RAW_convertible {
 		let nameLengthBytes = Bytes4(RAW_native: UInt32(nameLength))
 		dest = nameLengthBytes.RAW_encode(dest: dest)
 		dest = name.RAW_encode(dest: dest)
-		return dest
+		return UnsafeMutableRawPointer(dest)
 	}
 }
 
-extension IPDatabase.ResolvedIPInfo.ContinentInfo: RAW_convertible {
-	public init?(RAW_decode inputPtr: consuming UnsafeRawPointer, count: RAW.size_t) {
-		var inputPtr = inputPtr
-		var dataCount = count
+extension IPDatabase.ResolvedIPInfo.ContinentInfo: RAW_decodable, RAW_encodable {
+	public init?(RAW_decode buffer: UnsafeRawBufferPointer) {
+		guard let bufferBase = buffer.baseAddress else {
+			return nil
+		}
+		var inputPtr = UnsafeRawPointer(bufferBase)
+		var dataCount = buffer.count
 		guard dataCount >= MemoryLayout<Bytes4>.size else {
 			return nil
 		}
@@ -556,7 +569,9 @@ extension IPDatabase.ResolvedIPInfo.ContinentInfo: RAW_convertible {
 		guard dataCount >= codeLength else {
 			return nil
 		}
-		let code0 = EncodedString(RAW_decode: inputPtr, count: codeLength)
+		guard let code0 = EncodedString(RAW_decode: UnsafeRawBufferPointer(start: inputPtr, count: codeLength)) else {
+			return nil
+		}
 		inputPtr = inputPtr.advanced(by: codeLength)
 		dataCount -= codeLength
 		self.code = code0
@@ -568,7 +583,9 @@ extension IPDatabase.ResolvedIPInfo.ContinentInfo: RAW_convertible {
 		guard dataCount >= nameLength else {
 			return nil
 		}
-		let name0 = EncodedString(RAW_decode: inputPtr, count: nameLength)
+		guard let name0 = EncodedString(RAW_decode: UnsafeRawBufferPointer(start: inputPtr, count: nameLength)) else {
+			return nil
+		}
 		inputPtr = inputPtr.advanced(by: nameLength)
 		dataCount -= nameLength
 		self.name = name0
@@ -576,14 +593,15 @@ extension IPDatabase.ResolvedIPInfo.ContinentInfo: RAW_convertible {
 			return nil
 		}
 	}
-	public func RAW_encode(count: inout RAW.size_t) {
+	public func RAW_encode(count: inout Int) {
 		count += MemoryLayout<Bytes4>.size
 		code.RAW_encode(count: &count)
 		count += MemoryLayout<Bytes4>.size
 		name.RAW_encode(count: &count)
 	}
-	public func RAW_encode(dest: UnsafeMutablePointer<UInt8>) -> UnsafeMutablePointer<UInt8> {
-		var dest = dest
+	@discardableResult
+	public func RAW_encode(_: UnsafeMutableRawPointer.Type, destination: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
+		var dest = destination.assumingMemoryBound(to: UInt8.self)
 		var codeLength = 0;
 		code.RAW_encode(count: &codeLength)
 		let codeLengthBytes = Bytes4(RAW_native: UInt32(codeLength))
@@ -594,7 +612,7 @@ extension IPDatabase.ResolvedIPInfo.ContinentInfo: RAW_convertible {
 		let nameLengthBytes = Bytes4(RAW_native: UInt32(nameLength))
 		dest = nameLengthBytes.RAW_encode(dest: dest)
 		dest = name.RAW_encode(dest: dest)
-		return dest
+		return UnsafeMutableRawPointer(dest)
 	}
 }
 

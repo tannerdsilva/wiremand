@@ -58,7 +58,7 @@ public struct Scheduler:Sendable {
 		let targetURL = base.appendingPathComponent(dbFileName, isDirectory:false)
 		let envSize = size_t(targetURL.getFileSize()) + size_t(1.28e6)
 		let makeEnv = try Environment(path:targetURL.path, flags:[.noSubDir, .noReadAhead], mapSize:envSize, maxReaders:32, maxDBs:8, mode:[.ownerReadWrite, .groupRead, .groupExecute])
-		let someTrans = try Transaction(env:makeEnv, readOnly:false)
+		let someTrans = try Transaction<Write>(env: makeEnv)
 		let pidDB = try Database.Strict<TaskName, EncodedPID>(env:makeEnv, name:Databases.scheduleTasks.rawValue, flags:[.create], tx:someTrans)
 		let intervalDB = try Database.Strict<TaskName, EncodedDuration>(env:makeEnv, name:Databases.scheduleIntervals.rawValue, flags:[.create], tx:someTrans)
 		let lastFireDateDB = try Database.Strict<TaskName, DateUTC.Precise>(env:makeEnv, name:Databases.scheduleLastFireDate.rawValue, flags:[.create], tx:someTrans)
@@ -99,7 +99,7 @@ public struct Scheduler:Sendable {
 			// determine when the task should run next
 			var nextTargetDate:DateUTC.Precise
 			do {
-				let newTransaction = try Transaction(env:env, readOnly:false)
+				let newTransaction = try Transaction<Write>(env: env)
 				mutateLogger.trace("task successfully opened introductory transaction")
 				do {
 					// try to set the pid for the task name
@@ -133,7 +133,7 @@ public struct Scheduler:Sendable {
 
 		func applySuccessfulTaskRun(nextTargetDate:inout DateUTC.Precise) throws {
 			// write the new timing data to the database
-			let someTrans = try Transaction(env:env, readOnly:false)
+			let someTrans = try Transaction<Write>(env: env)
 			mutateLogger.debug("updating task timing data.", metadata:["next_target_date":"\(nextTargetDate.timeIntervalSinceUnixDate())"])
 			// write the new fire date
 			try schedule_lastFireDate.setEntry(key:name, value:nextTargetDate, flags:[], tx:someTrans)
@@ -164,7 +164,7 @@ public struct Scheduler:Sendable {
 
 		func closureHandler() {
 			do {
-				let someTrans = try Transaction(env:env, readOnly:false)
+				let someTrans = try Transaction<Write>(env: env)
 				mutateLogger.debug("task is removing itself from the database")
 				try schedule_pid.deleteEntry(key:name, tx:someTrans)
 				try schedule_timeInterval.deleteEntry(key:name, tx:someTrans)

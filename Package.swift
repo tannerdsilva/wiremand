@@ -16,19 +16,19 @@ let package = Package(
         // .package(url: /* package url */, from: "1.0.0"),
         .package(url:"https://github.com/apple/swift-argument-parser.git", "1.5.1"..<"2.0.0"),
 		//.package(path: "../SwiftSlash"),
-		.package(url:"https://github.com/tannerdsilva/SwiftSlash.git", "5.0.1"..<"6.0.0"),
+		.package(url:"https://github.com/tannerdsilva/SwiftSlash.git", "6.0.0"..<"7.0.0"),
 		// .package(url:"https://github.com/tannerdsilva/QuickLMDB.git", "14.0.0"..<"15.0.0"),
 		.package(url:"https://github.com/tannerdsilva/QuickLMDB.git", branch:"master"),
 		// .package(url:"https://github.com/tannerdsilva/bedrock.git", "7.0.1"..<"8.0.0"),
-		.package(url:"https://github.com/tannerdsilva/bedrock.git", branch:"compare_amend"),
+		.package(url:"https://github.com/tannerdsilva/bedrock.git", branch:"master"),
 		.package(url:"https://github.com/hummingbird-project/hummingbird.git", "2.9.0"..<"3.0.0"),
-		.package(url:"https://github.com/tannerdsilva/rawdog.git", "20.0.0"..<"21.0.0"),
+		.package(url:"https://github.com/tannerdsilva/rawdog.git", "22.0.1"..<"23.0.0"),
 		.package(url:"https://github.com/swift-server/async-http-client.git", "1.26.1"..<"2.0.0"),
 		.package(url:"https://github.com/apple/swift-log.git", "1.6.0"..<"2.0.0"),
 		
 		.package(url:"https://github.com/swift-server/swift-service-lifecycle.git", "2.6.3"..<"3.0.0"),
 		.package(url:"https://github.com/apple/swift-nio.git", "2.81.0"..<"3.0.0"),
-		.package(url:"https://github.com/tannerdsilva/swift-mcp.git", from:"1.1.0"),
+		.package(url:"https://github.com/tannerdsilva/swift-mcp.git", "2.1.2"..<"3.0.0"),
     ],
     targets: [
     		.target(
