@@ -413,7 +413,9 @@ public struct WireguardDatabase: Sendable {
 		let newTrans = try Transaction<Write>(env: env)
 		// confirm it exists
 		_ = try clientPub_domainHash.loadEntry(key: publicKey, tx: newTrans)
-		try webserve__clientPub_configData.setEntry(key: publicKey, value: configString, flags: [.noOverwrite], tx: newTrans)
+		// replace any previously stored config for this key (re-provisioning must
+		// overwrite, not fail with keyExists).
+		try webserve__clientPub_configData.setEntry(key: publicKey, value: configString, flags: [], tx: newTrans)
 		try newTrans.commit()
 	}
 	public func getConfiguration(publicKey:PublicKey, domainName:EncodedString) throws -> (configuration:EncodedString, name:EncodedString) {
