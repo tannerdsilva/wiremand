@@ -36,13 +36,15 @@ struct WireguardExecutor {
 		let pubKeyOutTask = Task {
 			var collected = [[UInt8]]()
 			for await chunk in pubKeyProcess.stdout {
-				collected.append(chunk)
+				// SwiftSlash 6 yields stdout as [[UInt8]] batches of byte arrays;
+				// flatten each batch into the per-line buffer list.
+				collected.append(contentsOf: chunk)
 			}
 			return collected
 		}
 		try? pubKeyProcess.stdin.yield([UInt8](privateKey.utf8))
 		pubKeyProcess.stdin.closeDataChannel()
-		guard await pubKeyExit == .code(0), let keyData = (await pubKeyOutTask.value).first, let pubKeyString = String(data:Data(keyData), encoding:.utf8) else {
+		guard try await pubKeyExit == .code(0), let keyData = (await pubKeyOutTask.value).first, let pubKeyString = String(data:Data(keyData), encoding:.utf8) else {
 			throw Error.wireguardCmdError
 		}
 
